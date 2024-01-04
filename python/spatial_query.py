@@ -130,7 +130,7 @@ class spatial_query:
         ct_pos = cell_pos[cinds]
 
         fp, _, _ = self.build_fptree_knn(cell_pos=ct_pos, k=k,
-                                            min_count=min_count, min_support=min_support)
+                                         min_count=min_count, min_support=min_support)
         if if_max:
             fp = self.find_maximal_patterns(fp=fp)
 
@@ -288,10 +288,10 @@ class spatial_query:
                               max_ns: int = 1000000) -> DataFrame:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood.
-    
+
         Parameter
         ---------
-        ct: 
+        ct:
             Cell type of the center cell.
         motifs:
             Specified motifs to be tested.
@@ -477,7 +477,8 @@ class spatial_query:
         # Prepare data for FP-Tree construction
         transactions = []
         for i, idx in enumerate(idxs):
-            inds = [id for j, id in enumerate(idx) if dists[i][j] < max_dist] # only contain the KNN whose distance is less than max_dist
+            inds = [id for j, id in enumerate(idx) if
+                    dists[i][j] < max_dist]  # only contain the KNN whose distance is less than max_dist
             transaction = [labels[i] for i in inds[1:] if labels[i] not in ct_exclude]
             transactions.append(transaction)
 
@@ -505,13 +506,8 @@ class spatial_query:
 
         Parameter
         ---------
-        if_knn:
-            Use k-nearest neighbors or points within max_dist distance as neighborhood.
-            Radius-based neighborhoods are used by default.
-        k:
-            Number of nearest neighbors. If if_knn=True, parameter k is used.
         max_dist:
-            Maximum distance to consider a cell as a neighbor. If if_knn=False, parameter max_dist is used.
+            Maximum distance to consider a cell as a neighbor.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern
         min_size, min_count:
@@ -538,13 +534,9 @@ class spatial_query:
         y_grid = np.arange(ymin - max_dist, ymax + max_dist, max_dist)
         grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
 
-        if if_knn:
-            fp, trans_df, idxs = self.build_fptree_knn(cell_pos=grid,
-                                                              k=k, min_count=min_count, min_support=min_support)
-        else:
-            fp, trans_df, idxs = self.build_fptree_dist(cell_pos=grid,
-                                                        max_dist=max_dist, min_size=min_size,
-                                                        min_count=min_count, min_support=min_support)
+        fp, trans_df, idxs = self.build_fptree_dist(cell_pos=grid,
+                                                    max_dist=max_dist, min_size=min_size,
+                                                    min_count=min_count, min_support=min_support)
         if if_max:
             fp = self.find_maximal_patterns(fp=fp)
 
@@ -749,8 +741,6 @@ class spatial_query:
 
     def plot_motif_grid(self,
                         motif: Union[str, List[str]],
-                        if_knn: bool = True,
-                        k: int = 20,
                         max_dist: float = 100,
                         min_count: int = 0,
                         min_support: float = 0.5,
@@ -759,7 +749,7 @@ class spatial_query:
                         fig_size: tuple = (10, 5)
                         ):
         """
-        Display the grid points with motif in KNN neighborhood or radius-based neighborhood,
+        Display the grid points with motif in radius-based neighborhood,
         and cell types of motif in the neighborhood of these grid points. To make sure the input
         motif can be found in the results obtained by find_patterns_grid, use the same arguments
         as those in find_pattern_grid method.
@@ -768,11 +758,6 @@ class spatial_query:
         ---------
         motif:
             Motif (names of cell types) to be colored
-        if_knn:
-            Use k-nearest neighbors or points within max_dist distance as neighborhood.
-        k:
-            Number of neighborhood size for each point. To make sure motif can be found in the result
-            of find_patterns_grid, input the same k as that in find_patterns_grid.
         max_dist:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
         min_count:
@@ -806,21 +791,15 @@ class spatial_query:
         y_grid = np.arange(ymin - max_dist, ymax + max_dist, max_dist)
         grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
 
-        # Check whether to use the motifs obtained by KNN neighborhood or radius-based neighborhood.
-        if if_knn:
-            fp, _, idxs = self.build_fptree_knn(cell_pos=grid,
-                                                       k=k, min_count=min_count,
-                                                       min_support=min_support)
-        else:
-            # Compute fp here just to make sure we can use the same color map as in find_patterns_grid function.
-            # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
-            # self.kd_tree.query_ball_point in radisu-based neighborhood.
-            fp, _, _ = self.build_fptree_dist(cell_pos=grid,
-                                              max_dist=max_dist, min_size=min_size,
-                                              min_count=min_count, min_support=min_support)
-            # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
-            # so recalculate the idxs directly using self.kd_tree.query_ball_point
-            idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True)
+        # Compute fp here just to make sure we can use the same color map as in find_patterns_grid function.
+        # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
+        # self.kd_tree.query_ball_point in radisu-based neighborhood.
+        fp, _, _ = self.build_fptree_dist(cell_pos=grid,
+                                          max_dist=max_dist, min_size=min_size,
+                                          min_count=min_count, min_support=min_support)
+        # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
+        # so recalculate the idxs directly using self.kd_tree.query_ball_point
+        idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True)
 
         if if_max:
             fp = self.find_maximal_patterns(fp=fp)
@@ -834,7 +813,7 @@ class spatial_query:
 
         # Locate the index of cell types contained in motif in the
         # neighborhood of above grid points with motif nearby
-        id_motif_celltype = set() # the index of spots with cell types in motif and within the neighborhood of
+        id_motif_celltype = set()  # the index of spots with cell types in motif and within the neighborhood of
         # above grid points
         for id in id_center:
             id_neighbor = [i for i in idxs[id] if labels[i] in motif]
@@ -850,7 +829,7 @@ class spatial_query:
         motif_spot_pos = self.adata[list(id_motif_celltype), :]
         fig, ax = plt.subplots(figsize=fig_size)
         ax.scatter(grid[id_center, 0], grid[id_center, 1], label='Grid Points',
-                   edgecolors='red',facecolors='none', s=8)
+                   edgecolors='red', facecolors='none', s=8)
 
         # Plotting the grid lines
         for x in x_grid:
