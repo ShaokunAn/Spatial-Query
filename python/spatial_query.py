@@ -577,8 +577,6 @@ class spatial_query:
         return fp.sort_values(by='support', ignore_index=True, ascending=False)
 
     def find_patterns_rand(self,
-                           if_knn: bool = True,
-                           k: int = 20,
                            max_dist: float = 100,
                            n_points: int = 1000,
                            min_support: float = 0.5,
@@ -623,17 +621,15 @@ class spatial_query:
         cell_pos = self.adata.obsm[self.spatial_key]
         labels = self.adata.obs[self.label_key]
         xmax, ymax = np.max(cell_pos, axis=0)
+        xmin, ymin = np.min(cell_pos, axis=0)
         np.random.seed(seed)
-        pos = np.column_stack((np.random.rand(n_points) * xmax, np.random.rand(n_points) * ymax))
+        pos = np.column_stack((np.random.rand(n_points) * (xmax-xmin)+xmin,
+                               np.random.rand(n_points) * (ymax-ymin)+ymin))
 
-        if if_knn:
-            fp, trans_df, idxs = self.build_fptree_knn(cell_pos=pos, k=k, min_count=min_count,
-                                                       min_support=min_support)
-        else:
-            fp, trans_df, idxs = self.build_fptree_dist(cell_pos=pos,
-                                                        max_dist=max_dist, min_size=min_size,
-                                                        min_count=min_count,
-                                                        min_support=min_support)
+        fp, trans_df, idxs = self.build_fptree_dist(cell_pos=pos,
+                                                    max_dist=max_dist, min_size=min_size,
+                                                    min_count=min_count,
+                                                    min_support=min_support)
         if if_max:
             fp = self.find_maximal_patterns(fp=fp)
 
@@ -816,7 +812,7 @@ class spatial_query:
         id_motif_celltype = set()  # the index of spots with cell types in motif and within the neighborhood of
         # above grid points
         for id in id_center:
-            id_neighbor = [i for i in idxs[id] if labels[i] in motif]
+            id_neighbor = [i for i in idxs[id][1:] if labels[i] in motif]
             id_motif_celltype.update(id_neighbor)
 
         # Plot above spots and center grid points
@@ -865,6 +861,131 @@ class spatial_query:
         plt.tight_layout(rect=[0, 0, 1.1, 1])
         plt.show()
 
+    def plot_motif_rand(self,
+                        motif: Union[str, List[str]],
+                        max_dist: float = 100,
+                        n_points: int = 1000,
+                        min_count: int = 0,
+                        min_support: float = 0.5,
+                        min_size: int = 0,
+                        if_max: bool = True,
+                        fig_size: tuple = (10, 5),
+                        seed: int = 2023,
+                        ):
+        """
+        Display the random sampled points with motif in radius-based neighborhood,
+        and cell types of motif in the neighborhood of these grid points. To make sure the input
+        motif can be found in the results obtained by find_patterns_grid, use the same arguments
+        as those in find_pattern_grid method.
+
+        Parameter
+        ---------
+        motif:
+            Motif (names of cell types) to be colored
+        max_dist:
+            Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
+        n_points:
+            Number of random points to generate.
+        min_count:
+            Minimum number of each cell type to consider.
+        min_support:
+            Threshold of frequency to consider a pattern as a frequent pattern.
+        min_size:
+            Minimum neighborhood size for each point to consider.
+        if_max:
+            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
+            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
+            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        fig_size:
+            Figure size.
+        seed:
+            Set random seed for reproducible.
+        """
+        if isinstance(motif, str):
+            motif = [motif]
+
+        cell_pos = self.adata.obsm[self.spatial_key]
+        labels = self.adata.obs[self.label_key]
+        labels_unique = labels.unique()
+        motif_exc = [m for m in motif if m not in labels_unique]
+        if len(motif_exc) != 0:
+            print(f"Found no {motif_exc} in {self.label_key}. Ignoring them.")
+        motif = [m for m in motif if m not in motif_exc]
+
+        # Random sample points
+        xmax, ymax = np.max(cell_pos, axis=0)
+        xmin, ymin = np.min(cell_pos, axis=0)
+        np.random.seed(seed)
+        pos = np.column_stack((np.random.rand(n_points) * (xmax-xmin)+xmin,
+                               np.random.rand(n_points) * (ymax-ymin)+ymin))
+
+        # Compute fp here just to make sure we can use the same color map as in find_patterns_grid function.
+        # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
+        # self.kd_tree.query_ball_point in radisu-based neighborhood.
+        fp, trans_df, _ = self.build_fptree_dist(cell_pos=pos,
+                                                    max_dist=max_dist,
+                                                    min_size=min_size,
+                                                    min_count=min_count,
+                                                    min_support=min_support)
+
+        idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=True)
+
+        if if_max:
+            fp = self.find_maximal_patterns(fp=fp)
+
+        # Locate the index of grid points acting as centers with motif nearby
+        id_center = []
+        for i, idx in enumerate(idxs):
+            ns = [labels[id] for id in idx[1:]]
+            if self.has_motif(neighbors=motif, labels=ns):
+                id_center.append(i)
+
+        # Locate the index of cell types contained in motif in the
+        # neighborhood of above random points with motif nearby
+        id_motif_celltype = set() # the index of spots with cell types in motif and within the neighborhood of
+        # above random sampled points
+        for id in id_center:
+            id_neighbor = [i for i in idxs[id][1:] if labels[i] in motif]
+            id_motif_celltype.update(id_neighbor)
+
+        # Plot above spots and center grid points
+        # Set color map as in find_patterns_grid
+        fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
+        n_colors = len(fp_cts)
+        colors = sns.color_palette('hsv', n_colors)
+        color_map = {ct: col for ct, col in zip(fp_cts, colors)}
+
+        motif_spot_pos = self.adata[list(id_motif_celltype), :]
+        fig, ax = plt.subplots(figsize=fig_size)
+        ax.scatter(pos[id_center, 0], pos[id_center, 1], label='Random Sampling Points',
+                   edgecolors='red',facecolors='none', s=8)
+
+        # Plotting other spots as background
+        bg_index = [i for i, _ in enumerate(labels) if
+                    i not in id_motif_celltype]  # the other spots are colored as background
+        bg_adata = self.adata[bg_index, :]
+        ax.scatter(bg_adata.obsm[self.spatial_key][:, 0],
+                   bg_adata.obsm[self.spatial_key][:, 1],
+                   color='darkgrey', s=1)
+
+        for ct in motif:
+            ct_ind = motif_spot_pos.obs[self.label_key] == ct
+            ax.scatter(motif_spot_pos.obsm[self.spatial_key][ct_ind, 0],
+                       motif_spot_pos.obsm[self.spatial_key][ct_ind, 1],
+                       label=ct, color=color_map[ct], s=1)
+
+        ax.set_xlim([xmin - max_dist, xmax + max_dist])
+        ax.set_ylim([ymin - max_dist, ymax + max_dist])
+        ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
+        plt.xlabel('Spatial X')
+        plt.ylabel('Spatial Y')
+        plt.title('Spatial distribution of frequent patterns')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout(rect=[0, 0, 1.1, 1])
+        plt.show()
 
 
 
