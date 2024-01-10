@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from itertools import combinations
 from collections import Counter
+from scipy.sparse import csr_matrix
 
 
 class spatial_query:
@@ -65,6 +66,34 @@ class spatial_query:
         # return False
 
     @staticmethod
+    def _distinguish_duplicates(transaction: List[str]):
+        """
+        Append suffix to items of transaction to distinguish the duplicate items.
+        """
+        counter = dict(Counter(transaction))
+        trans_suf = [f"{item}_{i}" for item, value in counter.items() for i in range(value)]
+        # trans_suf = [f"{item}_{value}" for item, value in counter.items()]
+        # count_dict = defaultdict(int)
+        # for i, item in enumerate(transaction):
+        #     # Increment the count for the item, or initialize it if it's new
+        #     count_dict[item] += 1
+        #     # Update the item with its count as suffix
+        #     transaction[i] = f"{item}_{count_dict[item]}"
+        # return transaction
+        return trans_suf
+
+    @staticmethod
+    def _remove_suffix(fp: pd.DataFrame):
+        """
+        Remove the suffix of frequent patterns.
+        """
+        trans = [list(tran) for tran in fp['itemsets'].values]
+        fp_no_suffix = [[item.split('_')[0] for item in tran] for tran in trans]
+        # Create a DataFrame
+        fp['itemsets'] = fp_no_suffix
+        return fp
+
+    @staticmethod
     def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
         """
         Find the maximal frequent patterns
@@ -97,7 +126,7 @@ class spatial_query:
                     k: int = 20,
                     min_count: int = 0,
                     min_support: float = 0.5,
-                    if_max: bool = True,
+                    dis_duplicates: bool = False,
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type.
@@ -112,10 +141,9 @@ class spatial_query:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
 
         Return
         ------
@@ -130,19 +158,20 @@ class spatial_query:
         ct_pos = cell_pos[cinds]
 
         fp, _, _ = self.build_fptree_knn(cell_pos=ct_pos, k=k,
-                                         min_count=min_count, min_support=min_support)
-        if if_max:
-            fp = self.find_maximal_patterns(fp=fp)
+                                         min_count=min_count,
+                                         min_support=min_support,
+                                         dis_duplicates=dis_duplicates
+                                         )
 
         return fp
 
     def find_fp_dist(self,
                      ct: str,
+                     dis_duplicates: bool = False,
                      max_dist: float = 100,
                      min_size: int = 0,
                      min_count: int = 0,
                      min_support: float = 0.5,
-                     if_max: bool = True,
                      ):
         """
         Find frequent patterns within the radius of certain cell type.
@@ -151,6 +180,9 @@ class spatial_query:
         ---------
         ct:
             Cell type name.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance for considering a cell as a neighbor.
         min_size:
@@ -159,10 +191,6 @@ class spatial_query:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
 
         Return
         ------
@@ -177,11 +205,10 @@ class spatial_query:
         ct_pos = cell_pos[cinds]
 
         fp, _, _ = self.build_fptree_dist(cell_pos=ct_pos,
+                                          dis_duplicates=dis_duplicates,
                                           max_dist=max_dist,
                                           min_size=min_size,
                                           min_count=min_count, min_support=min_support)
-        if if_max:
-            fp = self.find_maximal_patterns(fp=fp)
 
         return fp
 
@@ -191,7 +218,7 @@ class spatial_query:
                              k: int = 20,
                              min_count: int = 0,
                              min_support: float = 0.5,
-                             if_max: bool = True,
+                             dis_duplicates: bool = False,
                              max_dist: float = 200,
                              ) -> pd.DataFrame:
         """
@@ -210,10 +237,9 @@ class spatial_query:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance for neighbors (default: 200).
 
@@ -233,8 +259,11 @@ class spatial_query:
 
         out = []
         if motifs is None:
-            fp = self.find_fp_knn(ct=ct, k=k, min_count=min_count,
-                                  min_support=min_support, if_max=if_max)
+            fp = self.find_fp_knn(ct=ct, k=k,
+                                  min_count=min_count,
+                                  min_support=min_support,
+                                  dis_duplicates=dis_duplicates,
+                                  )
             motifs = fp['itemsets']
         else:
             if isinstance(motifs, str):
@@ -280,11 +309,11 @@ class spatial_query:
     def motif_enrichment_dist(self,
                               ct: str,
                               motifs: Union[str, List[str]] = None,
+                              dis_duplicates: bool = False,
                               max_dist: float = 100,
                               min_size: int = 0,
                               min_count: int = 0,
                               min_support: float = 0.5,
-                              if_max: bool = True,
                               max_ns: int = 1000000) -> DataFrame:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood.
@@ -296,6 +325,9 @@ class spatial_query:
         motifs:
             Specified motifs to be tested.
             If motifs=None, find the frequent patterns as motifs within the neighborhood of center cell type.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance for considering a cell as a neighbor.
         min_size:
@@ -304,10 +336,6 @@ class spatial_query:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
         max_ns:
             Maximum number of neighborhood size for each point.
         Returns
@@ -324,8 +352,10 @@ class spatial_query:
 
         out = []
         if motifs is None:
-            fp = self.find_fp_dist(ct=ct, max_dist=max_dist, min_size=min_size,
-                                   min_count=min_count, min_support=min_support, if_max=if_max)
+            fp = self.find_fp_dist(ct=ct,
+                                   dis_duplicates=dis_duplicates,
+                                   max_dist=max_dist, min_size=min_size,
+                                   min_count=min_count, min_support=min_support)
             motifs = fp['itemsets']
         else:
             if isinstance(motifs, str):
@@ -368,6 +398,7 @@ class spatial_query:
 
     def build_fptree_dist(self,
                           cell_pos: np.ndarray = None,
+                          dis_duplicates: bool = False,
                           max_dist: float = 100,
                           min_size: int = 0,
                           min_count: int = 0,
@@ -381,6 +412,9 @@ class spatial_query:
         cell_pos:
             Spatial coordinates of input points.
             If cell_pos is None, use all spots in fov to compute frequent patterns.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance to consider a cell as a neighbor.
         min_support:
@@ -418,10 +452,12 @@ class spatial_query:
         valid_idxs = []
         for idx in idxs:
             transaction = [labels[i] for i in idx[1:min(max_ns, len(idx))] if labels[i] not in ct_exclude]
+            # Append suffix to distinguish the duplicates in transaction
             if len(transaction) > min_size:
+                if dis_duplicates:
+                    transaction = self._distinguish_duplicates(transaction)
                 transactions.append(transaction)
                 valid_idxs.append(idx)
-
         # Convert transactions to a DataFrame suitable for fpgrowth
         te = TransactionEncoder()
         te_ary = te.fit(transactions).transform(transactions)
@@ -430,6 +466,12 @@ class spatial_query:
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
 
+        fp_tree = self.find_maximal_patterns(fp=fp_tree)
+
+        # Remove suffix of items if treating duplicates as different items
+        if dis_duplicates:
+            fp_tree = self._remove_suffix(fp_tree)
+
         return fp_tree, df, valid_idxs
 
     def build_fptree_knn(self,
@@ -437,6 +479,7 @@ class spatial_query:
                          k: int = 20,
                          min_count: int = 0,
                          min_support: float = 0.5,
+                         dis_duplicates: bool = False,
                          max_dist: float = 100,
                          ) -> tuple:
         """
@@ -451,6 +494,9 @@ class spatial_query:
             Number of neighborhood size for each point.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         min_count:
             Minimum number of cell type to consider.
         max_dist:
@@ -480,6 +526,8 @@ class spatial_query:
             inds = [id for j, id in enumerate(idx) if
                     dists[i][j] < max_dist]  # only contain the KNN whose distance is less than max_dist
             transaction = [labels[i] for i in inds[1:] if labels[i] not in ct_exclude]
+            if dis_duplicates:
+                transaction = self._distinguish_duplicates(transaction)
             transactions.append(transaction)
 
         # Convert transactions to a DataFrame suitable for fpgrowth
@@ -490,6 +538,11 @@ class spatial_query:
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
 
+        if dis_duplicates:
+            fp_tree = self._remove_suffix(fp_tree)
+
+        fp_tree = self.find_maximal_patterns(fp_tree)
+
         return fp_tree, df, idxs
 
     def find_patterns_grid(self,
@@ -497,7 +550,7 @@ class spatial_query:
                            min_size: int = 0,
                            min_count: int = 0,
                            min_support: float = 0.5,
-                           if_max: bool = False,
+                           dis_duplicates: bool = False,
                            if_display: bool = True,
                            fig_size: tuple = (10, 5)
                            ) -> DataFrame:
@@ -510,12 +563,11 @@ class spatial_query:
             Maximum distance to consider a cell as a neighbor.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         min_size, min_count:
             Additional parameters for pattern finding.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
         if_display:
             Display the grid points with nearby frequent patterns if if_display=True.
         fig_size:
@@ -535,10 +587,9 @@ class spatial_query:
         grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
 
         fp, trans_df, idxs = self.build_fptree_dist(cell_pos=grid,
+                                                    dis_duplicates=dis_duplicates,
                                                     max_dist=max_dist, min_size=min_size,
                                                     min_count=min_count, min_support=min_support)
-        if if_max:
-            fp = self.find_maximal_patterns(fp=fp)
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
@@ -546,12 +597,24 @@ class spatial_query:
             colors = sns.color_palette('hsv', n_colors)
             color_map = {ct: col for ct, col in zip(fp_cts, colors)}
 
+            if dis_duplicates:
+                normalized_columns = [col.split('_')[0] for col in trans_df.columns]
+                trans_df.columns = normalized_columns
+                sparse_trans_df = csr_matrix(trans_df, dtype=int)
+                trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
+                trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
+
             fp_spots_index = set()
             for motif in fp['itemsets']:
                 motif = list(motif)
-                ids = trans_df[motif].all(axis=1)
+                if dis_duplicates:
+                    ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
+                    required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
+                    ids = trans_df_aggregated[trans_df_aggregated >= required_counts].dropna().index
+                else:
+                    ids = trans_df[trans_df[motif].all(axis=1)].index.to_list()
                 if isinstance(idxs, list):
-                    ids = ids.index[ids == True].to_list()
+                    # ids = ids.index[ids == True].to_list()
                     fp_spots_index.update([i for id in ids for i in idxs[id] if labels[i] in motif])
                 else:
                     ids = idxs[ids]
@@ -580,9 +643,9 @@ class spatial_query:
                            max_dist: float = 100,
                            n_points: int = 1000,
                            min_support: float = 0.5,
+                           dis_duplicates: bool = False,
                            min_size: int = 0,
                            min_count: int = 0,
-                           if_max: bool = False,
                            if_display: bool = True,
                            fig_size: tuple = (10, 5),
                            seed: int = 2023) -> DataFrame:
@@ -601,12 +664,11 @@ class spatial_query:
             Number of random points to generate.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         min_size, min_count:
             Additional parameters for pattern finding.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
         if_display:
             Display the grid points with nearby frequent patterns if if_display=True.
         fig_size:
@@ -623,28 +685,39 @@ class spatial_query:
         xmax, ymax = np.max(cell_pos, axis=0)
         xmin, ymin = np.min(cell_pos, axis=0)
         np.random.seed(seed)
-        pos = np.column_stack((np.random.rand(n_points) * (xmax-xmin)+xmin,
-                               np.random.rand(n_points) * (ymax-ymin)+ymin))
+        pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
+                               np.random.rand(n_points) * (ymax - ymin) + ymin))
 
         fp, trans_df, idxs = self.build_fptree_dist(cell_pos=pos,
+                                                    dis_duplicates=dis_duplicates,
                                                     max_dist=max_dist, min_size=min_size,
                                                     min_count=min_count,
-                                                    min_support=min_support)
-        if if_max:
-            fp = self.find_maximal_patterns(fp=fp)
-
+                                                    min_support=min_support,
+                                                    )
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
             n_colors = len(fp_cts)
             colors = sns.color_palette('hsv', n_colors)
             color_map = {ct: col for ct, col in zip(fp_cts, colors)}
 
+            if dis_duplicates:
+                normalized_columns = [col.split('_')[0] for col in trans_df.columns]
+                trans_df.columns = normalized_columns
+                sparse_trans_df = csr_matrix(trans_df, dtype=int)
+                trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
+                trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
+
             fp_spots_index = set()
             for motif in fp['itemsets']:
                 motif = list(motif)
-                ids = trans_df[motif].all(axis=1)
+                if dis_duplicates:
+                    ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
+                    required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
+                    ids = trans_df_aggregated[trans_df_aggregated >= required_counts].dropna().index
+                else:
+                    ids = trans_df[trans_df[motif].all(axis=1)].index.to_list()
                 if isinstance(idxs, list):
-                    ids = ids.index[ids == True].to_list()
+                    # ids = ids.index[ids == True].to_list()
                     fp_spots_index.update([i for id in ids for i in idxs[id] if labels[i] in motif])
                 else:
                     ids = idxs[ids]
@@ -740,8 +813,8 @@ class spatial_query:
                         max_dist: float = 100,
                         min_count: int = 0,
                         min_support: float = 0.5,
+                        dis_duplicates: bool = False,
                         min_size: int = 0,
-                        if_max: bool = True,
                         fig_size: tuple = (10, 5)
                         ):
         """
@@ -760,12 +833,11 @@ class spatial_query:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         min_size:
             Minimum neighborhood size for each point to consider.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
         fig_size:
             Figure size.
         """
@@ -791,14 +863,12 @@ class spatial_query:
         # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
         # self.kd_tree.query_ball_point in radisu-based neighborhood.
         fp, _, _ = self.build_fptree_dist(cell_pos=grid,
+                                          dis_duplicates=dis_duplicates,
                                           max_dist=max_dist, min_size=min_size,
                                           min_count=min_count, min_support=min_support)
         # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
         # so recalculate the idxs directly using self.kd_tree.query_ball_point
         idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True)
-
-        if if_max:
-            fp = self.find_maximal_patterns(fp=fp)
 
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
@@ -842,7 +912,8 @@ class spatial_query:
                    bg_adata.obsm[self.spatial_key][:, 1],
                    color='darkgrey', s=1)
 
-        for ct in motif:
+        motif_unique = list(set(motif))
+        for ct in motif_unique:
             ct_ind = motif_spot_pos.obs[self.label_key] == ct
             ax.scatter(motif_spot_pos.obsm[self.spatial_key][ct_ind, 0],
                        motif_spot_pos.obsm[self.spatial_key][ct_ind, 1],
@@ -867,8 +938,8 @@ class spatial_query:
                         n_points: int = 1000,
                         min_count: int = 0,
                         min_support: float = 0.5,
+                        dis_duplicates: bool = False,
                         min_size: int = 0,
-                        if_max: bool = True,
                         fig_size: tuple = (10, 5),
                         seed: int = 2023,
                         ):
@@ -890,12 +961,11 @@ class spatial_query:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         min_size:
             Minimum neighborhood size for each point to consider.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
         fig_size:
             Figure size.
         seed:
@@ -916,22 +986,20 @@ class spatial_query:
         xmax, ymax = np.max(cell_pos, axis=0)
         xmin, ymin = np.min(cell_pos, axis=0)
         np.random.seed(seed)
-        pos = np.column_stack((np.random.rand(n_points) * (xmax-xmin)+xmin,
-                               np.random.rand(n_points) * (ymax-ymin)+ymin))
+        pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
+                               np.random.rand(n_points) * (ymax - ymin) + ymin))
 
         # Compute fp here just to make sure we can use the same color map as in find_patterns_grid function.
         # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
         # self.kd_tree.query_ball_point in radisu-based neighborhood.
         fp, trans_df, _ = self.build_fptree_dist(cell_pos=pos,
-                                                    max_dist=max_dist,
-                                                    min_size=min_size,
-                                                    min_count=min_count,
-                                                    min_support=min_support)
+                                                 dis_duplicates=dis_duplicates,
+                                                 max_dist=max_dist,
+                                                 min_size=min_size,
+                                                 min_count=min_count,
+                                                 min_support=min_support)
 
         idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=True)
-
-        if if_max:
-            fp = self.find_maximal_patterns(fp=fp)
 
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
@@ -942,7 +1010,7 @@ class spatial_query:
 
         # Locate the index of cell types contained in motif in the
         # neighborhood of above random points with motif nearby
-        id_motif_celltype = set() # the index of spots with cell types in motif and within the neighborhood of
+        id_motif_celltype = set()  # the index of spots with cell types in motif and within the neighborhood of
         # above random sampled points
         for id in id_center:
             id_neighbor = [i for i in idxs[id][1:] if labels[i] in motif]
@@ -958,7 +1026,7 @@ class spatial_query:
         motif_spot_pos = self.adata[list(id_motif_celltype), :]
         fig, ax = plt.subplots(figsize=fig_size)
         ax.scatter(pos[id_center, 0], pos[id_center, 1], label='Random Sampling Points',
-                   edgecolors='red',facecolors='none', s=8)
+                   edgecolors='red', facecolors='none', s=8)
 
         # Plotting other spots as background
         bg_index = [i for i, _ in enumerate(labels) if
@@ -967,8 +1035,8 @@ class spatial_query:
         ax.scatter(bg_adata.obsm[self.spatial_key][:, 0],
                    bg_adata.obsm[self.spatial_key][:, 1],
                    color='darkgrey', s=1)
-
-        for ct in motif:
+        motif_unique = list(set(motif))
+        for ct in motif_unique:
             ct_ind = motif_spot_pos.obs[self.label_key] == ct
             ax.scatter(motif_spot_pos.obsm[self.spatial_key][ct_ind, 0],
                        motif_spot_pos.obsm[self.spatial_key][ct_ind, 1],
@@ -986,9 +1054,3 @@ class spatial_query:
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
         plt.show()
-
-
-
-
-
-
