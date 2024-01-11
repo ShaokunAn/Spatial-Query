@@ -117,6 +117,7 @@ class spatial_query:
 
         # Identify maximal patterns (itemsets that are not subsets of any other)
         maximal_patterns = [itemset for itemset in itemsets if itemset not in subsets]
+        # maximal_patterns_ = [list(p) for p in maximal_patterns]
 
         # Filter the original DataFrame to keep only the maximal patterns
         return fp[fp['itemsets'].isin(maximal_patterns)].reset_index(drop=True)
@@ -275,6 +276,9 @@ class spatial_query:
                 print(f"Found no {motifs_exc} in {self.label_key}. Ignoring them.")
             motifs = [m for m in motifs if m not in motifs_exc]
             motifs = [motifs]
+
+        if len(motifs) == 0:
+            raise ValueError("No frequent patterns were found. Please lower min_support value.")
 
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
@@ -538,10 +542,10 @@ class spatial_query:
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
 
+        fp_tree = self.find_maximal_patterns(fp_tree)
+
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
-
-        fp_tree = self.find_maximal_patterns(fp_tree)
 
         return fp_tree, df, idxs
 
