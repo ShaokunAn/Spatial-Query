@@ -325,7 +325,7 @@ class spatial_query:
         Parameter
         ---------
         ct:
-            Cell type of the center cell.
+            Cell type as the center cells.
         motifs:
             Specified motifs to be tested.
             If motifs=None, find the frequent patterns as motifs within the neighborhood of center cell type.
@@ -438,7 +438,6 @@ class spatial_query:
             cell_pos = self.adata.obsm[self.spatial_key]
 
         labels = self.adata.obs[self.label_key]
-        pos2neighbor_count = {}
         idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=True)
         ct_all = sorted(set(labels))
         ct_count = np.zeros(len(ct_all), dtype=int)
@@ -447,7 +446,6 @@ class spatial_query:
             if len(idx) > min_size + 1:
                 for j in idx[1:min(max_ns, len(idx))]:
                     ct_count[ct_all.index(labels[j])] += 1
-            pos2neighbor_count[tuple(cell_pos[i])] = len(idx)
 
         ct_exclude = [ct_all[i] for i, count in enumerate(ct_count) if count < min_count]
 
@@ -1052,6 +1050,93 @@ class spatial_query:
         plt.xlabel('Spatial X')
         plt.ylabel('Spatial Y')
         plt.title('Spatial distribution of frequent patterns')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plt.tight_layout(rect=[0, 0, 1.1, 1])
+        plt.show()
+
+    def plot_motif_celltype(self,
+                            ct: str,
+                            motif: Union[str, List[str]],
+                            max_dist: float = 100,
+                            fig_size: tuple = (10, 5)
+                            ):
+        """
+        Display the distribution of interested motifs in the radius-based neighborhood of certain cell type.
+        This function is mainly used to visualize the results of motif_enrichment_dist. Make sure the input parameters
+        are consistent with those of motif_enrichment_dist.
+
+        Parameter
+        ---------
+        ct:
+            Cell type as the center cells.
+        motif:
+            Motif (names of cell types) to be colored.
+        max_dist:
+            Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
+        fig_size:
+            Figure size.
+        """
+        if isinstance(motif, str):
+            motif = [motif]
+
+        cell_pos = self.adata.obsm[self.spatial_key]
+        labels = self.adata.obs[self.label_key]
+        motif_exc = [m for m in motif if m not in labels.unique()]
+        if len(motif_exc) != 0:
+            print(f"Found no {motif_exc} in {self.label_key}. Ignoring them.")
+        motif = [m for m in motif if m not in motif_exc]
+
+        if ct not in labels.unique():
+            raise ValueError(f"Not found {ct} in {self.label_key}!")
+
+        cinds = [i for i, label in enumerate(labels) if label == ct]  # id of center cell type
+        ct_pos = cell_pos[cinds]
+        idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=True)
+
+        # find the index of cell type spots whose neighborhoods contain given motif
+        cind_with_motif = []
+        sort_motif = sorted(motif)
+        for id in cinds:
+            if self.has_motif(sort_motif, [labels[idx] for idx in idxs[id][1:]]):
+                cind_with_motif.append(id)
+
+        # Locate the index of motifs in the neighborhood of center cell type.
+        id_motif_celltype = set()
+        for id in cind_with_motif:
+            id_neighbor = [i for i in idxs[id][1:] if labels[i] in motif]
+            id_motif_celltype.update(id_neighbor)
+
+        # Plot figures
+        motif_unique = set(motif)
+        n_colors = len(motif_unique)
+        colors = sns.color_palette('hsv', n_colors)
+        color_map = {ct: col for ct, col in zip(motif_unique, colors)}
+        motif_spot_pos = self.adata[list(id_motif_celltype), :]
+        fig, ax = plt.subplots(figsize=fig_size)
+        # Plotting other spots as background
+        bg_index = [i for i, _ in enumerate(labels) if i not in list(id_motif_celltype) + cind_with_motif]
+        bg_adata = self.adata[bg_index, :]
+        ax.scatter(bg_adata.obsm[self.spatial_key][:, 0],
+                   bg_adata.obsm[self.spatial_key][:, 1],
+                   color='darkgrey', s=1)
+        # Plot center the cell type whose neighborhood contains motif
+        ax.scatter(self.adata.obsm[self.spatial_key][cind_with_motif, 0],
+                   self.adata.obsm[self.spatial_key][cind_with_motif, 1],
+                   label=ct,edgecolors='red', facecolors='none', s=3,
+                   )
+        for ct_m in motif_unique:
+            ct_ind = motif_spot_pos.obs[self.label_key] == ct_m
+            ax.scatter(motif_spot_pos.obsm[self.spatial_key][ct_ind, 0],
+                       motif_spot_pos.obsm[self.spatial_key][ct_ind, 1],
+                       label=ct_m, color=color_map[ct_m], s=1)
+
+        ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
+        plt.xlabel('Spatial X')
+        plt.ylabel('Spatial Y')
+        plt.title(f"Spatial distribution of motif around {ct}")
         ax.set_xticklabels([])
         ax.set_yticklabels([])
         ax.set_xticks([])
