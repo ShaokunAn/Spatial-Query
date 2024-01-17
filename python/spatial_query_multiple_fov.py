@@ -1,7 +1,7 @@
 import numpy as np
 from pandas import DataFrame
 
-from spatial_query import spatial_query
+from python.spatial_query import spatial_query
 from anndata import AnnData
 from typing import List, Union
 import pandas as pd
@@ -48,7 +48,7 @@ class spatial_query_multi:
                     k: int = 20,
                     min_count: int = 0,
                     min_support: float = 0.5,
-                    if_max: bool = True,
+                    dis_duplicates: bool = False,
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type in multiple fields of view.
@@ -66,10 +66,9 @@ class spatial_query_multi:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
 
         Return
         ------
@@ -78,9 +77,10 @@ class spatial_query_multi:
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
         if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
         if not any(if_exist_label):
-            raise ValueError(f"Not found {self.label_key} in all datasets!")
+            raise ValueError(f"Found no {self.label_key} in all datasets!")
 
         if dataset is None:
+            # Use all datasets if not provide dataset
             dataset = [s.dataset for s in self.spatial_queries]
 
         if isinstance(dataset, str):
@@ -107,7 +107,9 @@ class spatial_query_multi:
             ct_exclude = [ct_all[i] for i, count in enumerate(ct_count) if count < min_count]
 
             for idx in idxs:
-                transaction = [labels[i] for i in idx[1:len(idx)] if labels[i] not in ct_exclude]
+                transaction = [labels[i] for i in idx[1:] if labels[i] not in ct_exclude]
+                if dis_duplicates:
+                    transaction = s._distinguish_duplicates(transaction)
                 transactions.append(transaction)
 
         te = TransactionEncoder()
@@ -116,8 +118,11 @@ class spatial_query_multi:
 
         fp = fpgrowth(df, min_support=min_support, use_colnames=True)
 
-        if if_max:
-            fp = spatial_query.find_maximal_patterns(fp=fp)
+        fp = spatial_query.find_maximal_patterns(fp=fp)
+
+        # Remove suffix of items if treating duplicates as different items
+        if dis_duplicates:
+            fp = spatial_query._remove_suffix(fp)
 
         return fp
 
@@ -128,7 +133,7 @@ class spatial_query_multi:
                      min_size: int = 0,
                      min_count: int = 0,
                      min_support: float = 0.5,
-                     if_max: bool = True,
+                     dis_duplicates: bool = False,
                      max_ns: int = 1000000
                      ):
         """
@@ -149,10 +154,9 @@ class spatial_query_multi:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_ns:
             Maximum number of neighborhood size for each point.
 
@@ -163,7 +167,7 @@ class spatial_query_multi:
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
         if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
         if not any(if_exist_label):
-            raise ValueError(f"Not found {self.label_key} in any datasets!")
+            raise ValueError(f"Found no {self.label_key} in any datasets!")
 
         if dataset is None:
             dataset = [s.dataset for s in self.spatial_queries]
@@ -182,7 +186,6 @@ class spatial_query_multi:
             cinds = [id for id, l in enumerate(labels) if l == ct]
             ct_pos = cell_pos[cinds]
 
-            pos2neighbor_count = {}
             idxs = s.kd_tree.query_ball_point(ct_pos, r=max_dist, return_sorted=True)
             ct_all = sorted(set(labels))
             ct_count = np.zeros(len(ct_all), dtype=int)
@@ -191,12 +194,13 @@ class spatial_query_multi:
                 if len(idx) > min_size + 1:
                     for j in idx[1:min(max_ns, len(idx))]:
                         ct_count[ct_all.index(labels[j])] += 1
-                pos2neighbor_count[tuple(cell_pos[i])] = len(idx)
             ct_exclude = [ct_all[i] for i, count in enumerate(ct_count) if count < min_count]
 
             for idx in idxs:
                 transaction = [labels[i] for i in idx[1:min(max_ns, len(idx))] if labels[i] not in ct_exclude]
                 if len(transaction) > min_size:
+                    if dis_duplicates:
+                        transaction = s._distinguish_duplicates(transaction)
                     transactions.append(transaction)
 
         te = TransactionEncoder()
@@ -205,8 +209,11 @@ class spatial_query_multi:
 
         fp = fpgrowth(df, min_support=min_support, use_colnames=True)
 
-        if if_max:
-            fp = spatial_query.find_maximal_patterns(fp=fp)
+        fp = spatial_query.find_maximal_patterns(fp=fp)
+
+        # Remove suffix of items if treating duplicates as different items
+        if dis_duplicates:
+            fp = spatial_query._remove_suffix(fp)
 
         return fp
 
@@ -217,7 +224,7 @@ class spatial_query_multi:
                              k: int = 20,
                              min_count: int = 0,
                              min_support: float = 0.5,
-                             if_max: bool = True,
+                             dis_duplicates: bool = False,
                              max_dist=float('inf')
                              ) -> pd.DataFrame:
         """
@@ -240,10 +247,9 @@ class spatial_query_multi:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance for neighbors (default: infinity).
 
@@ -260,23 +266,24 @@ class spatial_query_multi:
         out = []
         if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
         if not any(if_exist_label):
-            raise ValueError(f"Not found {self.label_key} in any datasets!")
+            raise ValueError(f"Found no {self.label_key} in any datasets!")
 
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
         if motifs is None:
             fp = self.find_fp_knn(ct=ct, k=k, dataset=dataset, min_count=min_count,
-                                  min_support=min_support, if_max=if_max)
+                                  min_support=min_support, dis_duplicates=dis_duplicates)
             motifs = fp['itemsets']
         else:
             if isinstance(motifs, str):
                 motifs = [motifs]
-
             labels_unique_all = set([s.adata.obs[self.label_key].unique() for s in self.spatial_queries])
             motifs_exc = [m for m in motifs if m not in labels_unique_all]
             if len(motifs_exc) != 0:
-                print(f"Not found {motifs_exc} in {dataset}. Ignoring them.")
+                print(f"Found no {motifs_exc} in {dataset}. Ignoring them.")
             motifs = [m for m in motifs if m not in motifs_exc]
+            if len(motifs) == 0:
+                raise ValueError(f"All cell types in motifs are missed in {self.label_key}.")
             motifs = [motifs]
 
         for motif in motifs:
@@ -335,7 +342,7 @@ class spatial_query_multi:
                               min_size: int = 0,
                               min_count: int = 0,
                               min_support: float = 0.5,
-                              if_max: bool = True,
+                              dis_duplicates: bool = False,
                               max_ns: int = 1000000) -> DataFrame:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood in multiple fields of view.
@@ -358,10 +365,9 @@ class spatial_query_multi:
             Minimum number of each cell type to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            Return all frequent patterns (if_max=False) or frequent patterns with maximal combinations (if_max=True).
-            If a pattern (A, B, C) is frequent, its subsets (A, B), (A, C), (B, C) and (A), (B), (C) are also frequent.
-            Return (A, B, C) if if_max=True otherwise return (A, B, C) and all its subsets.
+        dis_duplicates:
+            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
+            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_ns:
             Maximum number of neighborhood size for each point.
         Returns
@@ -376,13 +382,13 @@ class spatial_query_multi:
         out = []
         if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
         if not any(if_exist_label):
-            raise ValueError(f"Not found {self.label_key} in any datasets!")
+            raise ValueError(f"Found no {self.label_key} in any datasets!")
 
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
         if motifs is None:
             fp = self.find_fp_dist(ct=ct, dataset=dataset, max_dist=max_dist, min_size=min_size,
-                                   min_count=min_count, min_support=min_support, if_max=if_max)
+                                   min_count=min_count, min_support=min_support, dis_duplicates=dis_duplicates)
             motifs = fp['itemsets']
         else:
             if isinstance(motifs, str):
@@ -391,8 +397,10 @@ class spatial_query_multi:
             labels_unique_all = set([s.adata.obs[self.label_key].unique() for s in self.spatial_queries])
             motifs_exc = [m for m in motifs if m not in labels_unique_all]
             if len(motifs_exc) != 0:
-                print(f"Not found {motifs_exc} in {dataset}! Ignoring them.")
+                print(f"Found no {motifs_exc} in {dataset}! Ignoring them.")
             motifs = [m for m in motifs if m not in motifs_exc]
+            if len(motifs) == 0:
+                raise ValueError(f"All cell types in motifs are missed in {self.label_key}.")
             motifs = [motifs]
 
         for motif in motifs:
