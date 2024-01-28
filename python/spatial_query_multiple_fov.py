@@ -1,13 +1,16 @@
+from typing import List, Union
+
 import numpy as np
+import pandas as pd
+import scipy.stats as stats
+import statsmodels.stats.multitest as mt
+from anndata import AnnData
+from mlxtend.frequent_patterns import fpgrowth
+from mlxtend.preprocessing import TransactionEncoder
 from pandas import DataFrame
+from scipy.stats import hypergeom
 
 from python.spatial_query import spatial_query
-from anndata import AnnData
-from typing import List, Union
-import pandas as pd
-from mlxtend.preprocessing import TransactionEncoder
-from mlxtend.frequent_patterns import fpgrowth
-from scipy.stats import hypergeom
 
 
 class spatial_query_multi:
@@ -36,7 +39,24 @@ class spatial_query_multi:
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
         self.label_key = label_key
-        self.datasets = datasets
+        # Modify dataset names by d_0, d_2, ... for duplicates in datasets
+        count_dict = {}
+        modified_datasets = []
+        for dataset in datasets:
+            if '_' in dataset:
+                print(f"Warning: Misusage of underscore in '{dataset}'. Replacing with hyphen.")
+                dataset = dataset.replace('_', '-')
+
+            if dataset in count_dict:
+                count_dict[dataset] += 1
+            else:
+                count_dict[dataset] = 0
+
+            mod_dataset = f"{dataset}_{count_dict[dataset]}"
+            modified_datasets.append(mod_dataset)
+
+        self.datasets = modified_datasets
+
         self.spatial_queries = [spatial_query(adata=adata, dataset=self.datasets[i],
                                               spatial_key=spatial_key,
                                               label_key=label_key,
@@ -80,15 +100,16 @@ class spatial_query_multi:
             raise ValueError(f"Found no {self.label_key} in all datasets!")
 
         if dataset is None:
-            # Use all datasets if not provide dataset
-            dataset = [s.dataset for s in self.spatial_queries]
+            # Use all datasets if dataset is not provided
+            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
 
+        # Make sure dataset is a list
         if isinstance(dataset, str):
             dataset = [dataset]
 
         transactions = []
         for s in self.spatial_queries:
-            if s.dataset not in dataset:
+            if s.dataset.split('_')[0] not in dataset:
                 continue
             cell_pos = s.adata.obsm[self.spatial_key]
             labels = s.adata.obs[self.label_key]
@@ -170,13 +191,13 @@ class spatial_query_multi:
             raise ValueError(f"Found no {self.label_key} in any datasets!")
 
         if dataset is None:
-            dataset = [s.dataset for s in self.spatial_queries]
+            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
             dataset = [dataset]
 
         transactions = []
         for s in self.spatial_queries:
-            if s.dataset not in dataset:
+            if s.dataset.split('_')[0] not in dataset:
                 continue
             cell_pos = s.adata.obsm[self.spatial_key]
             labels = s.adata.obs[self.label_key]
@@ -259,7 +280,7 @@ class spatial_query_multi:
         number of spots of cell type, number of motifs in single FOV, p value of hypergeometric distribution.
         """
         if dataset is None:
-            dataset = [s.dataset for s in self.spatial_queries]
+            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
             dataset = [dataset]
 
@@ -297,13 +318,13 @@ class spatial_query_multi:
 
             # Calculate statistics of each dataset
             for s in self.spatial_queries:
-                if s.dataset not in dataset:
+                if s.dataset.split('_')[0] not in dataset:
                     continue
                 cell_pos = s.adata.obsm[self.spatial_key]
                 labels = s.adata.obs[self.label_key]
                 if ct not in labels.unique():
                     continue
-                dists, idxs = s.kd_tree.query(cell_pos, k=k+1)
+                dists, idxs = s.kd_tree.query(cell_pos, k=k + 1)
                 cinds = [i for i, l in enumerate(labels) if l == ct]
 
                 for i in cinds:
@@ -320,7 +341,7 @@ class spatial_query_multi:
                 n_labels += len(labels)
 
             if ct in motif:
-                n_ct = round(n_ct/motif.count(ct))
+                n_ct = round(n_ct / motif.count(ct))
 
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
@@ -375,7 +396,7 @@ class spatial_query_multi:
         Tuple containing counts and statistical measures.
         """
         if dataset is None:
-            dataset = [s.dataset for s in self.spatial_queries]
+            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
             dataset = [dataset]
 
@@ -413,7 +434,7 @@ class spatial_query_multi:
             sort_motif = sorted(motif)
 
             for s in self.spatial_queries:
-                if s.dataset not in dataset:
+                if s.dataset.split('_')[0] not in dataset:
                     continue
                 cell_pos = s.adata.obsm[self.spatial_key]
                 labels = s.adata.obs[self.label_key]
@@ -449,3 +470,321 @@ class spatial_query_multi:
         out_pd = out_pd.sort_values(by='p-val', ignore_index=True)
         # TODO: add multiple testing correction procedure here!
         return out_pd
+
+    def find_fp_knn_fov(self,
+                        ct: str,
+                        dataset_i: str,
+                        k: int = 20,
+                        min_count: int = 0,
+                        min_support: float = 0.5,
+                        ) -> pd.DataFrame:
+        """
+        Find frequent patterns within the KNNs of specific cell type of interest in single field of view.
+
+        Parameter
+        ---------
+        ct:
+            Cell type name.
+        dataset_i:
+            Datasets for searching for frequent patterns in dataset_i format.
+        k:
+            Number of nearest neighbors.
+        min_count:
+            Minimum number of each cell type to consider.
+        min_support:
+            Threshold of frequency to consider a pattern as a frequent pattern.
+
+        Return
+        ------
+            Frequent patterns in the neighborhood of certain cell type.
+        """
+        if dataset_i not in self.datasets:
+            raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
+
+        sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
+        cell_pos = sp_object.adata.obsm[self.spatial_key]
+        labels = sp_object.adata.obs[self.label_key]
+        if ct not in labels.unique():
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
+
+        cinds = [id for id, l in enumerate(labels) if l == ct]
+        ct_pos = cell_pos[cinds]
+
+        # Identify frequent patterns of cell types, including those subsets of patterns
+        # whose support value exceeds min_support. Focus solely on the multiplicity
+        # of cell types, rather than their frequency.
+        fp, _, _ = sp_object.build_fptree_knn(cell_pos=ct_pos,
+                                              k=k,
+                                              min_count=min_count,
+                                              min_support=min_support,
+                                              dis_duplicates=False,
+                                              if_max=False
+                                              )
+        return fp
+
+    def find_fp_dist_fov(self,
+                         ct: str,
+                         dataset_i: str,
+                         max_dist: float = 100,
+                         min_size: int = 0,
+                         min_count: int = 0,
+                         min_support: float = 0.5,
+                         ):
+        """
+        Find frequent patterns within the radius-based neighborhood of specific cell type of interest in single field of view.
+
+        Parameter
+        ---------
+        ct:
+            Cell type name.
+        dataset_i:
+            Datasets for searching for frequent patterns in dataset_i format.
+        max_dist:
+            Maximum distance for considering a cell as a neighbor.
+        min_size:
+            Minimum neighborhood size for each point to consider.
+        min_count:
+            Minimum number of each cell type to consider.
+        min_support:
+            Threshold of frequency to consider a pattern as a frequent pattern.
+
+        Return
+        ------
+            Frequent patterns in the neighborhood of certain cell type.
+        """
+        if dataset_i not in self.datasets:
+            raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
+
+        sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
+        cell_pos = sp_object.adata.obsm[self.spatial_key]
+        labels = sp_object.adata.obs[self.label_key]
+        if ct not in labels.unique():
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
+
+        cinds = [id for id, l in enumerate(labels) if l == ct]
+        ct_pos = cell_pos[cinds]
+
+        fp, _, _ = sp_object.build_fptree_dist(cell_pos=ct_pos,
+                                               max_dist=max_dist,
+                                               min_support=min_support,
+                                               min_count=min_count,
+                                               min_size=min_size,
+                                               dis_duplicates=False,
+                                               if_max=False
+                                               )
+        return fp
+
+    def differential_analysis_knn(self,
+                                  ct: str,
+                                  datasets: List[str],
+                                  k: int = 20,
+                                  min_count: int = 0,
+                                  min_support: float = 0.5
+                                  ):
+        """
+        Explore the differences in cell types and frequent patterns of cell types in spatial KNN neighborhood of cell
+        type of interest. Perform differential analysis of frequent patterns in specified datasets.
+
+        Parameter
+        ---------
+        ct:
+            Cell type of interest as center point.
+        datasets:
+            Dataset names used to perform differential analysis
+        k:
+            Number of nearest neighbors.
+        min_count:
+            Minimum number of each cell type to consider.
+        min_support:
+            Threshold of frequency to consider a pattern as a frequent pattern.
+
+        Return
+        ------
+            Dataframes with significant enriched patterns in differential analysis
+        """
+        if len(datasets) != 2:
+            raise ValueError("Require 2 datasets for differential analysis.")
+        # Identify frequent patterns for each dataset
+
+        flag = 0
+        # Identify frequent patterns in each dataset
+        for d in datasets:
+            fp_d = {}
+            dataset_i = [ds for ds in self.datasets if ds.split('_')[0] == d]
+            for d_i in dataset_i:
+                fp_fov = self.find_fp_knn_fov(ct=ct,
+                                              dataset_i=d_i,
+                                              k=k,
+                                              min_count=min_count,
+                                              min_support=min_support)
+                if len(fp_fov) > 0:
+                    fp_d[d_i] = fp_fov
+
+            if len(fp_d) == 1:
+                common_patterns = list(fp_d.values())[0]
+                common_patterns = common_patterns.rename(columns={'support': f"support_{list(fp_d.keys())[0]}"})
+            else:
+                comm_fps = set.intersection(*[set(df['itemsets']) for df in
+                                              fp_d.values()])  # the items' order in patterns will not affect the returned intersection
+                common_patterns = pd.DataFrame({'itemsets': list(comm_fps)})
+                for data_name, df in fp_d.items():
+                    support_dict = dict(df[['itemsets', 'support']].values)
+                    support_dict = {tuple(key): value for key, value in support_dict.items()}
+                    common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
+                        lambda x: support_dict.get(tuple(x), None))
+            if flag == 0:
+                fp_datasets = common_patterns
+                flag = 1
+            else:
+                fp_datasets = fp_datasets.merge(common_patterns, how='outer', on='itemsets', ).fillna(0)
+
+        match_ind_datasets = [
+            [col for ind, col in enumerate(fp_datasets.columns) if col.startswith(f"support_{dataset}")] for dataset in
+            datasets]
+        p_values = []
+        dataset_higher_ranks = []
+        for index, row in fp_datasets.iterrows():
+            group1 = pd.to_numeric(row[match_ind_datasets[0]].values)
+            group2 = pd.to_numeric(row[match_ind_datasets[1]].values)
+
+            # Perform the Mann-Whitney U test
+            stat, p = stats.mannwhitneyu(group1, group2, alternative='two-sided', method='auto')
+            p_values.append(p)
+
+            # Label the dataset with higher frequency of patterns based on rank sum
+            support_rank = pd.concat([pd.DataFrame(group1), pd.DataFrame(group2)]).rank()  # ascending
+            sum_rank1 = support_rank[:len(group1)].sum()[0]
+            sum_rank2 = support_rank[len(group1):].sum()[0]
+            if sum_rank1 > sum_rank2:
+                dataset_higher_ranks.append(datasets[0])
+            else:
+                dataset_higher_ranks.append(datasets[1])
+
+        fp_datasets['dataset_higher_frequency'] = dataset_higher_ranks
+        # Apply Benjamini-Hochberg correction for multiple testing problems
+        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                           alpha=0.05,
+                                                           method='poscorr')
+
+        # Add the corrected p-values back to the DataFrame (optional)
+        fp_datasets['corrected_p_values'] = corrected_p_values
+        fp_datasets['if_significant'] = if_rejected
+
+        # Return the significant patterns in each dataset
+        fp_dataset0 = fp_datasets[
+            (fp_datasets['dataset_higher_frequency'] == datasets[0]) & (fp_datasets['if_significant'])
+            ][['itemsets', 'corrected_p_values']]
+        fp_dataset1 = fp_datasets[
+            (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
+            ][['itemsets', 'corrected_p_values']]
+        return fp_dataset0, fp_dataset1
+
+    def differential_analysis_dist(self,
+                                   ct: str,
+                                   datasets: List[str],
+                                   max_dist: float = 100,
+                                   min_support: float = 0.5,
+                                   min_size: int = 0,
+                                   min_count: int = 0,
+                                   ):
+        """
+        Explore the differences in cell types and frequent patterns of cell types in spatial radius-based neighborhood of cell
+        type of interest. Perform differential analysis of frequent patterns in specified datasets.
+
+        Parameter
+        ---------
+        ct:
+            Cell type of interest as center point.
+        datasets:
+            Dataset names used to perform differential analysis
+        max_dist:
+            Maximum distance for considering a cell as a neighbor.
+        min_support:
+            Threshold of frequency to consider a pattern as a frequent pattern.
+        min_size:
+            Minimum neighborhood size for each point to consider.
+        min_count:
+            Minimum number of each cell type to consider.
+
+        Return
+        ------
+            Dataframes with significant enriched patterns in differential analysis
+        """
+        if len(datasets) != 2:
+            raise ValueError("Require 2 datasets for differential analysis.")
+        # Identify frequent patterns for each dataset
+
+        flag = 0
+        # Identify frequent patterns in each dataset
+        for d in datasets:
+            fp_d = {}
+            dataset_i = [ds for ds in self.datasets if ds.split('_')[0] == d]
+            for d_i in dataset_i:
+                fp_fov = self.find_fp_dist_fov(ct=ct,
+                                               dataset_i=d_i,
+                                               max_dist=max_dist,
+                                               min_size=min_size,
+                                               min_count=min_count,
+                                               min_support=min_support)
+                if len(fp_fov) > 0:
+                    fp_d[d_i] = fp_fov
+
+            if len(fp_d) == 1:
+                common_patterns = list(fp_d.values())[0]
+                common_patterns = common_patterns.rename(columns={'support': f"support_{list(fp_d.keys())[0]}"})
+            else:
+                comm_fps = set.intersection(*[set(df['itemsets']) for df in
+                                              fp_d.values()])  # the items' order in patterns will not affect the returned intersection
+                common_patterns = pd.DataFrame({'itemsets': list(comm_fps)})
+                for data_name, df in fp_d.items():
+                    support_dict = dict(df[['itemsets', 'support']].values)
+                    support_dict = {tuple(key): value for key, value in support_dict.items()}
+                    common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
+                        lambda x: support_dict.get(tuple(x), None))
+            if flag == 0:
+                fp_datasets = common_patterns
+                flag = 1
+            else:
+                fp_datasets = fp_datasets.merge(common_patterns, how='outer', on='itemsets', ).fillna(0)
+
+        match_ind_datasets = [
+            [col for ind, col in enumerate(fp_datasets.columns) if col.startswith(f"support_{dataset}")] for dataset in
+            datasets]
+        p_values = []
+        dataset_higher_ranks = []
+        for index, row in fp_datasets.iterrows():
+            group1 = pd.to_numeric(row[match_ind_datasets[0]].values)
+            group2 = pd.to_numeric(row[match_ind_datasets[1]].values)
+
+            # Perform the Mann-Whitney U test
+            stat, p = stats.mannwhitneyu(group1, group2, alternative='two-sided', method='auto')
+            p_values.append(p)
+
+            # Label the dataset with higher frequency of patterns based on rank sum
+            support_rank = pd.concat([pd.DataFrame(group1), pd.DataFrame(group2)]).rank()  # ascending
+            sum_rank1 = support_rank[:len(group1)].sum()[0]
+            sum_rank2 = support_rank[len(group1):].sum()[0]
+            if sum_rank1 > sum_rank2:
+                dataset_higher_ranks.append(datasets[0])
+            else:
+                dataset_higher_ranks.append(datasets[1])
+
+        fp_datasets['dataset_higher_frequency'] = dataset_higher_ranks
+        # Apply Benjamini-Hochberg correction for multiple testing problems
+        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                           alpha=0.05,
+                                                           method='poscorr')
+
+        # Add the corrected p-values back to the DataFrame (optional)
+        fp_datasets['corrected_p_values'] = corrected_p_values
+        fp_datasets['if_significant'] = if_rejected
+
+        # Return the significant patterns in each dataset
+        fp_dataset0 = fp_datasets[
+            (fp_datasets['dataset_higher_frequency'] == datasets[0]) & (fp_datasets['if_significant'])
+            ][['itemsets', 'corrected_p_values']]
+        fp_dataset1 = fp_datasets[
+            (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
+            ][['itemsets', 'corrected_p_values']]
+        return fp_dataset0, fp_dataset1
+
