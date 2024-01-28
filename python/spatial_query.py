@@ -1,17 +1,18 @@
-from pandas import DataFrame
-from scipy.spatial import KDTree
+from collections import Counter
+from itertools import combinations
 from typing import List, Union
+
+import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import hypergeom
+import pandas as pd
+import seaborn as sns
+from anndata import AnnData
 from mlxtend.frequent_patterns import fpgrowth
 from mlxtend.preprocessing import TransactionEncoder
-from anndata import AnnData
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from itertools import combinations
-from collections import Counter
+from pandas import DataFrame
 from scipy.sparse import csr_matrix
+from scipy.spatial import KDTree
+from scipy.stats import hypergeom
 
 
 class spatial_query:
@@ -153,7 +154,7 @@ class spatial_query:
         cell_pos = self.adata.obsm[self.spatial_key]
         labels = self.adata.obs[self.label_key]
         if ct not in labels.unique():
-            raise ValueError(f"Not found {ct} in {self.label_key}!")
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         cinds = [id for id, l in enumerate(labels) if l == ct]
         ct_pos = cell_pos[cinds]
@@ -161,7 +162,7 @@ class spatial_query:
         fp, _, _ = self.build_fptree_knn(cell_pos=ct_pos, k=k,
                                          min_count=min_count,
                                          min_support=min_support,
-                                         dis_duplicates=dis_duplicates
+                                         dis_duplicates=dis_duplicates,
                                          )
 
         return fp
@@ -200,7 +201,7 @@ class spatial_query:
         cell_pos = self.adata.obsm[self.spatial_key]
         labels = self.adata.obs[self.label_key]
         if ct not in labels.unique():
-            raise ValueError(f"Not found {ct} in {self.label_key}!")
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         cinds = [id for id, l in enumerate(labels) if l == ct]
         ct_pos = cell_pos[cinds]
@@ -252,7 +253,7 @@ class spatial_query:
         cell_pos = self.adata.obsm[self.spatial_key]
         labels = self.adata.obs[self.label_key]
         if ct not in labels.unique():
-            raise ValueError(f"Not found {ct} in {self.label_key}!")
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         dists, idxs = self.kd_tree.query(cell_pos, k=k + 1)  # use k+1 to find the knn except for the points themselves
 
@@ -349,7 +350,7 @@ class spatial_query:
         cell_pos = self.adata.obsm[self.spatial_key]
         labels = self.adata.obs[self.label_key]
         if ct not in labels.unique():
-            raise ValueError(f"Not found {ct} in {self.label_key}!")
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=True)
         cinds = [i for i, label in enumerate(labels) if label == ct]
@@ -404,9 +405,10 @@ class spatial_query:
                           cell_pos: np.ndarray = None,
                           dis_duplicates: bool = False,
                           max_dist: float = 100,
+                          min_support: float = 0.5,
+                          if_max: bool = True,
                           min_size: int = 0,
                           min_count: int = 0,
-                          min_support: float = 0.5,
                           max_ns: int = 1000000) -> tuple:
         """
         Build a frequency pattern tree based on the distance of cell types.
@@ -423,6 +425,9 @@ class spatial_query:
             Maximum distance to consider a cell as a neighbor.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
+        if_max:
+            By default return the maximum set of frequent patterns without the subsets. If if_max=False, return all
+            patterns whose support values are greater than min_support.
         min_size:
             Minimum neighborhood size for each point to consider.
         min_count:
@@ -468,7 +473,8 @@ class spatial_query:
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
 
-        fp_tree = self.find_maximal_patterns(fp=fp_tree)
+        if if_max:
+            fp_tree = self.find_maximal_patterns(fp=fp_tree)
 
         # Remove suffix of items if treating duplicates as different items
         if dis_duplicates:
@@ -483,6 +489,7 @@ class spatial_query:
                          min_support: float = 0.5,
                          dis_duplicates: bool = False,
                          max_dist: float = 100,
+                         if_max: bool = True
                          ) -> tuple:
         """
         Build a frequency pattern tree based on knn
@@ -503,6 +510,9 @@ class spatial_query:
             Minimum number of cell type to consider.
         max_dist:
             The maximum distance at which points are considered neighbors.
+        if_max:
+            By default return the maximum set of frequent patterns without the subsets. If if_max=False, return all
+            patterns whose support values are greater than min_support.
 
         Return
         ------
@@ -540,7 +550,8 @@ class spatial_query:
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
 
-        fp_tree = self.find_maximal_patterns(fp_tree)
+        if if_max:
+            fp_tree = self.find_maximal_patterns(fp_tree)
 
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
@@ -794,6 +805,7 @@ class spatial_query:
 
         # Create new legend
         ax.legend(handles, new_labels, loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
+        # ax.legend(handles, new_labels, loc='lower center', bbox_to_anchor=(1, 0.5), markerscale=4)
 
         # ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
 
@@ -924,6 +936,7 @@ class spatial_query:
         ax.set_xlim([xmin - max_dist, xmax + max_dist])
         ax.set_ylim([ymin - max_dist, ymax + max_dist])
         ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
+        # ax.legend(title='motif', loc='lower center', bbox_to_anchor=(0, 0.), markerscale=4)
         plt.xlabel('Spatial X')
         plt.ylabel('Spatial Y')
         plt.title('Spatial distribution of frequent patterns')
@@ -1090,7 +1103,7 @@ class spatial_query:
         motif = [m for m in motif if m not in motif_exc]
 
         if ct not in labels.unique():
-            raise ValueError(f"Not found {ct} in {self.label_key}!")
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         cinds = [i for i, label in enumerate(labels) if label == ct]  # id of center cell type
         ct_pos = cell_pos[cinds]
@@ -1125,7 +1138,7 @@ class spatial_query:
         # Plot center the cell type whose neighborhood contains motif
         ax.scatter(self.adata.obsm[self.spatial_key][cind_with_motif, 0],
                    self.adata.obsm[self.spatial_key][cind_with_motif, 1],
-                   label=ct,edgecolors='red', facecolors='none', s=3,
+                   label=ct, edgecolors='red', facecolors='none', s=3,
                    )
         for ct_m in motif_unique:
             ct_ind = motif_spot_pos.obs[self.label_key] == ct_m
@@ -1134,6 +1147,7 @@ class spatial_query:
                        label=ct_m, color=color_map[ct_m], s=1)
 
         ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
+        # ax.legend(title='motif', loc='lower center', bbox_to_anchor=(1, 0.5), markerscale=4)
         plt.xlabel('Spatial X')
         plt.ylabel('Spatial Y')
         plt.title(f"Spatial distribution of motif around {ct}")
