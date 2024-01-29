@@ -10,7 +10,7 @@ from mlxtend.preprocessing import TransactionEncoder
 from pandas import DataFrame
 from scipy.stats import hypergeom
 
-from spatial_query import spatial_query
+from .spatial_query import spatial_query
 
 
 class spatial_query_multi:
