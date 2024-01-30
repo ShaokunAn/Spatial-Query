@@ -298,7 +298,8 @@ class spatial_query_multi:
         else:
             if isinstance(motifs, str):
                 motifs = [motifs]
-            labels_unique_all = set([s.labels.unique() for s in self.spatial_queries])
+            all_labels = pd.concat([s.labels for s in self.spatial_queries])
+            labels_unique_all = set(all_labels.unique())
             motifs_exc = [m for m in motifs if m not in labels_unique_all]
             if len(motifs_exc) != 0:
                 print(f"Found no {motifs_exc} in {dataset}. Ignoring them.")
@@ -415,7 +416,8 @@ class spatial_query_multi:
             if isinstance(motifs, str):
                 motifs = [motifs]
 
-            labels_unique_all = set([s.labels.unique() for s in self.spatial_queries])
+            all_labels = pd.concat([s.labels for s in self.spatial_queries])
+            labels_unique_all = set(all_labels.unique())
             motifs_exc = [m for m in motifs if m not in labels_unique_all]
             if len(motifs_exc) != 0:
                 print(f"Found no {motifs_exc} in {dataset}! Ignoring them.")
