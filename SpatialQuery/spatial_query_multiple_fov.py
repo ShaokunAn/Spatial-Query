@@ -95,7 +95,7 @@ class spatial_query_multi:
         Frequent patterns in the neighborhood of certain cell type.
         """
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
-        if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
+        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in all datasets!")
 
@@ -111,8 +111,8 @@ class spatial_query_multi:
         for s in self.spatial_queries:
             if s.dataset.split('_')[0] not in dataset:
                 continue
-            cell_pos = s.adata.obsm[self.spatial_key]
-            labels = s.adata.obs[self.label_key]
+            cell_pos = s.spatial_pos
+            labels = s.labels
             if ct not in labels.unique():
                 continue
 
@@ -186,7 +186,7 @@ class spatial_query_multi:
         Frequent patterns in the neighborhood of certain cell type.
         """
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
-        if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
+        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
 
@@ -199,8 +199,8 @@ class spatial_query_multi:
         for s in self.spatial_queries:
             if s.dataset.split('_')[0] not in dataset:
                 continue
-            cell_pos = s.adata.obsm[self.spatial_key]
-            labels = s.adata.obs[self.label_key]
+            cell_pos = s.spatial_pos
+            labels = s.labels
             if ct not in labels.unique():
                 continue
 
@@ -285,7 +285,7 @@ class spatial_query_multi:
             dataset = [dataset]
 
         out = []
-        if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
+        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
 
@@ -298,7 +298,7 @@ class spatial_query_multi:
         else:
             if isinstance(motifs, str):
                 motifs = [motifs]
-            labels_unique_all = set([s.adata.obs[self.label_key].unique() for s in self.spatial_queries])
+            labels_unique_all = set([s.labels.unique() for s in self.spatial_queries])
             motifs_exc = [m for m in motifs if m not in labels_unique_all]
             if len(motifs_exc) != 0:
                 print(f"Found no {motifs_exc} in {dataset}. Ignoring them.")
@@ -320,8 +320,8 @@ class spatial_query_multi:
             for s in self.spatial_queries:
                 if s.dataset.split('_')[0] not in dataset:
                     continue
-                cell_pos = s.adata.obsm[self.spatial_key]
-                labels = s.adata.obs[self.label_key]
+                cell_pos = s.spatial_pos
+                labels = s.labels
                 if ct not in labels.unique():
                     continue
                 dists, idxs = s.kd_tree.query(cell_pos, k=k + 1)
@@ -401,7 +401,7 @@ class spatial_query_multi:
             dataset = [dataset]
 
         out = []
-        if_exist_label = [ct in s.adata.obs[self.label_key].unique() for s in self.spatial_queries]
+        if_exist_label = [ct in s.labels for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
 
@@ -415,7 +415,7 @@ class spatial_query_multi:
             if isinstance(motifs, str):
                 motifs = [motifs]
 
-            labels_unique_all = set([s.adata.obs[self.label_key].unique() for s in self.spatial_queries])
+            labels_unique_all = set([s.labels.unique() for s in self.spatial_queries])
             motifs_exc = [m for m in motifs if m not in labels_unique_all]
             if len(motifs_exc) != 0:
                 print(f"Found no {motifs_exc} in {dataset}! Ignoring them.")
@@ -436,8 +436,8 @@ class spatial_query_multi:
             for s in self.spatial_queries:
                 if s.dataset.split('_')[0] not in dataset:
                     continue
-                cell_pos = s.adata.obsm[self.spatial_key]
-                labels = s.adata.obs[self.label_key]
+                cell_pos = s.spatial_pos
+                labels = s.labels
 
                 if ct not in labels.unique():
                     continue
@@ -502,8 +502,8 @@ class spatial_query_multi:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
 
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
-        cell_pos = sp_object.adata.obsm[self.spatial_key]
-        labels = sp_object.adata.obs[self.label_key]
+        cell_pos = sp_object.spatial_pos
+        labels = sp_object.labels
         if ct not in labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
@@ -556,8 +556,8 @@ class spatial_query_multi:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
 
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
-        cell_pos = sp_object.adata.obsm[self.spatial_key]
-        labels = sp_object.adata.obs[self.label_key]
+        cell_pos = sp_object.spatial_pos
+        labels = sp_object.labels
         if ct not in labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
@@ -787,4 +787,3 @@ class spatial_query_multi:
             (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
             ][['itemsets', 'corrected_p_values']]
         return fp_dataset0, fp_dataset1
-
