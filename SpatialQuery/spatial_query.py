@@ -596,38 +596,54 @@ class spatial_query:
                                                     max_dist=max_dist, min_size=min_size,
                                                     min_count=min_count, min_support=min_support)
 
+        # For each frequent pattern/motif, locate the cell IDs in the neighborhood of the above grid points
+        # as well as labelled with cell types in motif.
+        if dis_duplicates:
+            normalized_columns = [col.split('_')[0] for col in trans_df.columns]
+            trans_df.columns = normalized_columns
+            sparse_trans_df = csr_matrix(trans_df, dtype=int)
+            trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
+            trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
+
+        id_neighbor_motifs = []
+        for motif in fp['itemsets']:
+            motif = list(motif)
+            fp_spots_index = set()
+            if dis_duplicates:
+                ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
+                required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
+                ids = trans_df_aggregated[trans_df_aggregated >= required_counts].dropna().index
+            else:
+                ids = trans_df[trans_df[motif].all(axis=1)].index.to_list()
+            if isinstance(idxs, list):
+                # ids = ids.index[ids == True].to_list()
+                fp_spots_index.update([i for id in ids for i in idxs[id] if self.labels[i] in motif])
+            else:
+                ids = idxs[ids]
+                fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
+            id_neighbor_motifs.append(fp_spots_index)
+        fp['cell_id'] = id_neighbor_motifs
+
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
             n_colors = len(fp_cts)
             colors = sns.color_palette('hsv', n_colors)
             color_map = {ct: col for ct, col in zip(fp_cts, colors)}
 
-            if dis_duplicates:
-                normalized_columns = [col.split('_')[0] for col in trans_df.columns]
-                trans_df.columns = normalized_columns
-                sparse_trans_df = csr_matrix(trans_df, dtype=int)
-                trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
-                trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
-
             fp_spots_index = set()
-            for motif in fp['itemsets']:
-                motif = list(motif)
-                if dis_duplicates:
-                    ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
-                    required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
-                    ids = trans_df_aggregated[trans_df_aggregated >= required_counts].dropna().index
-                else:
-                    ids = trans_df[trans_df[motif].all(axis=1)].index.to_list()
-                if isinstance(idxs, list):
-                    # ids = ids.index[ids == True].to_list()
-                    fp_spots_index.update([i for id in ids for i in idxs[id] if self.labels[i] in motif])
-                else:
-                    ids = idxs[ids]
-                    fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
+            for cell_id in fp['cell_id']:
+                fp_spots_index.update(cell_id)
 
             fp_spot_pos = self.spatial_pos[list(fp_spots_index), :]
             fp_spot_label = self.labels[list(fp_spots_index)]
             fig, ax = plt.subplots(figsize=fig_size)
+            # Plotting the grid lines
+            for x in x_grid:
+                ax.axvline(x, color='lightgray', linestyle='--', lw=0.5)
+
+            for y in y_grid:
+                ax.axhline(y, color='lightgray', linestyle='--', lw=0.5)
+
             for ct in fp_cts:
                 ct_ind = fp_spot_label == ct
                 ax.scatter(fp_spot_pos[ct_ind, 0], fp_spot_pos[ct_ind, 1],
@@ -817,12 +833,9 @@ class spatial_query:
 
     def plot_motif_grid(self,
                         motif: Union[str, List[str]],
+                        fp: pd.DataFrame,
+                        fig_size: tuple = (10, 5),
                         max_dist: float = 100,
-                        min_count: int = 0,
-                        min_support: float = 0.5,
-                        dis_duplicates: bool = False,
-                        min_size: int = 0,
-                        fig_size: tuple = (10, 5)
                         ):
         """
         Display the grid points with motif in radius-based neighborhood,
@@ -864,13 +877,6 @@ class spatial_query:
         y_grid = np.arange(ymin - max_dist, ymax + max_dist, max_dist)
         grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
 
-        # Compute fp here just to make sure we can use the same color map as in find_patterns_grid function.
-        # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
-        # self.kd_tree.query_ball_point in radisu-based neighborhood.
-        fp, _, _ = self.build_fptree_dist(cell_pos=grid,
-                                          dis_duplicates=dis_duplicates,
-                                          max_dist=max_dist, min_size=min_size,
-                                          min_count=min_count, min_support=min_support)
         # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
         # so recalculate the idxs directly using self.kd_tree.query_ball_point
         idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True)
@@ -884,11 +890,10 @@ class spatial_query:
 
         # Locate the index of cell types contained in motif in the
         # neighborhood of above grid points with motif nearby
-        id_motif_celltype = set()  # the index of spots with cell types in motif and within the neighborhood of
-        # above grid points
-        for id in id_center:
-            id_neighbor = [i for i in idxs[id][1:] if self.labels[i] in motif]
-            id_motif_celltype.update(id_neighbor)
+        id_motif_celltype = fp[fp['itemsets'].apply(
+            lambda p: set(p)) == set(motif)]
+        id_motif_celltype = id_motif_celltype['cell_id'][0]
+
 
         # Plot above spots and center grid points
         # Set color map as in find_patterns_grid
@@ -900,15 +905,14 @@ class spatial_query:
         motif_spot_pos = self.spatial_pos[list(id_motif_celltype), :]
         motif_spot_label = self.labels[list(id_motif_celltype)]
         fig, ax = plt.subplots(figsize=fig_size)
-        ax.scatter(grid[id_center, 0], grid[id_center, 1], label='Grid Points',
-                   edgecolors='red', facecolors='none', s=8)
-
         # Plotting the grid lines
         for x in x_grid:
             ax.axvline(x, color='lightgray', linestyle='--', lw=0.5)
 
         for y in y_grid:
             ax.axhline(y, color='lightgray', linestyle='--', lw=0.5)
+        ax.scatter(grid[id_center, 0], grid[id_center, 1], label='Grid Points',
+                   edgecolors='red', facecolors='none', s=8)
 
         # Plotting other spots as background
         bg_index = [i for i, _ in enumerate(self.labels) if
