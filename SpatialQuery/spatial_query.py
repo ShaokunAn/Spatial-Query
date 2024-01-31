@@ -559,7 +559,8 @@ class spatial_query:
                            min_support: float = 0.5,
                            dis_duplicates: bool = False,
                            if_display: bool = True,
-                           fig_size: tuple = (10, 5)
+                           fig_size: tuple = (10, 5),
+                           return_cellID: bool = False,
                            ) -> DataFrame:
         """
         Create a grid and use it to find surrounding patterns in spatial data.
@@ -579,6 +580,9 @@ class spatial_query:
             Display the grid points with nearby frequent patterns if if_display=True.
         fig_size:
             Tuple of figure size.
+        return_cellID:
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
+            By defaults do not return cell ID.
 
         Return
         ------
@@ -605,24 +609,26 @@ class spatial_query:
             trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
             trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
 
-        id_neighbor_motifs = []
-        for motif in fp['itemsets']:
-            motif = list(motif)
-            fp_spots_index = set()
-            if dis_duplicates:
-                ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
-                required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
-                ids = trans_df_aggregated[trans_df_aggregated >= required_counts].dropna().index
-            else:
-                ids = trans_df[trans_df[motif].all(axis=1)].index.to_list()
-            if isinstance(idxs, list):
-                # ids = ids.index[ids == True].to_list()
-                fp_spots_index.update([i for id in ids for i in idxs[id] if self.labels[i] in motif])
-            else:
-                ids = idxs[ids]
-                fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
-            id_neighbor_motifs.append(fp_spots_index)
-        fp['cell_id'] = id_neighbor_motifs
+        if if_display or return_cellID:
+            id_neighbor_motifs = []
+            for motif in fp['itemsets']:
+                motif = list(motif)
+                fp_spots_index = set()
+                if dis_duplicates:
+                    ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
+                    required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
+                    ids = trans_df_aggregated[trans_df_aggregated >= required_counts].dropna().index
+                else:
+                    ids = trans_df[trans_df[motif].all(axis=1)].index.to_list()
+                if isinstance(idxs, list):
+                    # ids = ids.index[ids == True].to_list()
+                    fp_spots_index.update([i for id in ids for i in idxs[id] if self.labels[i] in motif])
+                else:
+                    ids = idxs[ids]
+                    fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
+                id_neighbor_motifs.append(fp_spots_index)
+        if return_cellID:
+            fp['cell_id'] = id_neighbor_motifs
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
@@ -631,7 +637,7 @@ class spatial_query:
             color_map = {ct: col for ct, col in zip(fp_cts, colors)}
 
             fp_spots_index = set()
-            for cell_id in fp['cell_id']:
+            for cell_id in id_neighbor_motifs:
                 fp_spots_index.update(cell_id)
 
             fp_spot_pos = self.spatial_pos[list(fp_spots_index), :]
@@ -670,6 +676,7 @@ class spatial_query:
                            min_count: int = 0,
                            if_display: bool = True,
                            fig_size: tuple = (10, 5),
+                           return_cellID: bool = False,
                            seed: int = 2023) -> DataFrame:
         """
         Randomly generate points and use them to find surrounding patterns in spatial data.
@@ -695,6 +702,9 @@ class spatial_query:
             Display the grid points with nearby frequent patterns if if_display=True.
         fig_size:
             Tuple of figure size.
+        return_cellID:
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
+            By defaults do not return cell ID.
         seed:
             Set random seed for reproducible.
 
@@ -714,22 +724,18 @@ class spatial_query:
                                                     min_count=min_count,
                                                     min_support=min_support,
                                                     )
-        if if_display:
-            fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
-            n_colors = len(fp_cts)
-            colors = sns.color_palette('hsv', n_colors)
-            color_map = {ct: col for ct, col in zip(fp_cts, colors)}
+        if dis_duplicates:
+            normalized_columns = [col.split('_')[0] for col in trans_df.columns]
+            trans_df.columns = normalized_columns
+            sparse_trans_df = csr_matrix(trans_df, dtype=int)
+            trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
+            trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
 
-            if dis_duplicates:
-                normalized_columns = [col.split('_')[0] for col in trans_df.columns]
-                trans_df.columns = normalized_columns
-                sparse_trans_df = csr_matrix(trans_df, dtype=int)
-                trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
-                trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
-
-            fp_spots_index = set()
+        if if_display or return_cellID:
+            id_neighbor_motifs = []
             for motif in fp['itemsets']:
                 motif = list(motif)
+                fp_spots_index = set()
                 if dis_duplicates:
                     ct_counts_in_motif = pd.Series(motif).value_counts().to_dict()
                     required_counts = pd.Series(ct_counts_in_motif, index=trans_df_aggregated.columns).fillna(0)
@@ -742,6 +748,19 @@ class spatial_query:
                 else:
                     ids = idxs[ids]
                     fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
+                id_neighbor_motifs.append(fp_spots_index)
+            if return_cellID:
+                fp['cell_id'] = id_neighbor_motifs
+
+        if if_display:
+            fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
+            n_colors = len(fp_cts)
+            colors = sns.color_palette('hsv', n_colors)
+            color_map = {ct: col for ct, col in zip(fp_cts, colors)}
+
+            fp_spots_index = set()
+            for cell_id in id_neighbor_motifs:
+                fp_spots_index.update(cell_id)
 
             fp_spot_pos = self.spatial_pos[list(fp_spots_index), :]
             fp_spot_label = self.labels[list(fp_spots_index)]
@@ -847,17 +866,10 @@ class spatial_query:
         ---------
         motif:
             Motif (names of cell types) to be colored
+        fp:
+            Frequent patterns identified by find_patterns_grid.
         max_dist:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
-        min_count:
-            Minimum number of each cell type to consider.
-        min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern.
-        dis_duplicates:
-            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
-            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
-        min_size:
-            Minimum neighborhood size for each point to consider.
         fig_size:
             Figure size.
         """
@@ -892,8 +904,7 @@ class spatial_query:
         # neighborhood of above grid points with motif nearby
         id_motif_celltype = fp[fp['itemsets'].apply(
             lambda p: set(p)) == set(motif)]
-        id_motif_celltype = id_motif_celltype['cell_id'][0]
-
+        id_motif_celltype = id_motif_celltype['cell_id'].iloc[0]
 
         # Plot above spots and center grid points
         # Set color map as in find_patterns_grid
@@ -946,12 +957,9 @@ class spatial_query:
 
     def plot_motif_rand(self,
                         motif: Union[str, List[str]],
+                        fp: pd.DataFrame,
                         max_dist: float = 100,
                         n_points: int = 1000,
-                        min_count: int = 0,
-                        min_support: float = 0.5,
-                        dis_duplicates: bool = False,
-                        min_size: int = 0,
                         fig_size: tuple = (10, 5),
                         seed: int = 2023,
                         ):
@@ -965,19 +973,12 @@ class spatial_query:
         ---------
         motif:
             Motif (names of cell types) to be colored
+        fp:
+            Frequent patterns identified by find_patterns_grid.
         max_dist:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
         n_points:
             Number of random points to generate.
-        min_count:
-            Minimum number of each cell type to consider.
-        min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern.
-        dis_duplicates:
-            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
-            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
-        min_size:
-            Minimum neighborhood size for each point to consider.
         fig_size:
             Figure size.
         seed:
@@ -999,16 +1000,6 @@ class spatial_query:
         pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
                                np.random.rand(n_points) * (ymax - ymin) + ymin))
 
-        # Compute fp here just to make sure we can use the same color map as in find_patterns_grid function.
-        # If there's no need to keep same color map, can just use self.kd_tree.query() in knn or
-        # self.kd_tree.query_ball_point in radisu-based neighborhood.
-        fp, trans_df, _ = self.build_fptree_dist(cell_pos=pos,
-                                                 dis_duplicates=dis_duplicates,
-                                                 max_dist=max_dist,
-                                                 min_size=min_size,
-                                                 min_count=min_count,
-                                                 min_support=min_support)
-
         idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=True)
 
         # Locate the index of grid points acting as centers with motif nearby
@@ -1020,11 +1011,9 @@ class spatial_query:
 
         # Locate the index of cell types contained in motif in the
         # neighborhood of above random points with motif nearby
-        id_motif_celltype = set()  # the index of spots with cell types in motif and within the neighborhood of
-        # above random sampled points
-        for id in id_center:
-            id_neighbor = [i for i in idxs[id][1:] if self.labels[i] in motif]
-            id_motif_celltype.update(id_neighbor)
+        id_motif_celltype = fp[fp['itemsets'].apply(
+            lambda p: set(p)) == set(motif)]
+        id_motif_celltype = id_motif_celltype['cell_id'].iloc[0]
 
         # Plot above spots and center grid points
         # Set color map as in find_patterns_grid
