@@ -402,7 +402,7 @@ class spatial_query_multi:
             dataset = [dataset]
 
         out = []
-        if_exist_label = [ct in s.labels for s in self.spatial_queries]
+        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
 
