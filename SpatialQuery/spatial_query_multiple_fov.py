@@ -507,7 +507,7 @@ class spatial_query_multi:
         cell_pos = sp_object.spatial_pos
         labels = sp_object.labels
         if ct not in labels.unique():
-            raise ValueError(f"Found no {ct} in {self.label_key}!")
+            return pd.DataFrame(columns=['support', 'itemsets'])
 
         cinds = [id for id, l in enumerate(labels) if l == ct]
         ct_pos = cell_pos[cinds]
@@ -561,7 +561,7 @@ class spatial_query_multi:
         cell_pos = sp_object.spatial_pos
         labels = sp_object.labels
         if ct not in labels.unique():
-            raise ValueError(f"Found no {ct} in {self.label_key}!")
+            return pd.DataFrame(columns=['support, itemsets'])
 
         cinds = [id for id, l in enumerate(labels) if l == ct]
         ct_pos = cell_pos[cinds]
@@ -653,11 +653,11 @@ class spatial_query_multi:
             stat, p = stats.mannwhitneyu(group1, group2, alternative='two-sided', method='auto')
             p_values.append(p)
 
-            # Label the dataset with higher frequency of patterns based on rank sum
+            # Label the dataset with higher frequency of patterns based on rank median
             support_rank = pd.concat([pd.DataFrame(group1), pd.DataFrame(group2)]).rank()  # ascending
-            sum_rank1 = support_rank[:len(group1)].sum()[0]
-            sum_rank2 = support_rank[len(group1):].sum()[0]
-            if sum_rank1 > sum_rank2:
+            median_rank1 = support_rank[:len(group1)].median()[0]
+            median_rank2 = support_rank[len(group1):].median()[0]
+            if median_rank1 > median_rank2:
                 dataset_higher_ranks.append(datasets[0])
             else:
                 dataset_higher_ranks.append(datasets[1])
@@ -679,6 +679,10 @@ class spatial_query_multi:
         fp_dataset1 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
             ][['itemsets', 'corrected_p_values']]
+        fp_dataset0 = fp_dataset0.reset_index(drop=True)
+        fp_dataset1 = fp_dataset1.reset_index(drop=True)
+        fp_dataset0 = fp_dataset0.sort_values(by='corrected_p_values', ascending=True)
+        fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
         return fp_dataset0, fp_dataset1
 
     def differential_analysis_dist(self,
@@ -764,9 +768,9 @@ class spatial_query_multi:
 
             # Label the dataset with higher frequency of patterns based on rank sum
             support_rank = pd.concat([pd.DataFrame(group1), pd.DataFrame(group2)]).rank()  # ascending
-            sum_rank1 = support_rank[:len(group1)].sum()[0]
-            sum_rank2 = support_rank[len(group1):].sum()[0]
-            if sum_rank1 > sum_rank2:
+            median_rank1 = support_rank[:len(group1)].median()[0]
+            median_rank2 = support_rank[len(group1):].median()[0]
+            if median_rank1 > median_rank2:
                 dataset_higher_ranks.append(datasets[0])
             else:
                 dataset_higher_ranks.append(datasets[1])
@@ -788,4 +792,8 @@ class spatial_query_multi:
         fp_dataset1 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
             ][['itemsets', 'corrected_p_values']]
+        fp_dataset0 = fp_dataset0.reset_index(drop=True)
+        fp_dataset1 = fp_dataset1.reset_index(drop=True)
+        fp_dataset0 = fp_dataset0.sort_values(by='corrected_p_values', ascending=True)
+        fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
         return fp_dataset0, fp_dataset1
