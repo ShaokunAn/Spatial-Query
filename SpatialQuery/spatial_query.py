@@ -128,7 +128,7 @@ class spatial_query:
 
     def find_fp_knn(self,
                     ct: str,
-                    k: int = 20,
+                    k: int = 30,
                     min_count: int = 0,
                     min_support: float = 0.5,
                     dis_duplicates: bool = False,
@@ -216,7 +216,7 @@ class spatial_query:
     def motif_enrichment_knn(self,
                              ct: str,
                              motifs: Union[str, List[str]] = None,
-                             k: int = 20,
+                             k: int = 30,
                              min_count: int = 0,
                              min_support: float = 0.5,
                              dis_duplicates: bool = False,
@@ -479,7 +479,7 @@ class spatial_query:
 
     def build_fptree_knn(self,
                          cell_pos: np.ndarray = None,
-                         k: int = 20,
+                         k: int = 30,
                          min_count: int = 0,
                          min_support: float = 0.5,
                          dis_duplicates: bool = False,

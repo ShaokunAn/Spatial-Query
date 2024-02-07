@@ -65,7 +65,7 @@ class spatial_query_multi:
     def find_fp_knn(self,
                     ct: str,
                     dataset: Union[str, List[str]] = None,
-                    k: int = 20,
+                    k: int = 30,
                     min_count: int = 0,
                     min_support: float = 0.5,
                     dis_duplicates: bool = False,
@@ -242,7 +242,7 @@ class spatial_query_multi:
                              ct: str,
                              motifs: Union[str, List[str]] = None,
                              dataset: Union[str, List[str]] = None,
-                             k: int = 20,
+                             k: int = 30,
                              min_count: int = 0,
                              min_support: float = 0.5,
                              dis_duplicates: bool = False,
@@ -476,7 +476,7 @@ class spatial_query_multi:
     def find_fp_knn_fov(self,
                         ct: str,
                         dataset_i: str,
-                        k: int = 20,
+                        k: int = 30,
                         min_count: int = 0,
                         min_support: float = 0.5,
                         ) -> pd.DataFrame:
@@ -579,7 +579,7 @@ class spatial_query_multi:
     def differential_analysis_knn(self,
                                   ct: str,
                                   datasets: List[str],
-                                  k: int = 20,
+                                  k: int = 30,
                                   min_count: int = 0,
                                   min_support: float = 0.5
                                   ):
