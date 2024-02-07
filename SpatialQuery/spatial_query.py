@@ -561,7 +561,8 @@ class spatial_query:
                            if_display: bool = True,
                            fig_size: tuple = (10, 5),
                            return_cellID: bool = False,
-                           ) -> DataFrame:
+                           return_grid: bool = False,
+                           ):
         """
         Create a grid and use it to find surrounding patterns in spatial data.
 
@@ -583,6 +584,9 @@ class spatial_query:
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
             By defaults do not return cell ID.
+        return_grid:
+            Indicate whether return the grid points. By default, do not return grid points.
+            If true, will return a tuple (fp_tree, grid)
 
         Return
         ------
@@ -665,7 +669,10 @@ class spatial_query:
             plt.tight_layout(rect=[0, 0, 1.1, 1])
             plt.show()
 
-        return fp.sort_values(by='support', ignore_index=True, ascending=False)
+        if return_grid:
+            return fp.sort_values(by='support', ignore_index=True, ascending=False), grid
+        else:
+            return fp.sort_values(by='support', ignore_index=True, ascending=False)
 
     def find_patterns_rand(self,
                            max_dist: float = 100,
