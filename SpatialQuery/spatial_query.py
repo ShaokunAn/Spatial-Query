@@ -665,7 +665,7 @@ class spatial_query:
             plt.tight_layout(rect=[0, 0, 1.1, 1])
             plt.show()
 
-        return fp.sort_values(by='support', ignore_index=True, ascending=False)
+        return fp.sort_values(by='support', ignore_index=True, ascending=False), grid
 
     def find_patterns_rand(self,
                            max_dist: float = 100,
