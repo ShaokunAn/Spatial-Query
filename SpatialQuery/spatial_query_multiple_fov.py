@@ -792,8 +792,9 @@ class spatial_query_multi:
         fp_dataset1 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
             ][['itemsets', 'corrected_p_values']]
-        fp_dataset0 = fp_dataset0.reset_index(drop=True)
-        fp_dataset1 = fp_dataset1.reset_index(drop=True)
+
         fp_dataset0 = fp_dataset0.sort_values(by='corrected_p_values', ascending=True)
         fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
+        fp_dataset0 = fp_dataset0.reset_index(drop=True)
+        fp_dataset1 = fp_dataset1.reset_index(drop=True)
         return fp_dataset0, fp_dataset1
