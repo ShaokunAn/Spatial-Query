@@ -511,7 +511,7 @@ class spatial_query:
 
         Return
         ------
-        A tuple containing the FPs, the transactions table, and the nerghbors index.
+        A tuple containing the FPs, the transactions table, and the neighbors index.
         """
         if cell_pos is None:
             cell_pos = self.spatial_pos
