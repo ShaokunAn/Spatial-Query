@@ -483,7 +483,7 @@ class spatial_query:
                          min_count: int = 0,
                          min_support: float = 0.5,
                          dis_duplicates: bool = False,
-                         max_dist: float = 100,
+                         max_dist: float = 500,
                          if_max: bool = True
                          ) -> tuple:
         """
