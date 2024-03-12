@@ -107,6 +107,13 @@ class spatial_query_multi:
         if isinstance(dataset, str):
             dataset = [dataset]
 
+        # test if the input dataset name is valid
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        for ds in dataset:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}.\n "
+                                 f"Valid dataset names are: {set(valid_ds_names)}")
+
         transactions = []
         for s in self.spatial_queries:
             if s.dataset.split('_')[0] not in dataset:
@@ -196,6 +203,13 @@ class spatial_query_multi:
             dataset = [dataset]
 
         transactions = []
+        # test if the input dataset name is valid
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        for ds in dataset:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}.\n "
+                                 f"Valid dataset names are: {set(valid_ds_names)}")
+
         for s in self.spatial_queries:
             if s.dataset.split('_')[0] not in dataset:
                 continue
@@ -606,7 +620,12 @@ class spatial_query_multi:
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
-        # Identify frequent patterns for each dataset
+        # Check if the two datasets are valid
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        for ds in datasets:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}.\n"
+                                 f"Valid dataset names are: {set(valid_ds_names)}")
 
         flag = 0
         # Identify frequent patterns in each dataset
@@ -718,7 +737,13 @@ class spatial_query_multi:
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
-        # Identify frequent patterns for each dataset
+
+        # Check if the two datasets are valid
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        for ds in datasets:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}.\n"
+                                 f"Valid dataset names are: {set(valid_ds_names)}")
 
         flag = 0
         # Identify frequent patterns in each dataset
