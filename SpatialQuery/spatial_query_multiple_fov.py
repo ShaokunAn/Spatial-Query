@@ -152,6 +152,8 @@ class spatial_query_multi:
         if dis_duplicates:
             fp = spatial_query._remove_suffix(fp)
 
+        fp.sort_values(by='support', ascending=False, inplace=True, ignore_index=True)
+
         return fp
 
     def find_fp_dist(self,
@@ -249,6 +251,8 @@ class spatial_query_multi:
         # Remove suffix of items if treating duplicates as different items
         if dis_duplicates:
             fp = spatial_query._remove_suffix(fp)
+
+        fp.sort_values(by='support', ascending=False, inplace=True, ignore_index=True)
 
         return fp
 
