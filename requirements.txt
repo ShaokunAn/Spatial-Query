@@ -7,3 +7,4 @@ mlxtend~=0.23.0
 scipy~=1.10.1
 statsmodels~=0.14.0
 setuptools~=68.0.0
+python~=3.8.18
