@@ -474,6 +474,7 @@ class spatial_query:
         # Remove suffix of items if treating duplicates as different items
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
+        fp_tree = fp_tree.sort_values(by='support', ignore_index=True)
 
         return fp_tree, df, valid_idxs
 
