@@ -229,12 +229,14 @@ class spatial_query_multi:
 
             for i, idx in enumerate(idxs):
                 if len(idx) > min_size + 1:
-                    for j in idx[1:min(max_ns, len(idx))]:
-                        ct_count[ct_all.index(labels[j])] += 1
+                    for j in idx[:min(max_ns, len(idx))]:
+                        if j != i:
+                            ct_count[ct_all.index(labels[j])] += 1
             ct_exclude = [ct_all[i] for i, count in enumerate(ct_count) if count < min_count]
 
-            for idx in idxs:
-                transaction = [labels[i] for i in idx[1:min(max_ns, len(idx))] if labels[i] not in ct_exclude]
+            for i_id, idx in enumerate(idxs):
+                transaction = [labels[i] for i in idx[:min(max_ns, len(idx))] if
+                               labels[i] not in ct_exclude and i != i_id]
                 if len(transaction) > min_size:
                     if dis_duplicates:
                         transaction = s._distinguish_duplicates(transaction)
@@ -467,12 +469,12 @@ class spatial_query_multi:
 
                 for i in cinds:
                     e = min(len(idxs[i]), max_ns)
-                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][1:e]]):
+                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
                         n_motif_ct += 1
 
                 for i in range(len(idxs)):
                     e = min(len(idxs[i]), max_ns)
-                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][1:e]]):
+                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
                         n_motif_labels += 1
 
                 n_ct += len(cinds)
