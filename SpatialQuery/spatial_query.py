@@ -550,7 +550,7 @@ class spatial_query:
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
 
-        return fp_tree, df, idxs
+        return fp_tree.sort_values(by='support', ignore_index=True, ascending=False), df, idxs
 
     def find_patterns_grid(self,
                            max_dist: float = 100,
