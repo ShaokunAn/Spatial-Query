@@ -375,13 +375,13 @@ class spatial_query:
             n_motif_ct = 0
             for i in cinds:
                 e = min(len(idxs[i]), max_ns)
-                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][1:e]]):
+                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
                     n_motif_ct += 1
 
             n_motif_labels = 0
             for i in range(len(idxs)):
                 e = min(len(idxs[i]), max_ns)
-                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][1:e]]):
+                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
                     n_motif_labels += 1
 
             n_ct = len(cinds)
@@ -444,16 +444,18 @@ class spatial_query:
 
         for i, idx in enumerate(idxs):
             if len(idx) > min_size + 1:
-                for j in idx[1:min(max_ns, len(idx))]:
-                    ct_count[ct_all.index(self.labels[j])] += 1
+                for j in idx[:min(max_ns, len(idx))]:
+                    if j != i:
+                        ct_count[ct_all.index(self.labels[j])] += 1
 
         ct_exclude = [ct_all[i] for i, count in enumerate(ct_count) if count < min_count]
 
         # Prepare data for FP-Tree construction
         transactions = []
         valid_idxs = []
-        for idx in idxs:
-            transaction = [self.labels[i] for i in idx[1:min(max_ns, len(idx))] if self.labels[i] not in ct_exclude]
+        for i_idx, idx in enumerate(idxs):
+            transaction = [self.labels[i] for i in idx[:min(max_ns, len(idx))] if
+                           self.labels[i] not in ct_exclude and i != i_idx]
             # Append suffix to distinguish the duplicates in transaction
             if len(transaction) > min_size:
                 if dis_duplicates:
@@ -474,7 +476,7 @@ class spatial_query:
         # Remove suffix of items if treating duplicates as different items
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
-        fp_tree = fp_tree.sort_values(by='support', ignore_index=True)
+        fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
 
         return fp_tree, df, valid_idxs
 
@@ -904,7 +906,7 @@ class spatial_query:
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
         for i, idx in enumerate(idxs):
-            ns = [self.labels[id] for id in idx[1:]]
+            ns = [self.labels[id] for id in idx if id != i]
             if self.has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
@@ -1013,7 +1015,7 @@ class spatial_query:
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
         for i, idx in enumerate(idxs):
-            ns = [self.labels[id] for id in idx[1:]]
+            ns = [self.labels[id] for id in idx if id != i]
             if self.has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
@@ -1104,13 +1106,13 @@ class spatial_query:
         cind_with_motif = []
         sort_motif = sorted(motif)
         for id in cinds:
-            if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[id][1:]]):
+            if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[id] if idx != id]):
                 cind_with_motif.append(id)
 
         # Locate the index of motifs in the neighborhood of center cell type.
         id_motif_celltype = set()
         for id in cind_with_motif:
-            id_neighbor = [i for i in idxs[id][1:] if self.labels[i] in motif]
+            id_neighbor = [i for i in idxs[id] if self.labels[i] in motif and i != id]
             id_motif_celltype.update(id_neighbor)
 
         # Plot figures
