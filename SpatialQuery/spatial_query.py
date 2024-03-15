@@ -476,9 +476,15 @@ class spatial_query:
         # Remove suffix of items if treating duplicates as different items
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
-        fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
 
-        return fp_tree, df, valid_idxs
+        if len(fp_tree) == 0:
+            return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
+        else:
+            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
+            fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
+            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
+            fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
+            return fp_tree, df, idxs
 
     def build_fptree_knn(self,
                          cell_pos: np.ndarray = None,
@@ -552,8 +558,14 @@ class spatial_query:
 
         if dis_duplicates:
             fp_tree = self._remove_suffix(fp_tree)
-
-        return fp_tree.sort_values(by='support', ignore_index=True, ascending=False), df, idxs
+        if len(fp_tree) == 0:
+            return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
+        else:
+            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
+            fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
+            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
+            fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
+            return fp_tree, df, idxs
 
     def find_patterns_grid(self,
                            max_dist: float = 100,
