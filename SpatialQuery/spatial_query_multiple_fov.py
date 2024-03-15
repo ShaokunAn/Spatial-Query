@@ -592,7 +592,8 @@ class spatial_query_multi:
                                                min_count=min_count,
                                                min_size=min_size,
                                                dis_duplicates=False,
-                                               if_max=False
+                                               if_max=False,
+                                               cinds=cinds
                                                )
         return fp
 
