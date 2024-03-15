@@ -209,7 +209,9 @@ class spatial_query:
                                           dis_duplicates=dis_duplicates,
                                           max_dist=max_dist,
                                           min_size=min_size,
-                                          min_count=min_count, min_support=min_support)
+                                          min_count=min_count,
+                                          min_support=min_support,
+                                          cinds=cinds)
 
         return fp
 
@@ -405,6 +407,7 @@ class spatial_query:
                           if_max: bool = True,
                           min_size: int = 0,
                           min_count: int = 0,
+                          cinds: List[int] = None,
                           max_ns: int = 1000000) -> tuple:
         """
         Build a frequency pattern tree based on the distance of cell types.
@@ -438,11 +441,14 @@ class spatial_query:
         if cell_pos is None:
             cell_pos = self.spatial_pos
 
-        idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=True)
+        idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False)
         ct_all = sorted(set(self.labels))
         ct_count = np.zeros(len(ct_all), dtype=int)
 
-        for i, idx in enumerate(idxs):
+        if cinds is None:
+            cinds = list(range(len(idxs)))
+
+        for i, idx in zip(cinds, idxs):
             if len(idx) > min_size + 1:
                 for j in idx[:min(max_ns, len(idx))]:
                     if j != i:
@@ -453,7 +459,7 @@ class spatial_query:
         # Prepare data for FP-Tree construction
         transactions = []
         valid_idxs = []
-        for i_idx, idx in enumerate(idxs):
+        for i_idx, idx in zip(cinds, idxs):
             transaction = [self.labels[i] for i in idx[:min(max_ns, len(idx))] if
                            self.labels[i] not in ct_exclude and i != i_idx]
             # Append suffix to distinguish the duplicates in transaction
@@ -918,7 +924,7 @@ class spatial_query:
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
         for i, idx in enumerate(idxs):
-            ns = [self.labels[id] for id in idx if id != i]
+            ns = [self.labels[id] for id in idx]
             if self.has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
@@ -1027,7 +1033,7 @@ class spatial_query:
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
         for i, idx in enumerate(idxs):
-            ns = [self.labels[id] for id in idx if id != i]
+            ns = [self.labels[id] for id in idx]
             if self.has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
