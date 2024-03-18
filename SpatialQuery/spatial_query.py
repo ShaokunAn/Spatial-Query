@@ -840,7 +840,7 @@ class spatial_query:
         fig, ax = plt.subplots(figsize=fig_size)
 
         # Iterate over each cell type
-        for cell_type in self.labels.unique():
+        for cell_type in sorted(self.labels.unique()):
             # Filter data for each cell type
             index = self.labels == cell_type
             index = np.where(index)[0]
@@ -885,8 +885,7 @@ class spatial_query:
                         max_dist: float = 100,
                         ):
         """
-        Display the grid points with motif in radius-based neighborhood,
-        and cell types of motif in the neighborhood of these grid points. To make sure the input
+        Display the distribution of each motif around grid points. To make sure the input
         motif can be found in the results obtained by find_patterns_grid, use the same arguments
         as those in find_pattern_grid method.
 
