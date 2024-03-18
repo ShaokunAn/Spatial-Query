@@ -484,13 +484,13 @@ class spatial_query:
             fp_tree = self._remove_suffix(fp_tree)
 
         if len(fp_tree) == 0:
-            return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
+            return pd.DataFrame(columns=['support', 'itemsets']), df, valid_idxs
         else:
             fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
             fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
             fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
             fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
-            return fp_tree, df, idxs
+            return fp_tree, df, valid_idxs
 
     def build_fptree_knn(self,
                          cell_pos: np.ndarray = None,
