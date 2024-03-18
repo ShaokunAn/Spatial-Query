@@ -759,8 +759,8 @@ class spatial_query:
             trans_df_aggregated = pd.DataFrame.sparse.from_spmatrix(sparse_trans_df, columns=normalized_columns)
             trans_df_aggregated = trans_df_aggregated.groupby(trans_df_aggregated.columns, axis=1).sum()
 
+        id_neighbor_motifs = []
         if if_display or return_cellID:
-            id_neighbor_motifs = []
             for motif in fp['itemsets']:
                 motif = list(motif)
                 fp_spots_index = set()
@@ -777,8 +777,8 @@ class spatial_query:
                     ids = idxs[ids]
                     fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
                 id_neighbor_motifs.append(fp_spots_index)
-            if return_cellID:
-                fp['cell_id'] = id_neighbor_motifs
+        if return_cellID:
+            fp['cell_id'] = id_neighbor_motifs
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
