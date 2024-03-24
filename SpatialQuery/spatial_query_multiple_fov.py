@@ -227,14 +227,14 @@ class spatial_query_multi:
             ct_all = sorted(set(labels))
             ct_count = np.zeros(len(ct_all), dtype=int)
 
-            for i, idx in enumerate(idxs):
+            for i, idx in zip(cinds, idxs):
                 if len(idx) > min_size + 1:
                     for j in idx[:min(max_ns, len(idx))]:
                         if j != i:
                             ct_count[ct_all.index(labels[j])] += 1
             ct_exclude = [ct_all[i] for i, count in enumerate(ct_count) if count < min_count]
 
-            for i_id, idx in enumerate(idxs):
+            for i_id, idx in zip(cinds, idxs):
                 transaction = [labels[i] for i in idx[:min(max_ns, len(idx))] if
                                labels[i] not in ct_exclude and i != i_id]
                 if len(transaction) > min_size:
@@ -652,14 +652,20 @@ class spatial_query_multi:
                 common_patterns = list(fp_d.values())[0]
                 common_patterns = common_patterns.rename(columns={'support': f"support_{list(fp_d.keys())[0]}"})
             else:
-                comm_fps = set.intersection(*[set(df['itemsets']) for df in
-                                              fp_d.values()])  # the items' order in patterns will not affect the returned intersection
-                common_patterns = pd.DataFrame({'itemsets': list(comm_fps)})
+                # in comm_fps, duplicates items are not allowed by using set object
+                comm_fps = set.intersection(
+                    *[set(df['itemsets'].apply(lambda x: tuple(sorted(x)))) for df in
+                      fp_d.values()])  # the items' order in patterns will not affect the returned intersection
+                common_patterns = pd.DataFrame({'itemsets': [list(items) for items in comm_fps]})
                 for data_name, df in fp_d.items():
-                    support_dict = dict(df[['itemsets', 'support']].values)
-                    support_dict = {tuple(key): value for key, value in support_dict.items()}
+                    support_dict = {itemset: support for itemset, support in
+                                    df[['itemsets', 'support']].apply(
+                                        lambda row: (tuple(sorted(row['itemsets'])), row['support']), axis=1)}
+                    # support_dict = {tuple(itemset): support for itemset, support in df[['itemsets', 'support']].apply(
+                    #     lambda row: (tuple(row['itemsets']), row['support']), axis=1)}
                     common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
                         lambda x: support_dict.get(tuple(x), None))
+            common_patterns['itemsets'] = common_patterns['itemsets'].apply(tuple)
             if flag == 0:
                 fp_datasets = common_patterns
                 flag = 1
