@@ -3,6 +3,7 @@ from itertools import combinations
 from typing import List, Union
 
 import matplotlib.pyplot as plt
+import statsmodels.stats.multitest as mt
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -303,12 +304,18 @@ class spatial_query:
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             # M is number of total, N is number of drawn without replacement, n is number of success in total
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-val': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
-        out_pd = out_pd.sort_values(by='p-val', ignore_index=True)
 
+        p_values = out_pd['p-values'].tolist()
+        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                           alpha=0.05,
+                                                           method='poscorr')
+        out_pd['corrected p-values'] = corrected_p_values
+        out_pd['if_significant'] = if_rejected
+        out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
         return out_pd
 
     def motif_enrichment_dist(self,
@@ -392,11 +399,18 @@ class spatial_query:
 
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-val': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
-        out_pd = out_pd.sort_values(by='p-val', ignore_index=True)
+
+        p_values = out_pd['p-values'].tolist()
+        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                           alpha=0.05,
+                                                           method='poscorr')
+        out_pd['corrected p-values'] = corrected_p_values
+        out_pd['if_significant'] = if_rejected
+        out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
         return out_pd
 
     def build_fptree_dist(self,
