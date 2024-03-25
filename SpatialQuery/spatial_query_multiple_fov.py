@@ -366,14 +366,18 @@ class spatial_query_multi:
 
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-val': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
-        out_pd = out_pd.sort_values(by='p-val', ignore_index=True)
 
-        # TODO: add a multiple testing correction procedure here!
-
+        p_values = out_pd['p-values'].tolist()
+        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                           alpha=0.05,
+                                                           method='poscorr')
+        out_pd['corrected p-values'] = corrected_p_values
+        out_pd['if_significant'] = if_rejected
+        out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
         return out_pd
 
     def motif_enrichment_dist(self,
@@ -485,12 +489,18 @@ class spatial_query_multi:
 
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-val': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
-        out_pd = out_pd.sort_values(by='p-val', ignore_index=True)
-        # TODO: add multiple testing correction procedure here!
+
+        p_values = out_pd['p-values'].tolist()
+        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                           alpha=0.05,
+                                                           method='poscorr')
+        out_pd['corrected p-values'] = corrected_p_values
+        out_pd['if_significant'] = if_rejected
+        out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
         return out_pd
 
     def find_fp_knn_fov(self,
