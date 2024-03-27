@@ -145,6 +145,8 @@ class spatial_query_multi:
         df = pd.DataFrame(te_ary, columns=te.columns_)
 
         fp = fpgrowth(df, min_support=min_support, use_colnames=True)
+        if len(fp) == 0:
+            return pd.DataFrame(columns=['support', 'itemsets'])
 
         fp = spatial_query.find_maximal_patterns(fp=fp)
 
@@ -152,6 +154,7 @@ class spatial_query_multi:
         if dis_duplicates:
             fp = spatial_query._remove_suffix(fp)
 
+        fp['itemsets'] = fp['itemsets'].apply(lambda x: list(sorted(x)))
         fp.sort_values(by='support', ascending=False, inplace=True, ignore_index=True)
 
         return fp
@@ -254,6 +257,7 @@ class spatial_query_multi:
         if dis_duplicates:
             fp = spatial_query._remove_suffix(fp)
 
+        fp['itemsets'] = fp['itemsets'].apply(lambda x: list(sorted(x)))
         fp.sort_values(by='support', ascending=False, inplace=True, ignore_index=True)
 
         return fp
@@ -314,7 +318,7 @@ class spatial_query_multi:
         if motifs is None:
             fp = self.find_fp_knn(ct=ct, k=k, dataset=dataset, min_count=min_count,
                                   min_support=min_support, dis_duplicates=dis_duplicates)
-            motifs = fp['itemsets']
+            motifs = fp['itemsets'].tolist()
         else:
             if isinstance(motifs, str):
                 motifs = [motifs]
@@ -435,7 +439,7 @@ class spatial_query_multi:
         if motifs is None:
             fp = self.find_fp_dist(ct=ct, dataset=dataset, max_dist=max_dist, min_size=min_size,
                                    min_count=min_count, min_support=min_support, dis_duplicates=dis_duplicates)
-            motifs = fp['itemsets']
+            motifs = fp['itemsets'].tolist()
         else:
             if isinstance(motifs, str):
                 motifs = [motifs]
@@ -787,14 +791,15 @@ class spatial_query_multi:
                 common_patterns = list(fp_d.values())[0]
                 common_patterns = common_patterns.rename(columns={'support': f"support_{list(fp_d.keys())[0]}"})
             else:
-                comm_fps = set.intersection(*[set(df['itemsets']) for df in
+                comm_fps = set.intersection(*[set(df['itemsets'].apply(lambda x: tuple(sorted(x)))) for df in
                                               fp_d.values()])  # the items' order in patterns will not affect the returned intersection
-                common_patterns = pd.DataFrame({'itemsets': list(comm_fps)})
+                common_patterns = pd.DataFrame({'itemsets': [list(items) for items in comm_fps]})
                 for data_name, df in fp_d.items():
-                    support_dict = dict(df[['itemsets', 'support']].values)
-                    support_dict = {tuple(key): value for key, value in support_dict.items()}
+                    support_dict = {itemset: support for itemset, support in df[['itemsets', 'support']].apply(
+                        lambda row: (tuple(sorted(row['itemsets'])), row['support']), axis=1)}
                     common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
                         lambda x: support_dict.get(tuple(x), None))
+            common_patterns['itemsets'] = common_patterns['itemsets'].apply(tuple)
             if flag == 0:
                 fp_datasets = common_patterns
                 flag = 1
