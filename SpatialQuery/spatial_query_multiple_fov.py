@@ -342,14 +342,21 @@ class spatial_query_multi:
             sort_motif = sorted(motif)
 
             # Calculate statistics of each dataset
-            for s in self.spatial_queries:
+            for fov, s in enumerate(self.spatial_queries):
                 if s.dataset.split('_')[0] not in dataset:
                     continue
                 cell_pos = s.spatial_pos
                 labels = s.labels
+
+                dists, idxs = s.kd_tree.query(cell_pos, k=k + 1)
+                for i in range(len(labels)):
+                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][1:]]):
+                        n_motif_labels += 1
+                n_labels += len(labels)
+
                 if ct not in labels.unique():
                     continue
-                dists, idxs = s.kd_tree.query(cell_pos, k=k + 1)
+
                 cinds = [i for i, l in enumerate(labels) if l == ct]
 
                 for i in cinds:
@@ -358,12 +365,7 @@ class spatial_query_multi:
                         if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][inds[1:]]]):
                             n_motif_ct += 1
 
-                for i in range(len(labels)):
-                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][1:]]):
-                        n_motif_labels += 1
-
                 n_ct += len(cinds)
-                n_labels += len(labels)
 
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
@@ -468,11 +470,17 @@ class spatial_query_multi:
                     continue
                 cell_pos = s.spatial_pos
                 labels = s.labels
+                idxs = s.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=True)
+                n_labels += len(labels)
+
+                for i in range(len(idxs)):
+                    e = min(len(idxs[i]), max_ns)
+                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
+                        n_motif_labels += 1
 
                 if ct not in labels.unique():
                     continue
 
-                idxs = s.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=True)
                 cinds = [i for i, label in enumerate(labels) if label == ct]
 
                 for i in cinds:
@@ -480,13 +488,7 @@ class spatial_query_multi:
                     if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
                         n_motif_ct += 1
 
-                for i in range(len(idxs)):
-                    e = min(len(idxs[i]), max_ns)
-                    if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
-                        n_motif_labels += 1
-
                 n_ct += len(cinds)
-                n_labels += len(labels)
 
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
