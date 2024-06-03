@@ -1,6 +1,7 @@
 from collections import Counter
 from itertools import combinations
 from typing import List, Union
+import time
 
 import matplotlib.pyplot as plt
 import statsmodels.stats.multitest as mt
@@ -14,6 +15,7 @@ from pandas import DataFrame
 from scipy.sparse import csr_matrix
 from scipy.spatial import KDTree
 from scipy.stats import hypergeom
+import spatial_module_utils
 
 
 class spatial_query:
@@ -232,6 +234,8 @@ class spatial_query:
 
         dists, idxs = self.kd_tree.query(self.spatial_pos,
                                          k=k + 1)  # use k+1 to find the knn except for the points themselves
+        dists = np.array(dists)
+        idxs = np.array(idxs)  # c++ can access Numpy directly without duplicating data
 
         cinds = [i for i, l in enumerate(self.labels) if l == ct]
 
@@ -258,17 +262,18 @@ class spatial_query:
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
-            n_motif_ct = 0  # n_motif_ct is the number of centers nearby specified cell types (motif)
-            for i in cinds:
-                inds = [ind for ind, id in enumerate(dists[i]) if id < max_dist]
-                if len(inds) > 1:
-                    if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][inds[1:]]]):
-                        n_motif_ct += 1
 
-            n_motif_labels = 0  # n_motif_labels is the number of all cell_pos nearby specified motifs
-            for i, _ in enumerate(self.labels):
-                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][1:]]):
-                    n_motif_labels += 1
+            # n_motif_ct, n_motif_labels = spatial_module_utils.search_motif(
+            #     motif=motif,
+            #     idxs=idxs,
+            #     dists=dists,
+            #     labels=self.labels,
+            #     cinds=cinds,
+            #     max_dist=max_dist,
+            # )
+            n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_knn(
+                motif, idxs, dists, self.labels, cinds, max_dist,
+            )
 
             n_ct = len(cinds)
             if ct in motif:
@@ -413,11 +418,15 @@ class spatial_query:
         if cell_pos is None:
             cell_pos = self.spatial_pos
 
+        start = time.time()
         idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False)
         if cinds is None:
             cinds = list(range(len(idxs)))
+        end = time.time()
+        print("query: {end-start} seconds")
 
         # Prepare data for FP-Tree construction
+        start = time.time()
         transactions = []
         valid_idxs = []
         labels = np.array(self.labels)
@@ -430,17 +439,23 @@ class spatial_query:
             if len(transaction) > min_size:
                 transactions.append(transaction.tolist())
                 valid_idxs.append(idx)
-
+        end = time.time()
+        print(f"build transactions: {end-start} seconds")
         # Convert transactions to a DataFrame suitable for fpgrowth
+        start = time.time()
         te = TransactionEncoder()
         te_ary = te.fit(transactions).transform(transactions)
         df = pd.DataFrame(te_ary, columns=te.columns_)
 
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
-
+        end = time.time()
+        print(f"fp_growth: {end-start} seconds")
         if if_max:
+            start = time.time()
             fp_tree = self.find_maximal_patterns(fp=fp_tree)
+            end = time.time()
+            print(f"find_maximal_patterns: {end-start} seconds")
 
         # Remove suffix of items if treating duplicates as different items
         # if dis_duplicates:
@@ -486,10 +501,13 @@ class spatial_query:
         """
         if cell_pos is None:
             cell_pos = self.spatial_pos
-
+        start = time.time()
         dists, idxs = self.kd_tree.query(cell_pos, k=k + 1)
+        end = time.time()
+        print(f"knn query: {end-start} seconds")
 
         # Prepare data for FP-Tree construction
+        start = time.time()
         idxs = np.array(idxs)
         dists = np.array(dists)
         labels = np.array(self.labels)
@@ -497,10 +515,13 @@ class spatial_query:
         mask = dists < max_dist
         for i, idx in enumerate(idxs):
             inds = idx[mask[i]]
-            transaction = labels[labels[inds[1:]]]
+            transaction = labels[inds[1:]]
             # if dis_duplicates:
             #     transaction = distinguish_duplicates_numpy(transaction)
             transactions.append(transaction)  # 将 NumPy 数组转换回列表
+
+        end = time.time()
+        print(f"build transactions: {end-start} seconds")
 
         # transactions = []
         # for i, idx in enumerate(idxs):
@@ -512,25 +533,34 @@ class spatial_query:
         #     transactions.append(transaction)
 
         # Convert transactions to a DataFrame suitable for fpgrowth
+        start = time.time()
         te = TransactionEncoder()
         te_ary = te.fit(transactions).transform(transactions)
         df = pd.DataFrame(te_ary, columns=te.columns_)
 
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
+        end = time.time()
+        print(f"fp-growth: {end-start} seconds")
 
         if if_max:
+            start = time.time()
             fp_tree = self.find_maximal_patterns(fp_tree)
+            end = time.time()
+            print(f"find_maximal_patterns: {end-start} seconds")
 
         # if dis_duplicates:
         #     fp_tree = self._remove_suffix(fp_tree)
         if len(fp_tree) == 0:
             return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
         else:
+            start = time.time()
             fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
             fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
             fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
             fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
+            end = time.time()
+            print(f"format output: {end-start} seconds")
             return fp_tree, df, idxs
 
     def find_patterns_grid(self,
