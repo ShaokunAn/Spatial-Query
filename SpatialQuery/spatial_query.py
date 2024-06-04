@@ -16,6 +16,7 @@ from scipy.sparse import csr_matrix
 from scipy.spatial import KDTree
 from scipy.stats import hypergeom
 import spatial_module_utils
+from sklearn.preprocessing import LabelEncoder
 
 
 class spatial_query:
@@ -263,17 +264,37 @@ class spatial_query:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
 
-            # n_motif_ct, n_motif_labels = spatial_module_utils.search_motif(
-            #     motif=motif,
-            #     idxs=idxs,
-            #     dists=dists,
-            #     labels=self.labels,
-            #     cinds=cinds,
-            #     max_dist=max_dist,
+            label_encoder = LabelEncoder()
+            int_labels = label_encoder.fit_transform(self.labels)
+            int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
+            int_motifs = label_encoder.transform(np.array(motif))
+
+            dists, idxs = self.kd_tree.query(self.spatial_pos, k=k+1)
+            num_cells = idxs.shape[0]
+            num_types = len(label_encoder.classes_)
+
+            valid_neighbors = dists[:, 1:] <= max_dist
+            filtered_idxs = np.where(valid_neighbors, idxs[:, 1:], -1)
+
+            flat_neighbors = filtered_idxs.flatten()
+            valid_neighbors_flat = valid_neighbors.flatten()
+
+            neighbor_labels = np.where(valid_neighbors_flat, int_labels[flat_neighbors], -1)
+            valid_mask = neighbor_labels != -1
+
+            neighbor_matrix = np.zeros((num_cells * k, num_types), dtype=int)
+            neighbor_matrix[np.arange(len(neighbor_labels))[valid_mask], neighbor_labels[valid_mask]] = 1
+
+            neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
+
+            # 过滤包含特定细胞类型的cells
+            mask = int_labels == int_ct
+            n_motif_ct = np.sum(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))
+            n_motif_labels = np.sum(np.all(neighbor_counts[:, int_motifs] > 0, axis=1))
+
+            # n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_knn(
+            #     motif, idxs, dists, self.labels, cinds, max_dist,
             # )
-            n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_knn(
-                motif, idxs, dists, self.labels, cinds, max_dist,
-            )
 
             n_ct = len(cinds)
             if ct in motif:
