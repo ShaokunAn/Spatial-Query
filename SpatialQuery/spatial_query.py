@@ -269,7 +269,6 @@ class spatial_query:
             int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
             int_motifs = label_encoder.transform(np.array(motif))
 
-            dists, idxs = self.kd_tree.query(self.spatial_pos, k=k+1)
             num_cells = idxs.shape[0]
             num_types = len(label_encoder.classes_)
 
