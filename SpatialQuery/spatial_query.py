@@ -330,6 +330,7 @@ class spatial_query:
 
         idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True)
         cinds = [i for i, label in enumerate(self.labels) if label == ct]
+        idxs = idxs.tolist()
 
         out = []
         if motifs is None:
@@ -351,17 +352,22 @@ class spatial_query:
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
-            n_motif_ct = 0
-            for i in cinds:
-                e = min(len(idxs[i]), max_ns)
-                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
-                    n_motif_ct += 1
+            n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_dist(
+                motif, idxs, self.labels, cinds, max_ns
 
-            n_motif_labels = 0
-            for i in range(len(idxs)):
-                e = min(len(idxs[i]), max_ns)
-                if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
-                    n_motif_labels += 1
+            )
+
+            # n_motif_ct = 0
+            # for i in cinds:
+            #     e = min(len(idxs[i]), max_ns)
+            #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
+            #         n_motif_ct += 1
+            #
+            # n_motif_labels = 0
+            # for i in range(len(idxs)):
+            #     e = min(len(idxs[i]), max_ns)
+            #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
+            #         n_motif_labels += 1
 
             n_ct = len(cinds)
             if ct in motif:
