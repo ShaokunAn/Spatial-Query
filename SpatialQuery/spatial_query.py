@@ -234,7 +234,8 @@ class spatial_query:
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         dists, idxs = self.kd_tree.query(self.spatial_pos,
-                                         k=k + 1)  # use k+1 to find the knn except for the points themselves
+                                         k=k + 1, workers=-1
+                                         )  # use k+1 to find the knn except for the points themselves
         dists = np.array(dists)
         idxs = np.array(idxs)  # c++ can access Numpy directly without duplicating data
 
@@ -348,7 +349,7 @@ class spatial_query:
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
-        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True)
+        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True, workers=-1)
         cinds = [i for i, label in enumerate(self.labels) if label == ct]
         idxs = idxs.tolist()
 
@@ -445,7 +446,7 @@ class spatial_query:
             cell_pos = self.spatial_pos
 
         start = time.time()
-        idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False)
+        idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False, workers=-1)
         if cinds is None:
             cinds = list(range(len(idxs)))
         end = time.time()
@@ -528,7 +529,7 @@ class spatial_query:
         if cell_pos is None:
             cell_pos = self.spatial_pos
         start = time.time()
-        dists, idxs = self.kd_tree.query(cell_pos, k=k + 1)
+        dists, idxs = self.kd_tree.query(cell_pos, k=k + 1, workers=-1)
         end = time.time()
         print(f"knn query: {end-start} seconds")
 
@@ -922,7 +923,7 @@ class spatial_query:
 
         # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
         # so recalculate the idxs directly using self.kd_tree.query_ball_point
-        idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True)
+        idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True, workers=-1)
 
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
@@ -1031,7 +1032,7 @@ class spatial_query:
         pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
                                np.random.rand(n_points) * (ymax - ymin) + ymin))
 
-        idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=True)
+        idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=True, workers=-1)
 
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
@@ -1121,7 +1122,7 @@ class spatial_query:
 
         cinds = [i for i, label in enumerate(self.labels) if label == ct]  # id of center cell type
         # ct_pos = self.spatial_pos[cinds]
-        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True)
+        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True, workers=-1)
 
         # find the index of cell type spots whose neighborhoods contain given motif
         cind_with_motif = []
