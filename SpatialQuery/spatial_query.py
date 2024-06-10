@@ -11,6 +11,7 @@ import seaborn as sns
 from anndata import AnnData
 from mlxtend.frequent_patterns import fpgrowth
 from mlxtend.preprocessing import TransactionEncoder
+from sklearn.preprocessing import MultiLabelBinarizer
 from pandas import DataFrame
 from scipy.sparse import csr_matrix
 from scipy.spatial import KDTree
@@ -470,9 +471,9 @@ class spatial_query:
         print(f"build transactions: {end-start} seconds")
         # Convert transactions to a DataFrame suitable for fpgrowth
         start = time.time()
-        te = TransactionEncoder()
-        te_ary = te.fit(transactions).transform(transactions)
-        df = pd.DataFrame(te_ary, columns=te.columns_)
+        mlb = MultiLabelBinarizer()
+        encoded_data = mlb.fit_transform(transactions)
+        df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
 
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
@@ -561,9 +562,9 @@ class spatial_query:
 
         # Convert transactions to a DataFrame suitable for fpgrowth
         start = time.time()
-        te = TransactionEncoder()
-        te_ary = te.fit(transactions).transform(transactions)
-        df = pd.DataFrame(te_ary, columns=te.columns_)
+        mlb = MultiLabelBinarizer()
+        encoded_data = mlb.fit_transform(transactions)
+        df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
 
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
@@ -581,13 +582,10 @@ class spatial_query:
         if len(fp_tree) == 0:
             return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
         else:
-            start = time.time()
             fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
             fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
             fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
             fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
-            end = time.time()
-            print(f"format output: {end-start} seconds")
             return fp_tree, df, idxs
 
     def find_patterns_grid(self,
