@@ -1,5 +1,4 @@
-from setuptools import setup, find_packages, Extension
-import pybind11
+from setuptools import setup, find_packages
 
 setup(
     name='SpatialQuery',

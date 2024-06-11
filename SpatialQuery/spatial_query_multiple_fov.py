@@ -206,7 +206,7 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n "
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
-        start = time.time()
+        # start = time.time()
         transactions = []
         for s in self.spatial_queries:
             if s.dataset.split('_')[0] not in dataset:
@@ -226,27 +226,27 @@ class spatial_query_multi:
                 if len(transaction) > min_size:
                     transactions.append(transaction)
 
-        end = time.time()
-        print(f"time for building {len(transactions)} transactions: {end-start} seconds.")
+        # end = time.time()
+        # print(f"time for building {len(transactions)} transactions: {end-start} seconds.")
 
-        start = time.time()
+        # start = time.time()
         mlb = MultiLabelBinarizer()
         encoded_data = mlb.fit_transform(transactions)
         df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
-        end = time.time()
-        print(f"time for building df for fpgrowth: {end - start} seconds")
+        # end = time.time()
+        # print(f"time for building df for fpgrowth: {end - start} seconds")
 
-        start = time.time()
+        # start = time.time()
         fp = fpgrowth(df, min_support=min_support, use_colnames=True)
         if len(fp) == 0:
             return pd.DataFrame(columns=['support', 'itemsets'])
-        end = time.time()
-        print(f"time for find fp_growth: {end - start} seconds, {len(fp)} frequent patterns.")
+        # end = time.time()
+        # print(f"time for find fp_growth: {end - start} seconds, {len(fp)} frequent patterns.")
 
-        start = time.time()
+        # start = time.time()
         fp = spatial_query.find_maximal_patterns(fp=fp)
-        end = time.time()
-        print(f"time for identify maximal patterns: {end - start} seconds")
+        # end = time.time()
+        # print(f"time for identify maximal patterns: {end - start} seconds")
 
         fp['itemsets'] = fp['itemsets'].apply(lambda x: list(sorted(x)))
         fp.sort_values(by='support', ascending=False, inplace=True, ignore_index=True)
@@ -554,7 +554,6 @@ class spatial_query_multi:
 
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
-            print(f"n_labels: {n_labels}")
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
                          'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
