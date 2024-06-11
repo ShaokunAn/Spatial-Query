@@ -1,7 +1,6 @@
 from collections import Counter
 from itertools import combinations
 from typing import List, Union
-import time
 
 import matplotlib.pyplot as plt
 import statsmodels.stats.multitest as mt
@@ -10,13 +9,10 @@ import pandas as pd
 import seaborn as sns
 from anndata import AnnData
 from mlxtend.frequent_patterns import fpgrowth
-from mlxtend.preprocessing import TransactionEncoder
 from sklearn.preprocessing import MultiLabelBinarizer
 from pandas import DataFrame
-from scipy.sparse import csr_matrix
 from scipy.spatial import KDTree
 from scipy.stats import hypergeom
-import spatial_module_utils
 from sklearn.preprocessing import LabelEncoder
 
 
@@ -237,9 +233,6 @@ class spatial_query:
         dists, idxs = self.kd_tree.query(self.spatial_pos,
                                          k=k + 1, workers=-1
                                          )  # use k+1 to find the knn except for the points themselves
-        dists = np.array(dists)
-        idxs = np.array(idxs)  # c++ can access Numpy directly without duplicating data
-
         cinds = [i for i, l in enumerate(self.labels) if l == ct]
 
         out = []
@@ -288,7 +281,6 @@ class spatial_query:
 
             neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
 
-            # 过滤包含特定细胞类型的cells
             mask = int_labels == int_ct
             n_motif_ct = np.sum(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))
             n_motif_labels = np.sum(np.all(neighbor_counts[:, int_motifs] > 0, axis=1))
@@ -324,7 +316,7 @@ class spatial_query:
                               max_dist: float = 100,
                               min_size: int = 0,
                               min_support: float = 0.5,
-                              max_ns: int = 1000000) -> DataFrame:
+                              max_ns: int = 100) -> DataFrame:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood.
 
@@ -352,7 +344,6 @@ class spatial_query:
 
         idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True, workers=-1)
         cinds = [i for i, label in enumerate(self.labels) if label == ct]
-        idxs = idxs.tolist()
 
         out = []
         if motifs is None:
@@ -374,11 +365,36 @@ class spatial_query:
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
-            n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_dist(
-                motif, idxs, self.labels, cinds, max_ns
 
-            )
+            # using C++ codes
+            # idxs = idxs.tolist()
+            # n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_dist(
+            #     motif, idxs, self.labels, cinds, max_ns
+            # )
 
+            # using numpy
+            label_encoder = LabelEncoder()
+            int_labels = label_encoder.fit_transform(np.array(self.labels))
+            int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
+            int_motifs = label_encoder.transform(np.array(motif))
+
+            num_cells = len(idxs)
+            num_types = len(label_encoder.classes_)
+            # filter center out of neighbors
+            idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in enumerate(idxs)]
+
+            flat_neighbors = np.concatenate(idxs_filter)
+            row_indices = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_filter])
+            neighbor_labels = int_labels[flat_neighbors]
+
+            neighbor_matrix = np.zeros((num_cells, num_types), dtype=int)
+            np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
+
+            mask = int_labels == int_ct
+            n_motif_ct = np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
+            n_motif_labels = np.sum(np.all(neighbor_matrix[:, int_motifs] > 0, axis=1))
+
+            # original codes, low efficient
             # n_motif_ct = 0
             # for i in cinds:
             #     e = min(len(idxs[i]), max_ns)
@@ -446,15 +462,15 @@ class spatial_query:
         if cell_pos is None:
             cell_pos = self.spatial_pos
 
-        start = time.time()
+        # start = time.time()
         idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False, workers=-1)
         if cinds is None:
             cinds = list(range(len(idxs)))
-        end = time.time()
-        print("query: {end-start} seconds")
+        # end = time.time()
+        # print("query: {end-start} seconds")
 
         # Prepare data for FP-Tree construction
-        start = time.time()
+        # start = time.time()
         transactions = []
         valid_idxs = []
         labels = np.array(self.labels)
@@ -467,23 +483,23 @@ class spatial_query:
             if len(transaction) > min_size:
                 transactions.append(transaction.tolist())
                 valid_idxs.append(idx)
-        end = time.time()
-        print(f"build transactions: {end-start} seconds")
+        # end = time.time()
+        # print(f"build transactions: {end-start} seconds")
         # Convert transactions to a DataFrame suitable for fpgrowth
-        start = time.time()
+        # start = time.time()
         mlb = MultiLabelBinarizer()
         encoded_data = mlb.fit_transform(transactions)
         df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
 
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
-        end = time.time()
-        print(f"fp_growth: {end-start} seconds")
+        # end = time.time()
+        # print(f"fp_growth: {end-start} seconds")
         if if_max:
-            start = time.time()
+            # start = time.time()
             fp_tree = self.find_maximal_patterns(fp=fp_tree)
-            end = time.time()
-            print(f"find_maximal_patterns: {end-start} seconds")
+            # end = time.time()
+            # print(f"find_maximal_patterns: {end-start} seconds")
 
         # Remove suffix of items if treating duplicates as different items
         # if dis_duplicates:
@@ -529,13 +545,13 @@ class spatial_query:
         """
         if cell_pos is None:
             cell_pos = self.spatial_pos
-        start = time.time()
+        # start = time.time()
         dists, idxs = self.kd_tree.query(cell_pos, k=k + 1, workers=-1)
-        end = time.time()
-        print(f"knn query: {end-start} seconds")
+        # end = time.time()
+        # print(f"knn query: {end-start} seconds")
 
         # Prepare data for FP-Tree construction
-        start = time.time()
+        # start = time.time()
         idxs = np.array(idxs)
         dists = np.array(dists)
         labels = np.array(self.labels)
@@ -548,8 +564,8 @@ class spatial_query:
             #     transaction = distinguish_duplicates_numpy(transaction)
             transactions.append(transaction)  # 将 NumPy 数组转换回列表
 
-        end = time.time()
-        print(f"build transactions: {end-start} seconds")
+        # end = time.time()
+        # print(f"build transactions: {end-start} seconds")
 
         # transactions = []
         # for i, idx in enumerate(idxs):
@@ -561,21 +577,21 @@ class spatial_query:
         #     transactions.append(transaction)
 
         # Convert transactions to a DataFrame suitable for fpgrowth
-        start = time.time()
+        # start = time.time()
         mlb = MultiLabelBinarizer()
         encoded_data = mlb.fit_transform(transactions)
         df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
 
         # Construct FP-Tree using fpgrowth
         fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
-        end = time.time()
-        print(f"fp-growth: {end-start} seconds")
+        # end = time.time()
+        # print(f"fp-growth: {end-start} seconds")
 
         if if_max:
-            start = time.time()
+            # start = time.time()
             fp_tree = self.find_maximal_patterns(fp_tree)
-            end = time.time()
-            print(f"find_maximal_patterns: {end-start} seconds")
+            # end = time.time()
+            # print(f"find_maximal_patterns: {end-start} seconds")
 
         # if dis_duplicates:
         #     fp_tree = self._remove_suffix(fp_tree)
@@ -921,7 +937,7 @@ class spatial_query:
 
         # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
         # so recalculate the idxs directly using self.kd_tree.query_ball_point
-        idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=True, workers=-1)
+        idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=False, workers=-1)
 
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
@@ -1030,7 +1046,7 @@ class spatial_query:
         pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
                                np.random.rand(n_points) * (ymax - ymin) + ymin))
 
-        idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=True, workers=-1)
+        idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=False, workers=-1)
 
         # Locate the index of grid points acting as centers with motif nearby
         id_center = []
@@ -1120,7 +1136,7 @@ class spatial_query:
 
         cinds = [i for i, label in enumerate(self.labels) if label == ct]  # id of center cell type
         # ct_pos = self.spatial_pos[cinds]
-        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True, workers=-1)
+        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=False, workers=-1)
 
         # find the index of cell type spots whose neighborhoods contain given motif
         cind_with_motif = []
