@@ -791,7 +791,7 @@ class spatial_query_multi:
         fp_dataset1 = fp_dataset1.reset_index(drop=True)
         fp_dataset0 = fp_dataset0.sort_values(by='corrected_p_values', ascending=True)
         fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
-        return fp_dataset0, fp_dataset1
+        return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
 
     def differential_analysis_dist(self,
                                    ct: str,
@@ -912,4 +912,4 @@ class spatial_query_multi:
         fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
         fp_dataset0 = fp_dataset0.reset_index(drop=True)
         fp_dataset1 = fp_dataset1.reset_index(drop=True)
-        return fp_dataset0, fp_dataset1
+        return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
