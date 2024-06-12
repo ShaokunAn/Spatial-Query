@@ -434,7 +434,7 @@ class spatial_query:
                           if_max: bool = True,
                           min_size: int = 0,
                           cinds: List[int] = None,
-                          max_ns: int = 1000000) -> tuple:
+                          max_ns: int = 100) -> tuple:
         """
         Build a frequency pattern tree based on the distance of cell types.
 
@@ -475,6 +475,8 @@ class spatial_query:
         valid_idxs = []
         labels = np.array(self.labels)
         for i_idx, idx in zip(cinds, idxs):
+            if not idx:
+                continue
             idx_array = np.array(idx)
             valid_mask = idx_array != i_idx
             valid_indices = idx_array[valid_mask][:max_ns]
@@ -482,7 +484,7 @@ class spatial_query:
             transaction = labels[valid_indices]
             if len(transaction) > min_size:
                 transactions.append(transaction.tolist())
-                valid_idxs.append(idx)
+                valid_idxs.append(valid_indices)
         # end = time.time()
         # print(f"build transactions: {end-start} seconds")
         # Convert transactions to a DataFrame suitable for fpgrowth
@@ -559,6 +561,8 @@ class spatial_query:
         mask = dists < max_dist
         for i, idx in enumerate(idxs):
             inds = idx[mask[i]]
+            if len(inds) == 0:
+                continue
             transaction = labels[inds[1:]]
             # if dis_duplicates:
             #     transaction = distinguish_duplicates_numpy(transaction)
@@ -646,9 +650,13 @@ class spatial_query:
         y_grid = np.arange(ymin - max_dist, ymax + max_dist, max_dist)
         grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
 
-        fp, trans_df, idxs = self.build_fptree_dist(cell_pos=grid,
-                                                    max_dist=max_dist, min_size=min_size,
-                                                    min_support=min_support)
+        fp, trans_df, idxs = self.build_fptree_dist(
+            cell_pos=grid,
+            max_dist=max_dist,
+            min_size=min_size,
+            min_support=min_support,
+            if_max=True,
+        )
 
         # For each frequent pattern/motif, locate the cell IDs in the neighborhood of the above grid points
         # as well as labelled with cell types in motif.
@@ -766,10 +774,13 @@ class spatial_query:
         pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
                                np.random.rand(n_points) * (ymax - ymin) + ymin))
 
-        fp, trans_df, idxs = self.build_fptree_dist(cell_pos=pos,
-                                                    max_dist=max_dist, min_size=min_size,
-                                                    min_support=min_support,
-                                                    )
+        fp, trans_df, idxs = self.build_fptree_dist(
+            cell_pos=pos,
+            max_dist=max_dist,
+            min_size=min_size,
+            min_support=min_support,
+            if_max=True,
+        )
         # if dis_duplicates:
         #     normalized_columns = [col.split('_')[0] for col in trans_df.columns]
         #     trans_df.columns = normalized_columns
@@ -1139,17 +1150,45 @@ class spatial_query:
         idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=False, workers=-1)
 
         # find the index of cell type spots whose neighborhoods contain given motif
-        cind_with_motif = []
-        sort_motif = sorted(motif)
-        for id in cinds:
-            if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[id] if idx != id]):
-                cind_with_motif.append(id)
+        # cind_with_motif = []
+        # sort_motif = sorted(motif)
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(np.array(self.labels))
+        int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
+        int_motifs = label_encoder.transform(np.array(motif))
+
+        num_cells = len(idxs)
+        num_types = len(label_encoder.classes_)
+        idxs_filter = [np.array(ids)[np.array(ids) != i] for i, ids in enumerate(idxs)]
+
+        flat_neighbors = np.concatenate(idxs_filter)
+        row_indices = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_filter])
+        neighbor_labels = int_labels[flat_neighbors]
+
+        neighbor_matrix = np.zeros((num_cells, num_types), dtype=int)
+        np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
+
+        mask = int_labels == int_ct
+        inds = np.where(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))[0]
+        cind_with_motif = [cinds[i] for i in inds]
+
+        # for id in cinds:
+        #
+        #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[id] if idx != id]):
+        #         cind_with_motif.append(id)
 
         # Locate the index of motifs in the neighborhood of center cell type.
-        id_motif_celltype = set()
-        for id in cind_with_motif:
-            id_neighbor = [i for i in idxs[id] if self.labels[i] in motif and i != id]
-            id_motif_celltype.update(id_neighbor)
+
+        motif_mask = np.isin(np.array(self.labels), motif)
+        all_neighbors = np.concatenate(idxs[cind_with_motif])
+        exclude_self_mask = ~np.isin(all_neighbors, cind_with_motif)
+        valid_neighbors = all_neighbors[motif_mask[all_neighbors] & exclude_self_mask]
+        id_motif_celltype = set(valid_neighbors)
+
+        # id_motif_celltype = set()
+        # for id in cind_with_motif:
+        #     id_neighbor = [i for i in idxs[id] if self.labels[i] in motif and i != id]
+        #     id_motif_celltype.update(id_neighbor)
 
         # Plot figures
         motif_unique = set(motif)
@@ -1160,7 +1199,10 @@ class spatial_query:
         motif_spot_label = self.labels[list(id_motif_celltype)]
         fig, ax = plt.subplots(figsize=fig_size)
         # Plotting other spots as background
-        bg_index = [i for i, _ in enumerate(self.labels) if i not in list(id_motif_celltype) + cind_with_motif]
+        labels_length = len(self.labels)
+        id_motif_celltype_set = set(id_motif_celltype)
+        cind_with_motif_set = set(cind_with_motif)
+        bg_index = [i for i in range(labels_length) if i not in id_motif_celltype_set and i not in cind_with_motif_set]
         bg_adata = self.spatial_pos[bg_index, :]
         ax.scatter(bg_adata[:, 0],
                    bg_adata[:, 1],
