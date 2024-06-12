@@ -18,7 +18,7 @@ For multiple-FOVs data, it contains methods:
 ### Installation
 
 ```
-pip install SpatialQuery
+pip install -i https://test.pypi.org/simple/ SpatialQuery
 ```
 
 
