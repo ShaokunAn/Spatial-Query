@@ -4,7 +4,7 @@ setup(
     name='SpatialQuery',
     version='0.1.4',
     packages=find_packages(),
-    # url='https://github.com/ShaokunAn/Spatial-Query',
+    url='https://github.com/ShaokunAn/Spatial-Query',
     license='MIT',
     author='Shaokun An',
     author_email='shan12@bwh.harvard.edu',
@@ -22,7 +22,7 @@ setup(
         'anndata>=0.8.0',
         'numpy>=1.24.4',
         'pandas>=2.0.3',
-        'scipy>=1.10.1'
+        'scipy'
     ],
 
 )
