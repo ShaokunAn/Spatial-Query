@@ -20,9 +20,11 @@ setup(
     install_requires=[
         'setuptools>=68.0.0',
         'anndata>=0.8.0',
-        'numpy>=1.24.4',
         'pandas>=2.0.3',
-        'scipy'
+        'scipy',
+        'matplotlib>=3.7.5',
+        'mlxtend>=0.23.1',
+        'seaborn>=0.13.2',
+        'scikit-learn>=1.3.2',
     ],
-
 )
