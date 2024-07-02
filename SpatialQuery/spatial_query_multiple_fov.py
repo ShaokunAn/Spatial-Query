@@ -497,32 +497,46 @@ class spatial_query_multi:
                     continue
                 else:
                     n_labels += labels.shape[0]
-                    idxs = s.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False, workers=-1)
+                    _, matching_cells_indices = s._query_pattern(motif)
+                    matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
+                    matching_cells_indices = np.unique(matching_cells_indices)
+                    matching_cells_indices.sort()
+                    print(f"number of cells skipped: {len(matching_cells_indices)}")
+                    print(f"proportion of cells searched: {len(matching_cells_indices) / len(s.spatial_pos)}")
+                    idxs_in_grids = s.kd_tree.query_ball_point(
+                        s.spatial_pos[matching_cells_indices],
+                        r=max_dist,
+                        return_sorted=False,
+                        workers=-1
+                    )
+
                     # using numppy
                     label_encoder = LabelEncoder()
                     int_labels = label_encoder.fit_transform(labels)
                     int_motifs = label_encoder.transform(np.array(motif))
 
-                    num_cells = len(idxs)
+                    num_cells = len(s.spatial_pos)
                     num_types = len(label_encoder.classes_)
                     # filter center out of neighbors
                     idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in
-                                   enumerate(idxs)]
+                                   zip(matching_cells_indices, idxs_in_grids)]
 
+                    num_matching_cells = len(matching_cells_indices)
                     flat_neighbors = np.concatenate(idxs_filter)
-                    row_indices = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_filter])
+                    row_indices = np.repeat(np.arange(num_matching_cells), [len(neigh) for neigh in idxs_filter])
                     neighbor_labels = int_labels[flat_neighbors]
 
-                    neighbor_matrix = np.zeros((num_cells, num_types), dtype=int)
+                    neighbor_matrix = np.zeros((num_matching_cells, num_types), dtype=int)
                     np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
 
                     n_motif_labels += np.sum(np.all(neighbor_matrix[:, int_motifs] > 0, axis=1))
 
                     if ct in np.unique(labels):
                         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
-                        mask = int_labels == int_ct
+                        mask = int_labels[matching_cells_indices] == int_ct
+                        print(f"{np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))} n_center_motif")
                         n_motif_ct += np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
-                        n_ct += np.sum(mask)
+                        n_ct += np.sum(s.labels == ct)
 
                 # ~10s using C++ codes
                 # idxs = idxs.tolist()
