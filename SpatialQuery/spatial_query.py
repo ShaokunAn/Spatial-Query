@@ -14,7 +14,7 @@ from pandas import DataFrame
 from scipy.spatial import KDTree
 from scipy.stats import hypergeom
 from sklearn.preprocessing import LabelEncoder
-
+import time
 
 class spatial_query:
     def __init__(self,
@@ -22,7 +22,10 @@ class spatial_query:
                  dataset: str = 'ST',
                  spatial_key: str = 'X_spatial',
                  label_key: str = 'predicted_label',
-                 leaf_size: int = 10):
+                 leaf_size: int = 10,
+                 overlap_radius: float = 100,
+                 n_split: int = 10
+                 ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
         # Store spatial position and cell type label
@@ -33,6 +36,43 @@ class spatial_query:
         self.labels = adata.obs[self.label_key]
         self.labels = self.labels.astype('category')
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
+        self.overlap_radius = overlap_radius,
+        self.n_split = n_split
+        self.grid_cell_types, self.grid_indices = self._initialize_grids()
+
+    def _initialize_grids(self):
+        xmax, ymax = np.max(self.spatial_pos, axis=0)
+        xmin, ymin = np.min(self.spatial_pos, axis=0)
+        x_step = (xmax - xmin) / self.n_split  # separate x axis into self.n_split parts
+        y_step = (ymax - ymin) / self.n_split  # separate y axis into self.n_split parts
+
+        grid_cell_types = {}
+        grid_indices = {}
+
+        for i in range(10):
+            for j in range(10):
+                x_start = xmin + i * x_step - (self.overlap_radius if i > 0 else 0)
+                x_end = xmin + (i + 1) * x_step + (self.overlap_radius if i < (self.n_split - 1) else 0)
+                y_start = ymin + j * y_step - (self.overlap_radius if j > 0 else 0)
+                y_end = ymin + (j + 1) * y_step + (self.overlap_radius if j < (self.n_split - 1) else 0)
+
+                cell_mask = (self.spatial_pos[:, 0] >= x_start) & (self.spatial_pos[:, 0] <= x_end) & \
+                            (self.spatial_pos[:, 1] >= y_start) & (self.spatial_pos[:, 1] <= y_end)
+
+                grid_indices[(i, j)] = np.where(cell_mask)[0]
+                grid_cell_types[(i, j)] = set(self.labels[cell_mask])
+
+        return grid_cell_types, grid_indices
+
+    def _query_pattern(self, pattern):
+        matching_grids = []
+        matching_cells_indices = {}
+        for grid, cell_types in self.grid_cell_types.items():
+            if all(cell_type in cell_types for cell_type in pattern):
+                matching_grids.append(grid)
+                indices = self.grid_indices[grid]
+                matching_cells_indices[grid] = indices
+        return matching_grids, matching_cells_indices
 
     @staticmethod
     def has_motif(neighbors: List[str], labels: List[str]) -> bool:
@@ -342,9 +382,6 @@ class spatial_query:
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
-        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=True, workers=-1)
-        cinds = [i for i, label in enumerate(self.labels) if label == ct]
-
         out = []
         if motifs is None:
             fp = self.find_fp_dist(ct=ct,
@@ -366,11 +403,18 @@ class spatial_query:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
 
-            # using C++ codes
-            # idxs = idxs.tolist()
-            # n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_dist(
-            #     motif, idxs, self.labels, cinds, max_ns
-            # )
+            _, matching_cells_indices = self._query_pattern(motif)
+            matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
+            matching_cells_indices = np.unique(matching_cells_indices)
+            print(f"number of cells skipped: {len(matching_cells_indices)}")
+            print(f"proportion of cells searched: {len(matching_cells_indices) / len(self.spatial_pos)}")
+            idxs_in_grids = self.kd_tree.query_ball_point(
+                self.spatial_pos[matching_cells_indices],
+                r=max_dist,
+                return_sorted=True,
+                workers=-1
+            )
+            cinds = np.where(self.labels == ct)[0]
 
             # using numpy
             label_encoder = LabelEncoder()
@@ -378,19 +422,19 @@ class spatial_query:
             int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
             int_motifs = label_encoder.transform(np.array(motif))
 
-            num_cells = len(idxs)
+            num_cells = len(self.spatial_pos)
             num_types = len(label_encoder.classes_)
             # filter center out of neighbors
-            idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in enumerate(idxs)]
+            idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in zip(matching_cells_indices, idxs_in_grids)]
 
             flat_neighbors = np.concatenate(idxs_filter)
-            row_indices = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_filter])
+            row_indices = np.repeat(np.arange(len(matching_cells_indices)), [len(neigh) for neigh in idxs_filter])
             neighbor_labels = int_labels[flat_neighbors]
 
-            neighbor_matrix = np.zeros((num_cells, num_types), dtype=int)
+            neighbor_matrix = np.zeros((len(matching_cells_indices), num_types), dtype=int)
             np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
 
-            mask = int_labels == int_ct
+            mask = int_labels[matching_cells_indices] == int_ct
             n_motif_ct = np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
             n_motif_labels = np.sum(np.all(neighbor_matrix[:, int_motifs] > 0, axis=1))
 
