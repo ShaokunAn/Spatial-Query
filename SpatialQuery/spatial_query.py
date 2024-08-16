@@ -244,6 +244,7 @@ class spatial_query:
                              k: int = 30,
                              min_support: float = 0.5,
                              max_dist: float = 200,
+                             return_cellID: bool = False
                              ) -> pd.DataFrame:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN).
@@ -261,6 +262,9 @@ class spatial_query:
             Threshold of frequency to consider a pattern as a frequent pattern.
         max_dist:
             Maximum distance for neighbors (default: 200).
+        return_cellID:
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
+            By defaults do not return cell ID.
 
         Return
         ------
@@ -295,39 +299,36 @@ class spatial_query:
         if len(motifs) == 0:
             raise ValueError("No frequent patterns were found. Please lower min_support value.")
 
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(self.labels)
+        int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
+
+        num_cells = idxs.shape[0]
+        num_types = len(label_encoder.classes_)
+
+        valid_neighbors = dists[:, 1:] <= max_dist
+        filtered_idxs = np.where(valid_neighbors, idxs[:, 1:], -1)
+        flat_neighbors = filtered_idxs.flatten()
+        valid_neighbors_flat = valid_neighbors.flatten()
+
+        neighbor_labels = np.where(valid_neighbors_flat, int_labels[flat_neighbors], -1)
+        valid_mask = neighbor_labels != -1
+
+        neighbor_matrix = np.zeros((num_cells * k, num_types), dtype=int)
+        neighbor_matrix[np.arange(len(neighbor_labels))[valid_mask], neighbor_labels[valid_mask]] = 1
+
+        neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
+
+        mask = int_labels == int_ct
+
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
 
-            label_encoder = LabelEncoder()
-            int_labels = label_encoder.fit_transform(self.labels)
-            int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
             int_motifs = label_encoder.transform(np.array(motif))
 
-            num_cells = idxs.shape[0]
-            num_types = len(label_encoder.classes_)
-
-            valid_neighbors = dists[:, 1:] <= max_dist
-            filtered_idxs = np.where(valid_neighbors, idxs[:, 1:], -1)
-
-            flat_neighbors = filtered_idxs.flatten()
-            valid_neighbors_flat = valid_neighbors.flatten()
-
-            neighbor_labels = np.where(valid_neighbors_flat, int_labels[flat_neighbors], -1)
-            valid_mask = neighbor_labels != -1
-
-            neighbor_matrix = np.zeros((num_cells * k, num_types), dtype=int)
-            neighbor_matrix[np.arange(len(neighbor_labels))[valid_mask], neighbor_labels[valid_mask]] = 1
-
-            neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
-
-            mask = int_labels == int_ct
             n_motif_ct = np.sum(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))
             n_motif_labels = np.sum(np.all(neighbor_counts[:, int_motifs] > 0, axis=1))
-
-            # n_motif_ct, n_motif_labels = spatial_module_utils.search_motif_knn(
-            #     motif, idxs, dists, self.labels, cinds, max_dist,
-            # )
 
             n_ct = len(cinds)
             if ct in motif:
@@ -337,6 +338,17 @@ class spatial_query:
             # M is number of total, N is number of drawn without replacement, n is number of success in total
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
                          'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
+
+            if return_cellID:
+                inds = np.where(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))[0]
+                cind_with_motif = [cinds[i] for i in inds]
+                motif_mask = np.isin(np.array(self.labels), motif)
+                neighbors = np.concatenate(idxs[cind_with_motif])
+                exclude_self_mask = ~np.isin(neighbors, cind_with_motif)
+                valid_neighbors = neighbors[motif_mask[neighbors] & exclude_self_mask]
+                id_motif_celltype = set(valid_neighbors)
+                motif_out['cell_id'] = np.array(list(id_motif_celltype))
+
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
@@ -356,7 +368,9 @@ class spatial_query:
                               max_dist: float = 100,
                               min_size: int = 0,
                               min_support: float = 0.5,
-                              max_ns: int = 100) -> DataFrame:
+                              max_ns: int = 100,
+                              return_cellID: bool = False,
+                              ) -> DataFrame:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood.
 
@@ -375,6 +389,9 @@ class spatial_query:
             Threshold of frequency to consider a pattern as a frequent pattern.
         max_ns:
             Maximum number of neighborhood size for each point.
+        return_cellID:
+            Indicate whether return cell IDs for each motif within the neighborhood of central cell type.
+            By defaults do not return cell ID.
         Returns
         -------
         Tuple containing counts and statistical measures.
@@ -399,6 +416,28 @@ class spatial_query:
             motifs = [m for m in motifs if m not in motifs_exc]
             motifs = [motifs]
 
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(np.array(self.labels))
+        int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
+
+        cinds = np.where(self.labels == ct)[0]
+
+        num_cells = len(self.spatial_pos)
+        num_types = len(label_encoder.classes_)
+
+        if return_cellID:
+            idxs_all = self.kd_tree.query_ball_point(
+                self.spatial_pos,
+                r=max_dist,
+                return_sorted=False,
+                workers=-1,
+            )
+            idxs_all_filter = [np.array(ids)[np.array(ids) != i] for i, ids in enumerate(idxs_all)]
+            flat_neighbors_all = np.concatenate(idxs_all_filter)
+            row_indices_all = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_all_filter])
+            neighbor_labels_all = int_labels[flat_neighbors_all]
+            mask_all = int_labels == int_ct
+
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
@@ -414,16 +453,10 @@ class spatial_query:
                 return_sorted=True,
                 workers=-1
             )
-            cinds = np.where(self.labels == ct)[0]
 
             # using numpy
-            label_encoder = LabelEncoder()
-            int_labels = label_encoder.fit_transform(np.array(self.labels))
-            int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
             int_motifs = label_encoder.transform(np.array(motif))
 
-            num_cells = len(self.spatial_pos)
-            num_types = len(label_encoder.classes_)
             # filter center out of neighbors
             idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in zip(matching_cells_indices, idxs_in_grids)]
 
@@ -438,19 +471,6 @@ class spatial_query:
             n_motif_ct = np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
             n_motif_labels = np.sum(np.all(neighbor_matrix[:, int_motifs] > 0, axis=1))
 
-            # original codes, low efficient
-            # n_motif_ct = 0
-            # for i in cinds:
-            #     e = min(len(idxs[i]), max_ns)
-            #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
-            #         n_motif_ct += 1
-            #
-            # n_motif_labels = 0
-            # for i in range(len(idxs)):
-            #     e = min(len(idxs[i]), max_ns)
-            #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[i][:e] if idx != i]):
-            #         n_motif_labels += 1
-
             n_ct = len(cinds)
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
@@ -458,6 +478,19 @@ class spatial_query:
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
                          'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
+
+            if return_cellID:
+                neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
+                np.add.at(neighbor_matrix_all, (row_indices_all, neighbor_labels_all), 1)
+                inds_all = np.where(np.all(neighbor_matrix_all[mask_all][:, int_motifs] > 0, axis=1))[0]
+                cind_with_motif = [cinds[i] for i in inds_all]
+                motif_mask = np.isin(np.array(self.labels), motif)
+                all_neighbors = np.concatenate(idxs_all[cind_with_motif])
+                exclude_self_mask = ~np.isin(all_neighbors, cind_with_motif)
+                valid_neighbors = all_neighbors[motif_mask[all_neighbors] & exclude_self_mask]
+                id_motif_celltype = set(valid_neighbors)
+                motif_out['cell_id'] = np.array(list(id_motif_celltype))
+
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
