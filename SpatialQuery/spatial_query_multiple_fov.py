@@ -21,7 +21,10 @@ class spatial_query_multi:
                  datasets: List[str],
                  spatial_key: str,
                  label_key: str,
-                 leaf_size: int):
+                 leaf_size: int, 
+                 overlap_radius: float = 100,
+                 n_split: int = 10,
+                 ):
         """
         Initiate models, including setting attributes and building kd-tree for each field of view.
 
@@ -62,7 +65,10 @@ class spatial_query_multi:
         self.spatial_queries = [spatial_query(adata=adata, dataset=self.datasets[i],
                                               spatial_key=spatial_key,
                                               label_key=label_key,
-                                              leaf_size=leaf_size) for i, adata in enumerate(adatas)]
+                                              leaf_size=leaf_size,
+                                              overlap_radius=overlap_radius,
+                                              n_split=n_split,
+                                              ) for i, adata in enumerate(adatas)]
 
     def find_fp_knn(self,
                     ct: str,

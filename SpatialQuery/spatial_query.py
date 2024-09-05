@@ -48,6 +48,7 @@ class spatial_query:
 
         grid_cell_types = {}
         grid_indices = {}
+        print(f"self.overlap_radius: {self.overlap_radius}")
 
         for i in range(10):
             for j in range(10):
