@@ -56,8 +56,8 @@ class spatial_query:
                 y_start = ymin + j * y_step - (self.overlap_radius if j > 0 else 0)
                 y_end = ymin + (j + 1) * y_step + (self.overlap_radius if j < (self.n_split - 1) else 0)
 
-                cell_mask = (self.spatial_pos[:, 0] >= x_start) & (self.spatial_pos[:, 0] <= x_end) & \
-                            (self.spatial_pos[:, 1] >= y_start) & (self.spatial_pos[:, 1] <= y_end)
+                cell_mask = (self.spatial_pos.iloc[:, 0] >= x_start) & (self.spatial_pos.iloc[:, 0] <= x_end) & \
+                            (self.spatial_pos.iloc[:, 1] >= y_start) & (self.spatial_pos.iloc[:, 1] <= y_end)
 
                 grid_indices[(i, j)] = np.where(cell_mask)[0]
                 grid_cell_types[(i, j)] = set(self.labels[cell_mask])
@@ -1064,8 +1064,8 @@ class spatial_query:
                     i not in id_motif_celltype]  # the other spots are colored as background
         # bg_adata = self.adata[bg_index, :]
         bg_pos = self.spatial_pos[bg_index, :]
-        ax.scatter(bg_pos[:, 0],
-                   bg_pos[:, 1],
+        ax.scatter(bg_pos.iloc[:, 0],
+                   bg_pos.iloc[:, 1],
                    color='darkgrey', s=1)
 
         motif_unique = list(set(motif))
@@ -1166,8 +1166,8 @@ class spatial_query:
         bg_index = [i for i, _ in enumerate(self.labels) if
                     i not in id_motif_celltype]  # the other spots are colored as background
         bg_adata = self.spatial_pos[bg_index, :]
-        ax.scatter(bg_adata[:, 0],
-                   bg_adata[:, 1],
+        ax.scatter(bg_adata.iloc[:, 0],
+                   bg_adata.iloc[:, 1],
                    color='darkgrey', s=1)
         motif_unique = list(set(motif))
         for ct in motif_unique:
@@ -1281,8 +1281,8 @@ class spatial_query:
         cind_with_motif_set = set(cind_with_motif)
         bg_index = [i for i in range(labels_length) if i not in id_motif_celltype_set and i not in cind_with_motif_set]
         bg_adata = self.spatial_pos[bg_index, :]
-        ax.scatter(bg_adata[:, 0],
-                   bg_adata[:, 1],
+        ax.scatter(bg_adata.iloc[:, 0],
+                   bg_adata.iloc[:, 1],
                    color='darkgrey', s=1)
         # Plot center the cell type whose neighborhood contains motif
         ax.scatter(self.spatial_pos[cind_with_motif, 0],
