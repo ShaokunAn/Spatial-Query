@@ -30,7 +30,7 @@ class spatial_query:
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
         # Store spatial position and cell type label
         self.spatial_key = spatial_key
-        self.spatial_pos = adata.obsm[self.spatial_key]
+        self.spatial_pos = np.array(adata.obsm[self.spatial_key])
         self.dataset = dataset
         self.label_key = label_key
         self.labels = adata.obs[self.label_key]
@@ -56,8 +56,8 @@ class spatial_query:
                 y_start = ymin + j * y_step - (self.overlap_radius if j > 0 else 0)
                 y_end = ymin + (j + 1) * y_step + (self.overlap_radius if j < (self.n_split - 1) else 0)
 
-                cell_mask = (self.spatial_pos.iloc[:, 0] >= x_start) & (self.spatial_pos.iloc[:, 0] <= x_end) & \
-                            (self.spatial_pos.iloc[:, 1] >= y_start) & (self.spatial_pos.iloc[:, 1] <= y_end)
+                cell_mask = (self.spatial_pos[:, 0] >= x_start) & (self.spatial_pos[:, 0] <= x_end) & \
+                            (self.spatial_pos[:, 1] >= y_start) & (self.spatial_pos[:, 1] <= y_end)
 
                 grid_indices[(i, j)] = np.where(cell_mask)[0]
                 grid_cell_types[(i, j)] = set(self.labels[cell_mask])
