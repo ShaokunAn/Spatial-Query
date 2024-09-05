@@ -36,7 +36,7 @@ class spatial_query:
         self.labels = adata.obs[self.label_key]
         self.labels = self.labels.astype('category')
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
-        self.overlap_radius = overlap_radius,
+        self.overlap_radius = overlap_radius
         self.n_split = n_split
         self.grid_cell_types, self.grid_indices = self._initialize_grids()
 
