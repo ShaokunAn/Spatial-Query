@@ -23,7 +23,7 @@ class spatial_query:
                  spatial_key: str = 'X_spatial',
                  label_key: str = 'predicted_label',
                  leaf_size: int = 10,
-                 overlap_radius: float = 100,
+                 max_radius: float = 500,
                  n_split: int = 10
                  ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
@@ -33,10 +33,11 @@ class spatial_query:
         self.spatial_pos = np.array(adata.obsm[self.spatial_key])
         self.dataset = dataset
         self.label_key = label_key
+        self.max_radius = max_radius
         self.labels = adata.obs[self.label_key]
         self.labels = self.labels.astype('category')
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
-        self.overlap_radius = overlap_radius
+        self.overlap_radius = max_radius  # the upper limit of radius in case missing cells with large radius of query
         self.n_split = n_split
         self.grid_cell_types, self.grid_indices = self._initialize_grids()
 
@@ -49,8 +50,8 @@ class spatial_query:
         grid_cell_types = {}
         grid_indices = {}
 
-        for i in range(10):
-            for j in range(10):
+        for i in range(self.n_split):
+            for j in range(self.n_split):
                 x_start = xmin + i * x_step - (self.overlap_radius if i > 0 else 0)
                 x_end = xmin + (i + 1) * x_step + (self.overlap_radius if i < (self.n_split - 1) else 0)
                 y_start = ymin + j * y_step - (self.overlap_radius if j > 0 else 0)
@@ -229,6 +230,7 @@ class spatial_query:
 
         cinds = [id for id, l in enumerate(self.labels) if l == ct]
         ct_pos = self.spatial_pos[cinds]
+        max_dist = min(max_dist, self.max_radius)
 
         fp, _, _ = self.build_fptree_dist(cell_pos=ct_pos,
                                           max_dist=max_dist,
@@ -273,6 +275,8 @@ class spatial_query:
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
+
+        max_dist = min(max_dist, self.max_radius)
 
         dists, idxs = self.kd_tree.query(self.spatial_pos,
                                          k=k + 1, workers=-1
@@ -400,6 +404,7 @@ class spatial_query:
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         out = []
+        max_dist = min(max_dist, self.max_radius)
         if motifs is None:
             fp = self.find_fp_dist(ct=ct,
                                    max_dist=max_dist, min_size=min_size,
@@ -443,6 +448,9 @@ class spatial_query:
             sort_motif = sorted(motif)
 
             _, matching_cells_indices = self._query_pattern(motif)
+            if not matching_cells_indices:
+                # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
+                continue 
             matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
             matching_cells_indices = np.unique(matching_cells_indices)
             print(f"number of cells skipped: {len(matching_cells_indices)}")
@@ -539,6 +547,8 @@ class spatial_query:
         if cell_pos is None:
             cell_pos = self.spatial_pos
 
+        max_dist = min(max_dist, self.max_radius)
+
         # start = time.time()
         idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False, workers=-1)
         if cinds is None:
@@ -597,7 +607,7 @@ class spatial_query:
                          cell_pos: np.ndarray = None,
                          k: int = 30,
                          min_support: float = 0.5,
-                         max_dist: float = 500,
+                         max_dist: float = 200,
                          if_max: bool = True
                          ) -> tuple:
         """
@@ -624,6 +634,8 @@ class spatial_query:
         """
         if cell_pos is None:
             cell_pos = self.spatial_pos
+
+        max_dist = min(max_dist, self.max_radius)
         # start = time.time()
         dists, idxs = self.kd_tree.query(cell_pos, k=k + 1, workers=-1)
         # end = time.time()
@@ -721,6 +733,8 @@ class spatial_query:
         fp_tree:
             Frequent patterns
         """
+
+        max_dist = min(max_dist, self.max_radius)
         xmax, ymax = np.max(self.spatial_pos, axis=0)
         xmin, ymin = np.min(self.spatial_pos, axis=0)
         x_grid = np.arange(xmin - max_dist, xmax + max_dist, max_dist)
@@ -845,6 +859,8 @@ class spatial_query:
         ------
         Results from the pattern finding function.
         """
+
+        max_dist = min(max_dist, self.max_radius)
         xmax, ymax = np.max(self.spatial_pos, axis=0)
         xmin, ymin = np.min(self.spatial_pos, axis=0)
         np.random.seed(seed)
@@ -1010,6 +1026,8 @@ class spatial_query:
         if isinstance(motif, str):
             motif = [motif]
 
+        max_dist = min(max_dist, self.max_radius)
+
         labels_unique = self.labels.unique()
         motif_exc = [m for m in motif if m not in labels_unique]
         if len(motif_exc) != 0:
@@ -1121,6 +1139,8 @@ class spatial_query:
         if isinstance(motif, str):
             motif = [motif]
 
+        max_dist = min(max_dist, self.max_radius)
+
         labels_unique = self.labels.unique()
         motif_exc = [m for m in motif if m not in labels_unique]
         if len(motif_exc) != 0:
@@ -1213,6 +1233,8 @@ class spatial_query:
         """
         if isinstance(motif, str):
             motif = [motif]
+
+        max_dist = min(max_dist, self.max_radius)
 
         motif_exc = [m for m in motif if m not in self.labels.unique()]
         if len(motif_exc) != 0:

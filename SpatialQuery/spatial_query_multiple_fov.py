@@ -22,7 +22,7 @@ class spatial_query_multi:
                  spatial_key: str,
                  label_key: str,
                  leaf_size: int, 
-                 overlap_radius: float = 100,
+                 max_radius: float = 500,
                  n_split: int = 10,
                  ):
         """
@@ -40,10 +40,13 @@ class spatial_query_multi:
             Label name in AnnData.obs object
         leaf_size:
             The largest number of points stored in each leaf node.
+        max_radius: 
+            The upper limit of neighborhood radius. 
         """
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
         self.label_key = label_key
+        self.max_radius = max_radius
         # Modify dataset names by d_0, d_2, ... for duplicates in datasets
         count_dict = {}
         modified_datasets = []
@@ -62,13 +65,15 @@ class spatial_query_multi:
 
         self.datasets = modified_datasets
 
-        self.spatial_queries = [spatial_query(adata=adata, dataset=self.datasets[i],
-                                              spatial_key=spatial_key,
-                                              label_key=label_key,
-                                              leaf_size=leaf_size,
-                                              overlap_radius=overlap_radius,
-                                              n_split=n_split,
-                                              ) for i, adata in enumerate(adatas)]
+        self.spatial_queries = [spatial_query(
+            adata=adata, 
+            dataset=self.datasets[i],
+            spatial_key=spatial_key,
+            label_key=label_key,
+            leaf_size=leaf_size,
+            max_radius=self.max_radius,
+            n_split=n_split,
+            ) for i, adata in enumerate(adatas)]
 
     def find_fp_knn(self,
                     ct: str,
@@ -118,6 +123,8 @@ class spatial_query_multi:
             if ds not in valid_ds_names:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n "
                                  f"Valid dataset names are: {set(valid_ds_names)}")
+
+        max_dist = min(max_dist, self.max_radius)
         # end = time.time()
         # print(f"time for checking validation of inputs: {end-start} seconds")
 
@@ -212,6 +219,7 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n "
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
+        max_dist = min(max_dist, self.max_radius)
         # start = time.time()
         transactions = []
         for s in self.spatial_queries:
@@ -300,6 +308,8 @@ class spatial_query_multi:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
             dataset = [dataset]
+
+        max_dist = min(max_dist, self.max_radius)
 
         out = []
         if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
@@ -460,6 +470,8 @@ class spatial_query_multi:
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
 
+        max_dist = min(max_dist, self.max_radius)
+
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
         if motifs is None:
@@ -504,6 +516,9 @@ class spatial_query_multi:
                 else:
                     n_labels += labels.shape[0]
                     _, matching_cells_indices = s._query_pattern(motif)
+                    if not matching_cells_indices:
+                        # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
+                        continue 
                     matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
                     matching_cells_indices = np.unique(matching_cells_indices)
                     matching_cells_indices.sort()
@@ -620,6 +635,8 @@ class spatial_query_multi:
         if dataset_i not in self.datasets:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
 
+        max_dist = min(max_dist, self.max_radius)
+
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
         cell_pos = sp_object.spatial_pos
         labels = np.array(sp_object.labels)
@@ -674,6 +691,8 @@ class spatial_query_multi:
         if dataset_i not in self.datasets:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
 
+        max_dist = min(max_dist, self.max_radius)
+
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
         cell_pos = sp_object.spatial_pos
         labels = sp_object.labels
@@ -723,6 +742,9 @@ class spatial_query_multi:
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
+
+        max_dist = min(max_dist, self.max_radius)
+
         # Check if the two datasets are valid
         valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
         for ds in datasets:
@@ -854,6 +876,8 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n"
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
+        max_dist = min(max_dist, self.max_radius)
+        
         flag = 0
         # Identify frequent patterns in each dataset
         for d in datasets:
