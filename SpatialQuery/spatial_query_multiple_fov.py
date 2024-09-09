@@ -522,8 +522,8 @@ class spatial_query_multi:
                     matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
                     matching_cells_indices = np.unique(matching_cells_indices)
                     matching_cells_indices.sort()
-                    print(f"number of cells skipped: {len(matching_cells_indices)}")
-                    print(f"proportion of cells searched: {len(matching_cells_indices) / len(s.spatial_pos)}")
+                    # print(f"number of cells skipped: {len(matching_cells_indices)}")
+                    # print(f"proportion of cells searched: {len(matching_cells_indices) / len(s.spatial_pos)}")
                     idxs_in_grids = s.kd_tree.query_ball_point(
                         s.spatial_pos[matching_cells_indices],
                         r=max_dist,
