@@ -410,7 +410,7 @@ class spatial_query_multi:
 
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
@@ -591,7 +591,7 @@ class spatial_query_multi:
                 n_ct = round(n_ct / motif.count(ct))
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)

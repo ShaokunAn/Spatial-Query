@@ -341,7 +341,7 @@ class spatial_query:
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             # M is number of total, N is number of drawn without replacement, n is number of success in total
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
 
             if return_cellID:
                 inds = np.where(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))[0]
@@ -485,7 +485,7 @@ class spatial_query:
 
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
 
             if return_cellID:
                 neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
