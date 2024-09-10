@@ -356,15 +356,19 @@ class spatial_query:
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
-
-        p_values = out_pd['p-values'].tolist()
-        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                           alpha=0.05,
-                                                           method='poscorr')
-        out_pd['corrected p-values'] = corrected_p_values
-        out_pd['if_significant'] = if_rejected
-        out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
-        return out_pd
+        
+        if len(out_pd) == 1:
+            out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
+            return out_pd
+        else:
+            p_values = out_pd['p-values'].tolist()
+            if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                               alpha=0.05,
+                                                               method='poscorr')
+            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['if_significant'] = if_rejected
+            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            return out_pd
 
     def motif_enrichment_dist(self,
                               ct: str,
@@ -503,14 +507,19 @@ class spatial_query:
 
         out_pd = pd.DataFrame(out)
 
-        p_values = out_pd['p-values'].tolist()
-        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                           alpha=0.05,
-                                                           method='poscorr')
-        out_pd['corrected p-values'] = corrected_p_values
-        out_pd['if_significant'] = if_rejected
-        out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
-        return out_pd
+        if len(out_pd) == 1:
+            out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
+            return out_pd
+        else:
+            p_values = out_pd['p-values'].tolist()
+            if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
+                                                               alpha=0.05,
+                                                               method='poscorr')
+            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['if_significant'] = if_rejected
+            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            return out_pd
+
 
     def build_fptree_dist(self,
                           cell_pos: np.ndarray = None,
