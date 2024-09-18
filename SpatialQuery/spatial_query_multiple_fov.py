@@ -993,11 +993,10 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n "
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
-        cell_types = set([ct for s in self.spatial_queries for ct in s.labels.unique()])
-
         summary = defaultdict(lambda: defaultdict(int))
 
         valid_queries = [s for s in self.spatial_queries if s.dataset.split('_')[0] in dataset]
+        cell_types = set([ct for s in valid_queries for ct in s.labels.unique()])
         for s in valid_queries:
             for cell_type in cell_types:
                 summary[s.dataset][cell_type] += np.sum(s.labels == cell_type)
@@ -1016,11 +1015,11 @@ class spatial_query_multi:
         plot_data = plot_data.sort_values(by=plot_data.columns.tolist(), ascending=False, )
 
         # Create the stacked bar plot
-        ax = plot_data.plot(kind='bar', stacked=True, figsize=(12, 10),
+        ax = plot_data.plot(kind='bar', stacked=True, figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.6),
                             edgecolor='black')
 
         # Customize the plot
-        plt.title(f"Distribution of Cell Types Across Datasets {dataset}", fontsize=16)
+        plt.title(f"Distribution of Cell Types Across Datasets", fontsize=16)
         plt.xlabel('Cell Types', fontsize=12)
         plt.ylabel('Number of Cells', fontsize=12)
 
@@ -1030,4 +1029,60 @@ class spatial_query_multi:
 
         plt.tight_layout()
         plt.show()
+
+    def cell_type_distribution_fov(self,
+                                   dataset: str,
+                                   ):
+        """
+        Visualize the distribution of cell types across FOVs in the dataset using a stacked bar plot.
+        Parameter
+        ---------
+        dataset:
+            Dataset of searching.
+        Returns
+        -------
+        Stacked bar plot
+        """
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        if dataset not in valid_ds_names:
+            raise ValueError(f"Invalid input dataset name: {dataset}. \n"
+                             f"Valid dataset names are: {set(valid_ds_names)}")
+        valid_queries = [s for s in self.spatial_queries if s.dataset.split('_')[0] == dataset]
+        cell_types = set([ct for s in valid_queries for ct in s.labels.unique()])
+
+        summary = defaultdict(lambda: defaultdict(int))
+        for s in valid_queries:
+            for cell_type in cell_types:
+                summary[s.dataset][cell_type] = np.sum(s.labels == cell_type)
+
+        df = pd.DataFrame([(dataset, cell_type, count)
+                           for dataset, cell_types in summary.items()
+                           for cell_type, count in cell_types.items()],
+                          columns=['Dataset', 'Cell Type', 'Count'])
+
+        df['FOV'] = df['Dataset'].str.split('_').str[1]
+
+        summary = df.groupby(['FOV', 'Cell Type'])['Count'].sum().reset_index()
+        plot_data = summary.pivot(index='Cell Type', columns='FOV', values='Count').fillna(0)
+
+        # Sort the cell types by total count (descending)
+        plot_data = plot_data.sort_values(by=plot_data.columns.tolist(), ascending=False, )
+
+        # Create the stacked bar plot
+        ax = plot_data.plot(kind='bar', stacked=True, figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.3),
+                            edgecolor='black')
+
+        # Customize the plot
+        plt.title(f"Distribution of Cell Types Across Datasets", fontsize=16)
+        plt.xlabel('Cell Types', fontsize=12)
+        plt.ylabel('Number of Cells', fontsize=12)
+
+        plt.xticks(rotation=90, ha='right', fontsize=10)
+
+        plt.legend(title='FOV', loc='upper right', fontsize=12)
+
+        plt.tight_layout()
+        plt.show()
+
+
 
