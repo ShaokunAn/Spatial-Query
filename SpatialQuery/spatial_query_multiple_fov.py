@@ -10,6 +10,8 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from pandas import DataFrame
 from scipy.stats import hypergeom
 import time
+import matplotlib.pyplot as plt
+from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
 
 from .spatial_query import spatial_query
@@ -965,3 +967,67 @@ class spatial_query_multi:
         fp_dataset0 = fp_dataset0.reset_index(drop=True)
         fp_dataset1 = fp_dataset1.reset_index(drop=True)
         return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
+
+    def cell_type_distribution(self,
+                               dataset: Union[str, List[str]] = None,
+                               ):
+        """
+        Visualize the distribution of cell types across datasets using a stacked bar plot.
+
+        Parameter
+        ---------
+        dataset:
+            Datasets for searching.
+        Returns
+        -------
+        Stacked bar plot
+        """
+        if dataset is None:
+            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        if isinstance(dataset, str):
+            dataset = [dataset]
+
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+        for ds in dataset:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}.\n "
+                                 f"Valid dataset names are: {set(valid_ds_names)}")
+
+        cell_types = set([ct for s in self.spatial_queries for ct in s.labels.unique()])
+
+        summary = defaultdict(lambda: defaultdict(int))
+
+        valid_queries = [s for s in self.spatial_queries if s.dataset.split('_')[0] in dataset]
+        for s in valid_queries:
+            for cell_type in cell_types:
+                summary[s.dataset][cell_type] += np.sum(s.labels == cell_type)
+
+        df = pd.DataFrame([(dataset, cell_type, count)
+                           for dataset, cell_types in summary.items()
+                           for cell_type, count in cell_types.items()],
+                          columns=['Dataset', 'Cell Type', 'Count'])
+
+        df['dataset'] = df['Dataset'].str.split('_').str[0]
+
+        summary = df.groupby(['dataset', 'Cell Type'])['Count'].sum().reset_index()
+        plot_data = summary.pivot(index='Cell Type', columns='dataset', values='Count').fillna(0)
+
+        # Sort the cell types by total count (descending)
+        plot_data = plot_data.sort_values(by=plot_data.columns.tolist(), ascending=False, )
+
+        # Create the stacked bar plot
+        ax = plot_data.plot(kind='bar', stacked=True, figsize=(12, 10),
+                            edgecolor='black')
+
+        # Customize the plot
+        plt.title(f"Distribution of Cell Types Across Datasets {dataset}", fontsize=16)
+        plt.xlabel('Cell Types', fontsize=12)
+        plt.ylabel('Number of Cells', fontsize=12)
+
+        plt.xticks(rotation=90, ha='right', fontsize=10)
+
+        plt.legend(title='Datasets', loc='upper right', fontsize=12)
+
+        plt.tight_layout()
+        plt.show()
+
