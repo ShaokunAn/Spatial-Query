@@ -970,6 +970,7 @@ class spatial_query_multi:
 
     def cell_type_distribution(self,
                                dataset: Union[str, List[str]] = None,
+                               data_type: str = 'number',
                                ):
         """
         Visualize the distribution of cell types across datasets using a stacked bar plot.
@@ -978,10 +979,16 @@ class spatial_query_multi:
         ---------
         dataset:
             Datasets for searching.
+        data_type:
+            Plot bar plot by number of cells or by the proportions of datasets in each cell type.
+            Default is 'number' otherwise 'proportion' is used.
         Returns
         -------
         Stacked bar plot
         """
+        if data_type not in ['number', 'proportion']:
+            raise ValueError("Invalild data_type. It should be one of 'number' or 'proportion'.")
+
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
@@ -1014,6 +1021,9 @@ class spatial_query_multi:
         # Sort the cell types by total count (descending)
         plot_data = plot_data.sort_values(by=plot_data.columns.tolist(), ascending=False, )
 
+        if data_type != 'number':
+            plot_data = plot_data.div(plot_data.sum(axis=1), axis=0)
+
         # Create the stacked bar plot
         ax = plot_data.plot(kind='bar', stacked=True, figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.6),
                             edgecolor='black')
@@ -1021,7 +1031,10 @@ class spatial_query_multi:
         # Customize the plot
         plt.title(f"Distribution of Cell Types Across Datasets", fontsize=16)
         plt.xlabel('Cell Types', fontsize=12)
-        plt.ylabel('Number of Cells', fontsize=12)
+        if data_type == 'number':
+            plt.ylabel('Number of Cells', fontsize=12)
+        else:
+            plt.ylabel('Proportion of Cells', fontsize=12)
 
         plt.xticks(rotation=90, ha='right', fontsize=10)
 
@@ -1032,6 +1045,7 @@ class spatial_query_multi:
 
     def cell_type_distribution_fov(self,
                                    dataset: str,
+                                   data_type: str = 'number',
                                    ):
         """
         Visualize the distribution of cell types across FOVs in the dataset using a stacked bar plot.
@@ -1039,10 +1053,16 @@ class spatial_query_multi:
         ---------
         dataset:
             Dataset of searching.
+        data_type:
+            Plot bar plot by number of cells or by the proportions of cell types in each FOV.
+            Default is 'number' otherwise 'proportion' is used.
         Returns
         -------
         Stacked bar plot
         """
+        if data_type not in ['number', 'proportion']:
+            raise ValueError("Invalild data_type. It should be one of 'number' or 'proportion'.")
+
         valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if dataset not in valid_ds_names:
             raise ValueError(f"Invalid input dataset name: {dataset}. \n"
@@ -1066,20 +1086,28 @@ class spatial_query_multi:
         plot_data = summary.pivot(index='Cell Type', columns='FOV', values='Count').fillna(0)
 
         # Sort the cell types by total count (descending)
-        plot_data = plot_data.sort_values(by=plot_data.columns.tolist(), ascending=False, )
+        row_sums = plot_data.sum(axis=1)
+        plot_data_sorted = plot_data.loc[row_sums.sort_values(ascending=False).index]
 
-        # Create the stacked bar plot
-        ax = plot_data.plot(kind='bar', stacked=True, figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.3),
-                            edgecolor='black')
+        if data_type != 'number':
+            plot_data_sorted = plot_data_sorted.div(plot_data_sorted.sum(axis=1), axis=0)
+
+            # Create the stacked bar plot
+        ax = plot_data_sorted.plot(kind='bar', stacked=True,
+                                   figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.3),
+                                   edgecolor='black')
 
         # Customize the plot
-        plt.title(f"Distribution of Cell Types Across Datasets", fontsize=16)
-        plt.xlabel('Cell Types', fontsize=12)
-        plt.ylabel('Number of Cells', fontsize=12)
+        plt.title(f"Distribution of FOVs in {dataset} dataset", fontsize=20)
+        plt.xlabel('FOV', fontsize=12)
+        if data_type == 'number':
+            plt.ylabel('Number of Cells', fontsize=12)
+        else:
+            plt.ylabel('Proportion of Cells', fontsize=12)
 
         plt.xticks(rotation=90, ha='right', fontsize=10)
 
-        plt.legend(title='FOV', loc='upper right', fontsize=12)
+        plt.legend(title='Cell Type', loc='upper right', fontsize=12)
 
         plt.tight_layout()
         plt.show()
