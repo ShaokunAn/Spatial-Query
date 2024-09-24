@@ -21,7 +21,4 @@ For multiple-FOVs data, it contains methods:
 pip install -i https://test.pypi.org/simple/ SpatialQuery
 ```
 
-
-
-
-
+For more details, please refer to `examples/SpatialQuery-example.ipynb`.
