@@ -561,7 +561,6 @@ class spatial_query_multi:
                     if ct in np.unique(labels):
                         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
                         mask = int_labels[matching_cells_indices] == int_ct
-                        print(f"{np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))} n_center_motif")
                         n_motif_ct += np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
                         n_ct += np.sum(s.labels == ct)
 
