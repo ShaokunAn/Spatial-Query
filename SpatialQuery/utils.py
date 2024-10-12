@@ -3,7 +3,9 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
+import anndata as ad
 from sklearn.preprocessing import LabelEncoder
+import scanpy as sc
 
 
 def maximal_patterns(fp,
@@ -101,3 +103,28 @@ def retrieve_niche_pattern_freq(fp, sp, ct, max_dist):
         freqs.append(freq_fp)
 
     return pd.DataFrame(freqs)
+
+def plot_niche_pattern_freq(freqs):
+    """
+    Heatmap plot of frequency of patterns (cell type compositions) in niche.
+
+    Parameter
+    ---------
+    freqs: Output of retrieve_niche_pattern_freq method.
+    """
+
+    for i, freq in freqs.items():
+        freq['FOV'] = f"normal_{i}"
+        freqs[i] = freq
+
+    freq_fp_normal = pd.concat(freqs)
+    freq_fp_normal.set_index(keys='FOV', drop=True, inplace=True)
+    fp_data = ad.AnnData(X=freq_fp_normal)
+    var = pd.DataFrame({'neighbor': freq_fp_normal.columns.tolist()})
+    var.index = freq_fp_normal.columns.tolist()
+    obs = pd.DataFrame({'FOV': freq_fp_normal.index.tolist()})
+    obs.index = freq_fp_normal.index.tolist()
+    fp_data.var = var
+    fp_data.obs = obs
+
+    sc.pl.heatmap(fp_data, var_names=fp_data.var_names, groupby='FOV', cmap='vlag')
