@@ -1024,7 +1024,8 @@ class spatial_query_multi:
             plot_data = plot_data.div(plot_data.sum(axis=1), axis=0)
 
         # Create the stacked bar plot
-        ax = plot_data.plot(kind='bar', stacked=True, figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.6),
+        ax = plot_data.plot(kind='bar', stacked=True,
+                            figsize=(plot_data.shape[0], plot_data.shape[0] * 0.6),
                             edgecolor='black')
 
         # Customize the plot
@@ -1037,9 +1038,9 @@ class spatial_query_multi:
 
         plt.xticks(rotation=90, ha='right', fontsize=10)
 
-        plt.legend(title='Datasets', loc='upper right', fontsize=12)
+        plt.legend(title='Datasets', loc='center left', bbox_to_anchor=(1, 0.5), fontsize=10)
 
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
         plt.show()
 
     def cell_type_distribution_fov(self,
@@ -1082,7 +1083,7 @@ class spatial_query_multi:
         df['FOV'] = df['Dataset'].str.split('_').str[1]
 
         summary = df.groupby(['FOV', 'Cell Type'])['Count'].sum().reset_index()
-        plot_data = summary.pivot(index='Cell Type', columns='FOV', values='Count').fillna(0)
+        plot_data = summary.pivot(columns='Cell Type', index='FOV', values='Count').fillna(0)
 
         # Sort the cell types by total count (descending)
         row_sums = plot_data.sum(axis=1)
@@ -1106,7 +1107,7 @@ class spatial_query_multi:
 
         plt.xticks(rotation=90, ha='right', fontsize=10)
 
-        plt.legend(title='Cell Type', loc='upper right', fontsize=12)
+        plt.legend(title='Cell Type', bbox_to_anchor=(1, 1.05), loc='center left', fontsize=12)
 
         plt.tight_layout()
         plt.show()
