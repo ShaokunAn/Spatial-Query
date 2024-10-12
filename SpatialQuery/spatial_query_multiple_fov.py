@@ -1107,7 +1107,7 @@ class spatial_query_multi:
 
         plt.xticks(rotation=90, ha='right', fontsize=10)
 
-        plt.legend(title='Cell Type', bbox_to_anchor=(1, 1.05), loc='center left', fontsize=12)
+        plt.legend(title='Cell Type', bbox_to_anchor=(1, 0.5), loc='center left', fontsize=12)
 
         plt.tight_layout()
         plt.show()
