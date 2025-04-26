@@ -414,13 +414,24 @@ class spatial_query:
 
             if return_cellID:
                 inds = np.where(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))[0]
-                cind_with_motif = [cinds[i] for i in inds]
-                motif_mask = np.isin(np.array(self.labels), motif)
-                neighbors = np.concatenate(idxs[cind_with_motif])
-                exclude_self_mask = ~np.isin(neighbors, cind_with_motif)
-                valid_neighbors = neighbors[motif_mask[neighbors] & exclude_self_mask]
-                id_motif_celltype = set(valid_neighbors)
-                motif_out['cell_id'] = np.array(list(id_motif_celltype))
+                cind_with_motif = np.array(cinds)[inds]  # Centers with motif in neighborhood
+
+                motif_mask = np.isin(self.labels, motif)  # Mask for motif cell types
+
+                # Use the idxs array which contains the original KNN indices
+                # But filter by valid_neighbors which has distance filtering
+                valid_idxs_of_centers = np.array([
+                    idxs[c, 1:][valid_neighbors[c, :]]  # Get valid neighbors by distance for each center
+                    for c in cind_with_motif
+                ])
+
+                # Flatten and filter for motif types
+                valid_neighbors_flat = np.concatenate([row for row in valid_idxs_of_centers])
+                valid_motif_neighbors = valid_neighbors_flat[motif_mask[valid_neighbors_flat]]
+
+                # Store unique IDs
+                motif_out['neighbor_id'] = np.unique(valid_motif_neighbors)
+                motif_out['center_id'] = cind_with_motif
 
             out.append(motif_out)
 
@@ -566,13 +577,13 @@ class spatial_query:
                 neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
                 np.add.at(neighbor_matrix_all, (row_indices_all, neighbor_labels_all), 1)
                 inds_all = np.where(np.all(neighbor_matrix_all[mask_all][:, int_motifs] > 0, axis=1))[0]
-                cind_with_motif = [cinds[i] for i in inds_all]
+                cind_with_motif = np.array([cinds[i] for i in inds_all])
                 motif_mask = np.isin(np.array(self.labels), motif)
-                all_neighbors = np.concatenate(idxs_all[cind_with_motif])
-                exclude_self_mask = ~np.isin(all_neighbors, cind_with_motif)
-                valid_neighbors = all_neighbors[motif_mask[all_neighbors] & exclude_self_mask]
+                all_neighbors = np.concatenate([idxs_all_filter[i] for i in cind_with_motif])
+                valid_neighbors = all_neighbors[motif_mask[all_neighbors]]
                 id_motif_celltype = set(valid_neighbors)
-                motif_out['cell_id'] = np.array(list(id_motif_celltype))
+                motif_out['neighbor_id'] = np.array(list(id_motif_celltype))
+                motif_out['center_id'] = np.array(cind_with_motif)
 
             out.append(motif_out)
 
@@ -856,7 +867,7 @@ class spatial_query:
                     fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
                 id_neighbor_motifs.append(fp_spots_index)
         if return_cellID:
-            fp['cell_id'] = id_neighbor_motifs
+            fp['neighbor_id'] = id_neighbor_motifs
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
@@ -980,7 +991,7 @@ class spatial_query:
                     fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
                 id_neighbor_motifs.append(fp_spots_index)
         if return_cellID:
-            fp['cell_id'] = id_neighbor_motifs
+            fp['neighbor_id'] = id_neighbor_motifs
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
@@ -1063,7 +1074,9 @@ class spatial_query:
     def plot_fov(self,
                  min_cells_label: int = 50,
                  title: str = 'Spatial distribution of cell types',
-                 fig_size: tuple = (10, 5)):
+                 fig_size: tuple = (10, 5),
+                 save_path: Optional[str] = None,
+                 ):
         """
         Plot the cell type distribution of single fov.
 
@@ -1074,7 +1087,11 @@ class spatial_query:
         title:
             Figure title.
         fig_size:
-            Figure size paramters.
+            Figure size parameter.
+
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
 
         Return
         ------
@@ -1125,7 +1142,8 @@ class spatial_query:
 
         # Adjust layout to prevent clipping of ylabel and accommodate the legend
         plt.tight_layout(rect=[0, 0, 1.1, 1])
-
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
     def plot_motif_grid(self,
@@ -1133,6 +1151,7 @@ class spatial_query:
                         fp: pd.DataFrame,
                         fig_size: tuple = (10, 5),
                         max_dist: float = 100,
+                        save_path: Optional[str] = None
                         ):
         """
         Display the distribution of each motif around grid points. To make sure the input
@@ -1149,6 +1168,13 @@ class spatial_query:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
         fig_size:
             Figure size.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
         """
         if isinstance(motif, str):
             motif = [motif]
@@ -1232,6 +1258,8 @@ class spatial_query:
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
     def plot_motif_rand(self,
@@ -1241,6 +1269,7 @@ class spatial_query:
                         n_points: int = 1000,
                         fig_size: tuple = (10, 5),
                         seed: int = 2023,
+                        save_path: Optional[str] = None
                         ):
         """
         Display the random sampled points with motif in radius-based neighborhood,
@@ -1262,6 +1291,13 @@ class spatial_query:
             Figure size.
         seed:
             Set random seed for reproducible.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
         """
         if isinstance(motif, str):
             motif = [motif]
@@ -1334,13 +1370,16 @@ class spatial_query:
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
     def plot_motif_celltype(self,
                             ct: str,
                             motif: Union[str, List[str]],
                             max_dist: float = 100,
-                            fig_size: tuple = (10, 5)
+                            fig_size: tuple = (10, 5),
+                            save_path: Optional[str] = None
                             ):
         """
         Display the distribution of interested motifs in the radius-based neighborhood of certain cell type.
@@ -1357,6 +1396,13 @@ class spatial_query:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
         fig_size:
             Figure size.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
         """
         if isinstance(motif, str):
             motif = [motif]
@@ -1454,4 +1500,6 @@ class spatial_query:
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
