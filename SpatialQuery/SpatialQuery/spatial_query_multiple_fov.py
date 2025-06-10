@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
+from .scfind4sp import SCFind
 
 from joblib import Parallel, delayed
 
@@ -92,9 +93,22 @@ class spatial_query_multi:
             leaf_size=leaf_size,
             max_radius=self.max_radius,
             n_split=n_split,
-            build_gene_index=build_gene_index,
-            feature_name=feature_name,
+            build_gene_index=False,
             ) for i, adata in enumerate(adatas)]
+
+        if build_gene_index:
+            if (feature_name is None or feature_name not in adata.var.columns for adata in adatas).any():
+                raise ValueError(f"feature_name {feature_name} not in one adata.var. Please provide a valid feature name"
+                                 f"or double check adata.var in input.")
+
+            self.index = self.build_scfind_index(
+                adatas,
+                dataset_name=self.datasets,
+                feature_name=feature_name,
+                qb=2
+            )
+        else:
+            print('build_gene_index is False. Skip building index of expression data.')
 
     def find_fp_knn(self,
                     ct: str,
@@ -1054,6 +1068,11 @@ class spatial_query_multi:
             raise ValueError("No valid datasets found in ind_group2.")
 
         group1_results = []
+
+
+
+
+
         # start = time()
         for ds, ids in ind_group1.items():
             print(f"Processing {ds} in group1...")
@@ -1289,6 +1308,50 @@ class spatial_query_multi:
 
         plt.tight_layout(rect=[0, 0, 0.85, 1])
         plt.show()
+
+    def build_scfind_index(self,
+                           adatas: List[AnnData],
+                           dataset_name: List[str],
+                           feature_name: Optional[str] = None,
+                           qb: int = 2,
+                           ):
+        """
+        Build scfind index for multiple datasets (FOV). The index uses dataset_name to as a replacement of cell type
+        labels. This ensures the consistency of cell indices between scfind index and spataial coordinates.
+
+        Parameters
+        ----------
+        adatas: List[AnnData]
+            List of AnnData objects.
+        dataset_name: List[str]
+            List of dataset names with the same length as adatas.
+        feature_name: Optional[str], default=None
+            The label or key in the AnnData object's variables (var) that corresponds to the feature names.
+            If None, the feature names are assumed to be the row names of the AnnData object.
+        """
+        index = SCFind()
+        if len(adatas) != len(dataset_name):
+            raise ValueError("The numbers of input AnnData and dataset names do not match. Please double-check your "
+                             "input.")
+
+        for adata, ds_name in zip(adatas, dataset_name):
+            if index.index_exist:
+                index_new = SCFind()
+                index_new.buildCellTypeIndex(
+                    adata=adata,
+                    dataset_name=ds_name,
+                    feature_name=feature_name,
+                    qb=qb
+                )
+                index.mergeDataset(index_new)
+            else:
+                index.buildCellTypeIndex(
+                    adata=adata,
+                    dataset_name=ds_name,
+                    feature_name=feature_name,
+                    qb=qb)
+
+        return index
 
     def cell_type_distribution_fov(self,
                                    dataset: str,
