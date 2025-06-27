@@ -1,6 +1,6 @@
 from collections import Counter
 from itertools import combinations
-from typing import List, Union
+from typing import List, Union, Optional
 
 import matplotlib.pyplot as plt
 import statsmodels.stats.multitest as mt
@@ -13,10 +13,38 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from pandas import DataFrame
 from scipy.spatial import KDTree
 from scipy.stats import hypergeom
+from statsmodels.stats.multitest import multipletests
 from sklearn.preprocessing import LabelEncoder
-import time
+from .scfind4sp import SCFind
+
 
 class spatial_query:
+    """
+    Class for spatial query of single FOV
+
+    Parameter
+    ---------
+    adata:
+        AnnData object
+    dataset:
+        Dataset name, default is 'ST' of single FOV
+    spatial_key:
+        Key of spatial coordinates in adata.obsm, default is 'X_spatial'.
+    label_key:
+        Key of cell type label in adata.obs, default is 'predicted_label'
+    leaf_size:
+        Leaf size for KDTree, default is 10
+    max_radius:
+        The upper limit of neighborhood radius, default is 500
+    n_split:
+        The number of splits in each axis for spatial grid to speed up query, default is 10
+    build_gene_index:
+        Whether to build scfind index of expression data, default is False. If expression data is required for query,
+        set this parameter to True
+    feature_name:
+        The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
+        only used if build_gene_index is True
+    """
     def __init__(self,
                  adata: AnnData,
                  dataset: str = 'ST',
@@ -24,7 +52,9 @@ class spatial_query:
                  label_key: str = 'predicted_label',
                  leaf_size: int = 10,
                  max_radius: float = 500,
-                 n_split: int = 10
+                 n_split: int = 10,
+                 build_gene_index: bool = False,
+                 feature_name: Optional[str] = None,
                  ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
@@ -40,6 +70,28 @@ class spatial_query:
         self.overlap_radius = max_radius  # the upper limit of radius in case missing cells with large radius of query
         self.n_split = n_split
         self.grid_cell_types, self.grid_indices = self._initialize_grids()
+        self.build_gene_index = build_gene_index
+
+        if build_gene_index:
+            if '_' not in dataset:
+                # Add _ to dataset_name if missing, to keep name format consistent when dealing with
+                # multiple FOVs and single FOV
+                dataset = f'{dataset}_0'
+
+            if feature_name is None or feature_name not in adata.var.columns:
+                raise ValueError(f"feature_name {feature_name} not in adata.var. Please provide a valid feature name.")
+
+            if label_key not in adata.obs.columns:
+                raise ValueError(f"{label_key} not in adata.obs. Please double-check valid label name.")
+
+            self.index = self.build_scfind_index(
+                adata,
+                dataset_name=self.dataset,
+                feature_name=feature_name,
+                qb=2
+            )
+        else:
+            print('build_gene_index is False. Skip building index of expression data.')
 
     def _initialize_grids(self):
         xmax, ymax = np.max(self.spatial_pos, axis=0)
@@ -74,6 +126,22 @@ class spatial_query:
                 indices = self.grid_indices[grid]
                 matching_cells_indices[grid] = indices
         return matching_grids, matching_cells_indices
+
+    def build_scfind_index(
+            self,
+            adata,
+            dataset_name,
+            feature_name,
+            qb,
+    ):
+        index = SCFind()
+        index.buildCellTypeIndex(
+            adata=adata,
+            dataset_name=dataset_name,
+            feature_name=feature_name,
+            qb=qb
+        )
+        return index
 
     @staticmethod
     def has_motif(neighbors: List[str], labels: List[str]) -> bool:
@@ -341,22 +409,34 @@ class spatial_query:
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             # M is number of total, N is number of drawn without replacement, n is number of success in total
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(),
+                         'p-values': hyge.sf(n_motif_ct)}
 
             if return_cellID:
                 inds = np.where(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))[0]
-                cind_with_motif = [cinds[i] for i in inds]
-                motif_mask = np.isin(np.array(self.labels), motif)
-                neighbors = np.concatenate(idxs[cind_with_motif])
-                exclude_self_mask = ~np.isin(neighbors, cind_with_motif)
-                valid_neighbors = neighbors[motif_mask[neighbors] & exclude_self_mask]
-                id_motif_celltype = set(valid_neighbors)
-                motif_out['cell_id'] = np.array(list(id_motif_celltype))
+                cind_with_motif = np.array(cinds)[inds]  # Centers with motif in neighborhood
+
+                motif_mask = np.isin(self.labels, motif)  # Mask for motif cell types
+
+                # Use the idxs array which contains the original KNN indices
+                # But filter by valid_neighbors which has distance filtering
+                valid_idxs_of_centers = np.array([
+                    idxs[c, 1:][valid_neighbors[c, :]]  # Get valid neighbors by distance for each center
+                    for c in cind_with_motif
+                ])
+
+                # Flatten and filter for motif types
+                valid_neighbors_flat = np.concatenate([row for row in valid_idxs_of_centers])
+                valid_motif_neighbors = valid_neighbors_flat[motif_mask[valid_neighbors_flat]]
+
+                # Store unique IDs
+                motif_out['neighbor_id'] = np.unique(valid_motif_neighbors)
+                motif_out['center_id'] = cind_with_motif
 
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
-        
+
         if len(out_pd) == 1:
             out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
             return out_pd
@@ -454,7 +534,7 @@ class spatial_query:
             _, matching_cells_indices = self._query_pattern(motif)
             if not matching_cells_indices:
                 # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
-                continue 
+                continue
             matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
             matching_cells_indices = np.unique(matching_cells_indices)
             print(f"number of cells skipped: {len(matching_cells_indices)}")
@@ -470,7 +550,8 @@ class spatial_query:
             int_motifs = label_encoder.transform(np.array(motif))
 
             # filter center out of neighbors
-            idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in zip(matching_cells_indices, idxs_in_grids)]
+            idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in
+                           zip(matching_cells_indices, idxs_in_grids)]
 
             flat_neighbors = np.concatenate(idxs_filter)
             row_indices = np.repeat(np.arange(len(matching_cells_indices)), [len(neigh) for neigh in idxs_filter])
@@ -489,19 +570,20 @@ class spatial_query:
 
             hyge = hypergeom(M=len(self.labels), n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(),
+                         'p-values': hyge.sf(n_motif_ct)}
 
             if return_cellID:
                 neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
                 np.add.at(neighbor_matrix_all, (row_indices_all, neighbor_labels_all), 1)
                 inds_all = np.where(np.all(neighbor_matrix_all[mask_all][:, int_motifs] > 0, axis=1))[0]
-                cind_with_motif = [cinds[i] for i in inds_all]
+                cind_with_motif = np.array([cinds[i] for i in inds_all])
                 motif_mask = np.isin(np.array(self.labels), motif)
-                all_neighbors = np.concatenate(idxs_all[cind_with_motif])
-                exclude_self_mask = ~np.isin(all_neighbors, cind_with_motif)
-                valid_neighbors = all_neighbors[motif_mask[all_neighbors] & exclude_self_mask]
+                all_neighbors = np.concatenate([idxs_all_filter[i] for i in cind_with_motif])
+                valid_neighbors = all_neighbors[motif_mask[all_neighbors]]
                 id_motif_celltype = set(valid_neighbors)
-                motif_out['cell_id'] = np.array(list(id_motif_celltype))
+                motif_out['neighbor_id'] = np.array(list(id_motif_celltype))
+                motif_out['center_id'] = np.array(cind_with_motif)
 
             out.append(motif_out)
 
@@ -519,7 +601,6 @@ class spatial_query:
             out_pd['if_significant'] = if_rejected
             out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
             return out_pd
-
 
     def build_fptree_dist(self,
                           cell_pos: np.ndarray = None,
@@ -786,7 +867,7 @@ class spatial_query:
                     fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
                 id_neighbor_motifs.append(fp_spots_index)
         if return_cellID:
-            fp['cell_id'] = id_neighbor_motifs
+            fp['neighbor_id'] = id_neighbor_motifs
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
@@ -910,7 +991,7 @@ class spatial_query:
                     fp_spots_index.update([i for id in ids for i in id if self.labels[i] in motif])
                 id_neighbor_motifs.append(fp_spots_index)
         if return_cellID:
-            fp['cell_id'] = id_neighbor_motifs
+            fp['neighbor_id'] = id_neighbor_motifs
 
         if if_display:
             fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
@@ -942,10 +1023,60 @@ class spatial_query:
 
         return fp.sort_values(by='support', ignore_index=True, ascending=False)
 
+    def de_genes(self,
+                 ind_group1: List[int],
+                 ind_group2: List[int],
+                 genes: Optional[Union[str, List[str]]] = None,
+                 min_fraction: float = 0.05,
+                 ) -> pd.DataFrame:
+        """
+        Identify differential genes between two groups of cells.
+
+        Paramaters
+        ---------
+        ind_group1: List of indices of cells in group 1.
+
+        ind_group2: List of indices of cells in group 2.
+
+        genes: List of gene names to query. If None, all genes will be used.
+
+        min_fraction: The minimum fraction of cells that express a gene for it to be considered differentially expressed.
+
+        Return
+        ------
+        pd.DataFrame containing the differentially expressed genes between the two groups.
+        """
+        if not self.build_gene_index:
+            raise ValueError("Please build gene index first by setting build_gene_index=True in the constructor.")
+
+        if genes is None:
+            genes = self.index.scfindGenes
+
+        out = self.index.de_genes_with_indices(genes, ind_group1, ind_group2, min_fraction)
+
+        out_df = pd.DataFrame(out)
+
+        adjusted_pvals = multipletests(out_df['p_value'], method='holm')[1]
+        out_df['adj_p_value'] = adjusted_pvals
+        results_df = out_df[out_df['adj_p_value'] < 0.05]
+        results_df['de_in'] = np.where(
+            (results_df['proportion_1'] > results_df['proportion_2']),
+            'group1',
+            np.where(
+                (results_df['proportion_2'] > results_df['proportion_1']),
+                'group2',
+                None
+            )
+        )
+
+        return results_df
+
     def plot_fov(self,
                  min_cells_label: int = 50,
                  title: str = 'Spatial distribution of cell types',
-                 fig_size: tuple = (10, 5)):
+                 fig_size: tuple = (10, 5),
+                 save_path: Optional[str] = None,
+                 ):
         """
         Plot the cell type distribution of single fov.
 
@@ -956,7 +1087,11 @@ class spatial_query:
         title:
             Figure title.
         fig_size:
-            Figure size paramters.
+            Figure size parameter.
+
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
 
         Return
         ------
@@ -1007,7 +1142,8 @@ class spatial_query:
 
         # Adjust layout to prevent clipping of ylabel and accommodate the legend
         plt.tight_layout(rect=[0, 0, 1.1, 1])
-
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
     def plot_motif_grid(self,
@@ -1015,6 +1151,7 @@ class spatial_query:
                         fp: pd.DataFrame,
                         fig_size: tuple = (10, 5),
                         max_dist: float = 100,
+                        save_path: Optional[str] = None
                         ):
         """
         Display the distribution of each motif around grid points. To make sure the input
@@ -1031,6 +1168,13 @@ class spatial_query:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
         fig_size:
             Figure size.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
         """
         if isinstance(motif, str):
             motif = [motif]
@@ -1114,6 +1258,8 @@ class spatial_query:
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
     def plot_motif_rand(self,
@@ -1123,6 +1269,7 @@ class spatial_query:
                         n_points: int = 1000,
                         fig_size: tuple = (10, 5),
                         seed: int = 2023,
+                        save_path: Optional[str] = None
                         ):
         """
         Display the random sampled points with motif in radius-based neighborhood,
@@ -1144,6 +1291,13 @@ class spatial_query:
             Figure size.
         seed:
             Set random seed for reproducible.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
         """
         if isinstance(motif, str):
             motif = [motif]
@@ -1216,13 +1370,16 @@ class spatial_query:
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
     def plot_motif_celltype(self,
                             ct: str,
                             motif: Union[str, List[str]],
                             max_dist: float = 100,
-                            fig_size: tuple = (10, 5)
+                            fig_size: tuple = (10, 5),
+                            save_path: Optional[str] = None
                             ):
         """
         Display the distribution of interested motifs in the radius-based neighborhood of certain cell type.
@@ -1239,6 +1396,13 @@ class spatial_query:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
         fig_size:
             Figure size.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
         """
         if isinstance(motif, str):
             motif = [motif]
@@ -1336,4 +1500,6 @@ class spatial_query:
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout(rect=[0, 0, 1.1, 1])
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
