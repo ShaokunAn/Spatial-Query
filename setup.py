@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='SpatialQuery',
-    version='0.1.4',
+    version='0.0.2',
     packages=find_packages(),
     url='https://github.com/ShaokunAn/Spatial-Query',
     license='MIT',
@@ -26,5 +26,8 @@ setup(
         'mlxtend>=0.23.1',
         'seaborn>=0.13.2',
         'scikit-learn>=1.3.2',
+        'statsmodels>=0.14.4',
+        'scanpy>=1.11.1'
     ],
+    include_package_data=True, 
 )
