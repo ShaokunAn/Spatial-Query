@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional, Dict, Tuple, Any
 
 import numpy as np
 import pandas as pd
@@ -13,8 +13,13 @@ import time
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
+from statsmodels.stats.multitest import multipletests
+
+from joblib import Parallel, delayed
 
 from .spatial_query import spatial_query
+
+from time import time
 
 
 class spatial_query_multi:
@@ -23,9 +28,11 @@ class spatial_query_multi:
                  datasets: List[str],
                  spatial_key: str,
                  label_key: str,
-                 leaf_size: int, 
+                 leaf_size: int = 10,
                  max_radius: float = 500,
                  n_split: int = 10,
+                 build_gene_index: bool = False,
+                 feature_name: Optional[str] = None,
                  ):
         """
         Initiate models, including setting attributes and building kd-tree for each field of view.
@@ -43,18 +50,28 @@ class spatial_query_multi:
         leaf_size:
             The largest number of points stored in each leaf node.
         max_radius: 
-            The upper limit of neighborhood radius. 
+            The upper limit of neighborhood radius.
+        n_split:
+            The number of splits in each axis for spatial grid to speed up query, default is 10
+        build_gene_index:
+            Whether to build scfind index of expression data, default is False. If expression data is required for query,
+            set this parameter to True
+        feature_name:
+            The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
+            only used if build_gene_index is True
         """
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
         self.label_key = label_key
         self.max_radius = max_radius
+        self.build_gene_index = build_gene_index
+
         # Modify dataset names by d_0, d_2, ... for duplicates in datasets
         count_dict = {}
         modified_datasets = []
         for dataset in datasets:
             if '_' in dataset:
-                print(f"Warning: Misusage of underscore in '{dataset}'. Replacing with hyphen.")
+                print(f"Replacing _ with hyphen in {dataset}.")
                 dataset = dataset.replace('_', '-')
 
             if dataset in count_dict:
@@ -75,6 +92,8 @@ class spatial_query_multi:
             leaf_size=leaf_size,
             max_radius=self.max_radius,
             n_split=n_split,
+            build_gene_index=build_gene_index,
+            feature_name=feature_name,
             ) for i, adata in enumerate(adatas)]
 
     def find_fp_knn(self,
@@ -390,22 +409,7 @@ class spatial_query_multi:
                         n_motif_ct += np.sum(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))
                         n_ct += np.sum(mask)
 
-                # for i in range(len(labels)):
-                #     if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][1:]]):
-                #         n_motif_labels += 1
-                # n_labels += len(labels)
-
-                # if ct not in labels.unique():
-                #     continue
-                # cinds = [i for i, l in enumerate(labels) if l == ct]
-                #
-                # for i in cinds:
-                #     inds = [ind for ind, d in enumerate(dists[i]) if d < max_dist]
-                #     if len(inds) > 1:
-                #         if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][inds[1:]]]):
-                #             n_motif_ct += 1
-
-                # n_ct += len(cinds)
+                        # TODO: Retrieve cell IDs of motif and center cell
 
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
@@ -425,19 +429,21 @@ class spatial_query_multi:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['adj_pvals'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adj_pvals', ignore_index=True)
             return out_pd
 
     def motif_enrichment_dist(self,
                               ct: str,
-                              motifs: Union[str, List[str]] = None,
+                              motifs: Union[str, List[str], List[List[str]]] = None,
                               dataset: Union[str, List[str]] = None,
                               max_dist: float = 100,
                               min_size: int = 0,
                               min_support: float = 0.5,
-                              max_ns: int = 100) -> DataFrame:
+                              max_ns: int = 100,
+                              return_cellID: bool = False
+                              ):
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood in multiple fields of view.
 
@@ -462,9 +468,20 @@ class spatial_query_multi:
             like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_ns:
             Maximum number of neighborhood size for each point.
+        return_cellID:
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
+            By defaults do not return cell ID.
         Returns
         -------
-        Tuple containing counts and statistical measures.
+        If return_cellID is False:
+            pd.DataFrame containing statistical measures for motif enrichment.
+        If return_cellID is True:
+            A tuple with three elements:
+            - The original DataFrame output
+            - Dictionary with cell IDs of motifs in center cell's neighborhood in each dataset for each motif:
+              {'motif_1': {'dataset_1': [ids]}}
+            - Dictionary with cell IDs of center cell type with given motif in their neighborhood:
+              {'motif_1': {'dataset_1': [ids]}}
         """
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
@@ -480,23 +497,46 @@ class spatial_query_multi:
 
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
+        # Properly handle different input formats for motifs
         if motifs is None:
+            # If motifs is None, keep the existing logic to find patterns
             fp = self.find_fp_dist(ct=ct, dataset=dataset, max_dist=max_dist, min_size=min_size,
                                    min_support=min_support, max_ns=max_ns)
             motifs = fp['itemsets'].tolist()
         else:
             if isinstance(motifs, str):
+                motifs = [[motifs]]
+            elif isinstance(motifs, list) and all(isinstance(m, str) for m in motifs):
                 motifs = [motifs]
+            # At this point, motifs should be list[list[str]]
 
+            # Filter out undefined cell types from each motif
             all_labels = pd.concat([s.labels for s in self.spatial_queries])
             labels_unique_all = set(all_labels.unique())
-            motifs_exc = [m for m in motifs if m not in labels_unique_all]
-            if len(motifs_exc) != 0:
-                print(f"Found no {motifs_exc} in {dataset}! Ignoring them.")
-            motifs = [m for m in motifs if m not in motifs_exc]
-            if len(motifs) == 0:
-                raise ValueError(f"All cell types in motifs are missed in {self.label_key}.")
-            motifs = [motifs]
+
+            filtered_motifs = []
+            for motif in motifs:
+                # Check which cell types in this motif are valid
+                motif_exc = [m for m in motif if m not in labels_unique_all]
+                if len(motif_exc) > 0:
+                    print(f"Not found {motif_exc} in {dataset}! Ignoring them.")
+
+                # Filter the current motif to only include valid cell types
+                valid_motif = [m for m in motif if m in labels_unique_all]
+
+                # Only include this motif if it has at least one valid cell type
+                if len(valid_motif) > 0:
+                    filtered_motifs.append(valid_motif)
+
+            # Check if we have any valid motifs left
+            if len(filtered_motifs) == 0:
+                raise ValueError(f"All cell types in motifs are missing in {self.label_key}.")
+
+            motifs = filtered_motifs
+
+        # Initialize dictionaries to store cell IDs if requested
+        motif_cell_ids = {}
+        center_cell_ids = {}
 
         for motif in motifs:
             n_labels = 0
@@ -507,9 +547,15 @@ class spatial_query_multi:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
 
+            if return_cellID:
+                motif_str = str(sort_motif)
+                motif_cell_ids[motif_str] = {}
+                center_cell_ids[motif_str] = {}
+
             for s in self.spatial_queries:
                 if s.dataset.split('_')[0] not in dataset:
                     continue
+
                 cell_pos = s.spatial_pos
                 labels = np.array(s.labels)
                 labels_unique = np.unique(labels)
@@ -528,6 +574,7 @@ class spatial_query_multi:
                     matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
                     matching_cells_indices = np.unique(matching_cells_indices)
                     matching_cells_indices.sort()
+
                     # print(f"number of cells skipped: {len(matching_cells_indices)}")
                     # print(f"proportion of cells searched: {len(matching_cells_indices) / len(s.spatial_pos)}")
                     idxs_in_grids = s.kd_tree.query_ball_point(
@@ -556,41 +603,29 @@ class spatial_query_multi:
                     neighbor_matrix = np.zeros((num_matching_cells, num_types), dtype=int)
                     np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
 
-                    n_motif_labels += np.sum(np.all(neighbor_matrix[:, int_motifs] > 0, axis=1))
+                    motif_mask = np.all(neighbor_matrix[:, int_motifs] > 0, axis=1)
+                    n_motif_labels += np.sum(motif_mask)
 
                     if ct in np.unique(labels):
                         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
                         mask = int_labels[matching_cells_indices] == int_ct
-                        n_motif_ct += np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
+                        center_mask = mask & motif_mask
+                        n_motif_ct += np.sum(center_mask)
                         n_ct += np.sum(s.labels == ct)
 
-                # ~10s using C++ codes
-                # idxs = idxs.tolist()
-                # cinds = [i for i, label in enumerate(labels) if label == ct]
-                # n_motif_ct_s, n_motif_labels_s = spatial_module_utils.search_motif_dist(
-                #     motif, idxs, labels, cinds, max_ns
-                # )
-                # n_motif_ct += n_motif_ct_s
-                # n_motif_labels += n_motif_labels_s
-                # n_ct += len(cinds)
+                        if return_cellID:
+                            # Get IDs of center cells with motif in neighborhood
+                            center_indices = matching_cells_indices[center_mask]
 
-                # original codes, ~ minutes
-                # for i in range(len(idxs)):
-                #     e = min(len(idxs[i]), max_ns)
-                #     if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
-                #         n_motif_labels += 1
-                #
-                # if ct not in labels.unique():
-                #     continue
-                #
-                # cinds = [i for i, label in enumerate(labels) if label == ct]
-                #
-                # for i in cinds:
-                #     e = min(len(idxs[i]), max_ns)
-                #     if spatial_query.has_motif(sort_motif, [labels[idx] for idx in idxs[i][:e] if idx != i]):
-                #         n_motif_ct += 1
-                #
-                # n_ct += len(cinds)
+                            if len(center_indices) > 0:
+                                idxs_center = np.array(idxs_filter, dtype=object)[mask & motif_mask]
+                                all_neighbors_center = np.concatenate(idxs_center)
+                                motif_mask_all = np.isin(np.array(s.labels), motif)
+                                valid_neighbors_center = all_neighbors_center[motif_mask_all[all_neighbors_center]]
+                                id_motif_celltype = set(valid_neighbors_center)
+
+                                motif_cell_ids[motif_str][s.dataset] = list(id_motif_celltype)
+                                center_cell_ids[motif_str][s.dataset] = list(center_indices)
 
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
@@ -603,15 +638,18 @@ class spatial_query_multi:
 
         if len(out_pd) == 1:
             out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
-            return out_pd
         else:
             p_values = out_pd['p-values'].tolist()
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['adj_pvals'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adj_pvals', ignore_index=True)
+
+        if return_cellID:
+            return out_pd, motif_cell_ids, center_cell_ids
+        else:
             return out_pd
 
     def find_fp_knn_fov(self,
@@ -828,20 +866,20 @@ class spatial_query_multi:
                                                            method='poscorr')
 
         # Add the corrected p-values back to the DataFrame (optional)
-        fp_datasets['corrected_p_values'] = corrected_p_values
+        fp_datasets['adj_pvals'] = corrected_p_values
         fp_datasets['if_significant'] = if_rejected
 
         # Return the significant patterns in each dataset
         fp_dataset0 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[0]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'corrected_p_values']]
+            ][['itemsets', 'adj_pvals']]
         fp_dataset1 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'corrected_p_values']]
+            ][['itemsets', 'adj_pvals']]
         fp_dataset0 = fp_dataset0.reset_index(drop=True)
         fp_dataset1 = fp_dataset1.reset_index(drop=True)
-        fp_dataset0 = fp_dataset0.sort_values(by='corrected_p_values', ascending=True)
-        fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
+        fp_dataset0 = fp_dataset0.sort_values(by='adj_pvals', ascending=True)
+        fp_dataset1 = fp_dataset1.sort_values(by='adj_pvals', ascending=True)
         return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
 
     def differential_analysis_dist(self,
@@ -950,22 +988,231 @@ class spatial_query_multi:
                                                            method='poscorr')
 
         # Add the corrected p-values back to the DataFrame (optional)
-        fp_datasets['corrected_p_values'] = corrected_p_values
+        fp_datasets['adj_pvals'] = corrected_p_values
         fp_datasets['if_significant'] = if_rejected
 
         # Return the significant patterns in each dataset
         fp_dataset0 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[0]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'corrected_p_values']]
+            ][['itemsets', 'adj_pvals']]
         fp_dataset1 = fp_datasets[
             (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'corrected_p_values']]
+            ][['itemsets', 'adj_pvals']]
 
-        fp_dataset0 = fp_dataset0.sort_values(by='corrected_p_values', ascending=True)
-        fp_dataset1 = fp_dataset1.sort_values(by='corrected_p_values', ascending=True)
+        fp_dataset0 = fp_dataset0.sort_values(by='adj_pvals', ascending=True)
+        fp_dataset1 = fp_dataset1.sort_values(by='adj_pvals', ascending=True)
         fp_dataset0 = fp_dataset0.reset_index(drop=True)
         fp_dataset1 = fp_dataset1.reset_index(drop=True)
         return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
+
+    def de_genes(self,
+                 ind_group1: Dict[str, List[int]],
+                 ind_group2: Dict[str, List[int]],
+                 genes: Optional[Union[str, List[str]]] = None,
+                 min_fraction: float = 0.05
+                 ):
+        """
+        Perform differential expression analysis on the given indices.
+        The ind_group1 and ind_group2 should be a defaultdict with keys as modified dataset names and values as
+        lists of indices in corresponding group.
+        It provides a flexible way to perform DE analysis on different datasets, e.g., across different FOVs of the
+        same condition, or across FOVs from different conditions.
+
+        Parameters
+        ----------
+        ind_group1: defaultdict[str, List[int]]
+            A defaultdict with keys as modified dataset names and values as lists of indices in corresponding group.
+        ind_group2: defaultdict[str, List[int]]
+            A defaultdict with keys as modified dataset names and values as lists of indices in corresponding group.
+        genes: Optional[Union[str, List[str]]]
+            Genes to be searched in the gene index.
+        min_fraction: float, default=0.05
+            The minimum fraction of cells that express a gene for it to be considered differentially expressed.
+
+        Returns
+        -------
+        """
+        if not self.build_gene_index:
+            raise ValueError("Please build gene index first by setting build_gene_index=True in the constructor.")
+
+        # For each gene, calculate the number of cells in the provided indices expressing the gene in each group
+        if genes is None:
+            genes = set.union(*[set(s.index.scfindGenes) for s in self.spatial_queries])
+            genes = list(genes)
+            print('All genes are used.')
+
+        n_1 = np.sum([len(ids) for ids in ind_group1.values()])
+        n_2 = np.sum([len(ids) for ids in ind_group2.values()])
+
+        valid_ds1 = [ds for ds in ind_group1.keys() if ds in self.datasets]
+        valid_ds2 = [ds for ds in ind_group2.keys() if ds in self.datasets]
+
+        # Check if there are valid datasets
+        if not valid_ds1:
+            raise ValueError("No valid datasets found in ind_group1.")
+        if not valid_ds2:
+            raise ValueError("No valid datasets found in ind_group2.")
+
+        group1_results = []
+        # start = time()
+        for ds, ids in ind_group1.items():
+            print(f"Processing {ds} in group1...")
+            if ds not in valid_ds1:
+                print(f'Warning: {ds} is not a valid dataset name. Ignoring it.')
+                continue
+
+            ds_i = self.datasets.index(ds)
+            sp = self.spatial_queries[ds_i]
+
+            # Get counts of cells expressing each gene in this dataset
+            # start1 = time()
+            genes_sp = sp.index._case_correct(genes, if_print=False)
+            if not genes_sp:
+                continue
+
+            ds_counts = sp.index.index.cell_counts_in_indices_genes(ids, genes_sp)
+            # end1 = time()
+            # print(f'Time for cell search in group1: {end1 - start1}')
+
+            genes_list = [item['gene'] for item in ds_counts]
+            counts_list = [item['expressed_cells'] for item in ds_counts]
+
+            # Create a DataFrame
+            if genes_list:
+                temp_df = pd.DataFrame({'gene': genes_list, 'count': counts_list})
+                group1_results.append(temp_df)
+
+        # end = time()
+        # print(f'Time for cell search in group1: {end - start}')
+        # Count cells expressing each gene in group 2
+        group2_results = []
+        # start = time()
+        for ds, ids in ind_group2.items():
+            print(f"Processing {ds} in group2...")
+            if ds not in valid_ds2:
+                print(f'Warning: {ds} is not a valid dataset name. Ignoring it.')
+                continue
+
+            ds_i = self.datasets.index(ds)
+            sp = self.spatial_queries[ds_i]
+
+            # Get counts of cells expressing each gene in this dataset
+            genes_sp = sp.index._case_correct(genes, if_print=False)
+            if not genes_sp:
+                continue
+
+            ds_counts = sp.index.index.cell_counts_in_indices_genes(ids, genes_sp)
+
+            genes_list = [item['gene'] for item in ds_counts]
+            counts_list = [item['expressed_cells'] for item in ds_counts]
+
+            # Create a DataFrame in one operation
+            if genes_list:
+                temp_df = pd.DataFrame({'gene': genes_list, 'count': counts_list})
+                group2_results.append(temp_df)
+
+        # end = time()
+        # print(f'Time for cell search in group2: {end - start}')
+
+        # Prepare data for statistical testing
+        # Combine all results
+        # start = time()
+        if group1_results:
+            group1_df = pd.concat(group1_results, ignore_index=True)
+            group1_agg = group1_df.groupby('gene')['count'].sum().reset_index()
+            group1_agg = group1_agg.rename(columns={'count': 'count_1'})
+        else:
+            group1_agg = pd.DataFrame(columns=['gene', 'count_1'])
+
+        if group2_results:
+            group2_df = pd.concat(group2_results, ignore_index=True)
+            group2_agg = group2_df.groupby('gene')['count'].sum().reset_index()
+            group2_agg = group2_agg.rename(columns={'count': 'count_2'})
+        else:
+            group2_agg = pd.DataFrame(columns=['gene', 'count_2'])
+
+        # Merge the two groups
+        merged_df = pd.merge(group1_agg, group2_agg, on='gene', how='outer').fillna(0)
+
+        # Calculate proportions
+        merged_df['proportion_1'] = merged_df['count_1'] / n_1
+        merged_df['proportion_2'] = merged_df['count_2'] / n_2
+
+        # Filter by minimum fraction
+        filtered_df = merged_df[(merged_df['proportion_1'] >= min_fraction) |
+                                (merged_df['proportion_2'] >= min_fraction)].copy()
+
+        if filtered_df.empty:
+            print("No genes meet the minimum fraction threshold.")
+            return pd.DataFrame(
+                columns=["gene", "proportion_1", "proportion_2", "abs",
+                         "difference", "p_value", "adj_p_value", "de_in"]
+            )
+
+        # Calculate differences
+        filtered_df.loc[:, 'difference'] = filtered_df['proportion_1'] - filtered_df['proportion_2']
+        filtered_df.loc[:, 'abs'] = filtered_df['difference'].abs()
+
+        # For Fisher's exact test, prepare arrays for vectorized operations
+        count_1_array = filtered_df['count_1'].values.astype(int)
+        count_2_array = filtered_df['count_2'].values.astype(int)
+        not_count_1_array = n_1 - count_1_array
+        not_count_2_array = n_2 - count_2_array
+        # end = time()
+        # print(f'Time for prepare data for preparation of statistical testing: {end - start}')
+
+        # Use numpy to create all contingency tables at once
+        # This creates a 3D array of shape (n_rows, 2, 2)
+        # start = time()
+        contingency_tables = np.array([
+            [[count_1_array[i], not_count_1_array[i]],
+             [count_2_array[i], not_count_2_array[i]]]
+            for i in range(len(count_1_array))
+        ])
+
+        # Apply Fisher's exact test - this still needs a loop but is more efficient
+        # Use parallelization if available (requires joblib)
+        def apply_fisher(table):
+            _, p_value = stats.fisher_exact(table)
+            return p_value
+
+        # Run tests in parallel
+        # n_jobs=-1 uses all available cores
+        p_values = Parallel(n_jobs=-1)(
+            delayed(apply_fisher)(table) for table in contingency_tables
+        )
+
+        # Add p-values to DataFrame
+        filtered_df.loc[:, 'p_value'] = p_values
+
+        # Sort by p-value
+        filtered_df = filtered_df.sort_values('p_value')
+
+        # Multiple testing correction
+        if len(filtered_df) > 1:
+            adjusted_pvals = multipletests(filtered_df['p_value'], method='holm')[1]
+            filtered_df['adj_p_value'] = adjusted_pvals
+        else:
+            filtered_df['adj_p_value'] = filtered_df['p_value']
+
+        filtered_df = filtered_df[filtered_df['adj_p_value']<0.05].reset_index(drop=True)
+
+        # Add information about which group shows higher expression
+        filtered_df['de_in'] = np.where(
+            (filtered_df['proportion_1'] > filtered_df['proportion_2']),
+            'group1',
+            np.where(
+                (filtered_df['proportion_2'] > filtered_df['proportion_1']),
+                'group2',
+                None
+            )
+        )
+        # end = time()
+        # print(f'Time for statistical testing: {end - start}')
+
+        # Return the final results
+        return filtered_df[["gene", "proportion_1", "proportion_2", "abs",
+                            "difference", "p_value", "adj_p_value", "de_in"]]
 
     def cell_type_distribution(self,
                                dataset: Union[str, List[str]] = None,

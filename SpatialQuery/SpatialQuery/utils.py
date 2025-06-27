@@ -7,7 +7,6 @@ import anndata as ad
 from sklearn.preprocessing import LabelEncoder
 import scanpy as sc
 
-
 def maximal_patterns(fp,
                      key: str = 'itemsets',
                      ):
@@ -103,6 +102,7 @@ def retrieve_niche_pattern_freq(fp, sp, ct, max_dist):
         freqs.append(freq_fp)
 
     return pd.DataFrame(freqs)
+
 
 def plot_niche_pattern_freq(freqs):
     """
