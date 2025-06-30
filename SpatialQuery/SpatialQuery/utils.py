@@ -1,30 +1,39 @@
 from collections import Counter
 from itertools import combinations
+from typing import List
 
+import anndata as ad
 import numpy as np
 import pandas as pd
-import anndata as ad
-from sklearn.preprocessing import LabelEncoder
 import scanpy as sc
+from sklearn.preprocessing import LabelEncoder
 
-def maximal_patterns(fp,
-                     key: str = 'itemsets',
-                     ):
+
+def remove_suffix(fp: pd.DataFrame):
     """
-    Retrieve the maximal patterns in provided frequent patterns.
+    Remove the suffix of frequent patterns.
+    """
+    trans = [list(tran) for tran in fp['itemsets'].values]
+    fp_no_suffix = [[item.split('_')[0] for item in tran] for tran in trans]
+    # Create a DataFrame
+    fp['itemsets'] = fp_no_suffix
+    return fp
+
+
+def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
+    """
+    Find the maximal frequent patterns
 
     Parameter
     ---------
-    fp:
-        DataFrame with frequent patterns
-    key:
-        Column name representing the patterns.
+        fp: Frequent patterns dataframe with support values and itemsets.
 
     Return
     ------
-    A dataframe with the maximal patterns.
+        Maximal frequent patterns with support and itemsets.
     """
-    itemsets = fp[key].apply(frozenset)
+    # Convert itemsets to frozensets for set operations
+    itemsets = fp['itemsets'].apply(frozenset)
 
     # Find all subsets of each itemset
     subsets = set()
@@ -33,7 +42,7 @@ def maximal_patterns(fp,
             subsets.update(frozenset(s) for s in combinations(itemset, r))
 
     # Identify maximal patterns (itemsets that are not subsets of any other)
-    maximal_patterns = [tuple(sorted(itemset)) for itemset in itemsets if itemset not in subsets]
+    maximal_patterns = [itemset for itemset in itemsets if itemset not in subsets]
     # maximal_patterns_ = [list(p) for p in maximal_patterns]
 
     # Filter the original DataFrame to keep only the maximal patterns
@@ -128,3 +137,48 @@ def plot_niche_pattern_freq(freqs):
     fp_data.obs = obs
 
     sc.pl.heatmap(fp_data, var_names=fp_data.var_names, groupby='FOV', cmap='vlag')
+
+
+def has_motif(neighbors: List[str], labels: List[str]) -> bool:
+    """
+    Determines whether all elements in 'neighbors' are present in 'labels'.
+    If all elements are present, returns True. Otherwise, returns False.
+
+    Parameter
+    ---------
+    neighbors:
+        List of elements to check.
+    labels:
+        List in which to check for elements from 'neighbors'.
+
+    Return
+    ------
+    True if all elements of 'neighbors' are in 'labels', False otherwise.
+    """
+    # Set elements in neighbors and labels to be unique.
+    # neighbors = set(neighbors)
+    # labels = set(labels)
+    freq_neighbors = Counter(neighbors)
+    freq_labels = Counter(labels)
+    for element, count in freq_neighbors.items():
+        if freq_labels[element] < count:
+            return False
+
+    return True
+
+
+def distinguish_duplicates(transaction: List[str]):
+    """
+    Append suffix to items of transaction to distinguish the duplicate items.
+    """
+    counter = dict(Counter(transaction))
+    trans_suf = [f"{item}_{i}" for item, value in counter.items() for i in range(value)]
+    # trans_suf = [f"{item}_{value}" for item, value in counter.items()]
+    # count_dict = defaultdict(int)
+    # for i, item in enumerate(transaction):
+    #     # Increment the count for the item, or initialize it if it's new
+    #     count_dict[item] += 1
+    #     # Update the item with its count as suffix
+    #     transaction[i] = f"{item}_{count_dict[item]}"
+    # return transaction
+    return trans_suf

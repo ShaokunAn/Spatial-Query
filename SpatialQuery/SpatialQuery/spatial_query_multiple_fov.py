@@ -53,12 +53,6 @@ class spatial_query_multi:
             The upper limit of neighborhood radius.
         n_split:
             The number of splits in each axis for spatial grid to speed up query, default is 10
-        build_gene_index:
-            Whether to build scfind index of expression data, default is False. If expression data is required for query,
-            set this parameter to True
-        feature_name:
-            The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
-            only used if build_gene_index is True
         """
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
