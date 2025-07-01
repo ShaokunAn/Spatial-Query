@@ -13,7 +13,7 @@ from scipy.stats import hypergeom
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import MultiLabelBinarizer
 
-from utils import find_maximal_patterns, has_motif
+from .utils import find_maximal_patterns, has_motif
 
 
 class spatial_query:
@@ -1013,7 +1013,9 @@ class spatial_query:
         # neighborhood of above grid points with motif nearby
         id_motif_celltype = fp[fp['itemsets'].apply(
             lambda p: set(p)) == set(motif)]
-        id_motif_celltype = id_motif_celltype['cell_id'].iloc[0]
+        if id_motif_celltype.empty:
+            raise ValueError("No motif found in neighborhood of grid points.")
+        id_motif_celltype = id_motif_celltype['neighbor_id'].iloc[0]
 
         # Plot above spots and center grid points
         # Set color map as in find_patterns_grid
@@ -1133,7 +1135,7 @@ class spatial_query:
         # neighborhood of above random points with motif nearby
         id_motif_celltype = fp[fp['itemsets'].apply(
             lambda p: set(p)) == set(motif)]
-        id_motif_celltype = id_motif_celltype['cell_id'].iloc[0]
+        id_motif_celltype = id_motif_celltype['neighbor_id'].iloc[0]
 
         # Plot above spots and center grid points
         # Set color map as in find_patterns_grid
@@ -1274,7 +1276,7 @@ class spatial_query:
         motif_spot_label = self.labels[list(id_motif_celltype)]
         fig, ax = plt.subplots(figsize=fig_size)
         # Plotting other spots as background
-        labels_length = self.labels[0]
+        labels_length = self.labels.shape[0]
         id_motif_celltype_set = set(id_motif_celltype)
         cind_with_motif_set = set(cind_with_motif)
         bg_index = [i for i in range(labels_length) if i not in id_motif_celltype_set and i not in cind_with_motif_set]
