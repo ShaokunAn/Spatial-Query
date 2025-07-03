@@ -16,6 +16,7 @@ from statsmodels.stats.multitest import multipletests
 
 from .scfind4sp import SCFind
 from .spatial_query import spatial_query
+from .utils import find_maximal_patterns
 
 
 class spatial_query_multi:
@@ -119,7 +120,7 @@ class spatial_query_multi:
         Parameter
         ---------
         ct:
-            Cell type name.
+            Center cell type of interests.
         dataset:
             Datasets for searching for frequent patterns.
             Use all datasets if dataset=None.
@@ -136,24 +137,9 @@ class spatial_query_multi:
         """
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
         # start = time.time()
-        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
-        if not any(if_exist_label):
-            raise ValueError(f"Found no {self.label_key} in all datasets!")
+        self.check_celltype(ct)
 
-        if dataset is None:
-            # Use all datasets if dataset is not provided
-            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
-
-        # Make sure dataset is a list
-        if isinstance(dataset, str):
-            dataset = [dataset]
-
-        # test if the input dataset name is valid
-        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        for ds in dataset:
-            if ds not in valid_ds_names:
-                raise ValueError(f"Invalid input dataset name: {ds}.\n "
-                                 f"Valid dataset names are: {set(valid_ds_names)}")
+        dataset = self.check_dataset(dataset)
 
         max_dist = min(max_dist, self.max_radius)
         # end = time.time()
@@ -165,8 +151,8 @@ class spatial_query_multi:
             if s.dataset.split('_')[0] not in dataset:
                 continue
             cell_pos = s.spatial_pos
-            labels = np.array(s.labels)
-            if ct not in np.unique(labels):
+            labels = s.labels
+            if ct not in s.labels_unique:
                 continue
 
             ct_pos = cell_pos[labels == ct]
@@ -193,7 +179,7 @@ class spatial_query_multi:
         # end = time.time()
         # print(f"time for find fp_growth: {end-start} seconds, {len(fp)} frequent patterns.")
         # start = time.time()
-        fp = spatial_query.find_maximal_patterns(fp=fp)
+        fp = find_maximal_patterns(fp=fp)
         # end = time.time()
         # print(f"time for identify maximal patterns: {end - start} seconds")
 
@@ -234,21 +220,9 @@ class spatial_query_multi:
         Frequent patterns in the neighborhood of certain cell type.
         """
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
-        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
-        if not any(if_exist_label):
-            raise ValueError(f"Found no {self.label_key} in any datasets!")
+        self.check_celltype(ct)
 
-        if dataset is None:
-            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        if isinstance(dataset, str):
-            dataset = [dataset]
-
-        # test if the input dataset name is valid
-        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        for ds in dataset:
-            if ds not in valid_ds_names:
-                raise ValueError(f"Invalid input dataset name: {ds}.\n "
-                                 f"Valid dataset names are: {set(valid_ds_names)}")
+        dataset = self.check_dataset(dataset)
 
         max_dist = min(max_dist, self.max_radius)
         # start = time.time()
@@ -257,11 +231,11 @@ class spatial_query_multi:
             if s.dataset.split('_')[0] not in dataset:
                 continue
             cell_pos = s.spatial_pos
-            labels = np.array(s.labels)
+            labels = s.labels
             if ct not in np.unique(labels):
                 continue
 
-            cinds = [id for id, l in enumerate(labels) if l == ct]
+            cinds = np.where(labels == ct)[0]
             ct_pos = cell_pos[cinds]
 
             idxs = s.kd_tree.query_ball_point(ct_pos, r=max_dist, return_sorted=False, workers=-1)
@@ -289,7 +263,7 @@ class spatial_query_multi:
         # print(f"time for find fp_growth: {end - start} seconds, {len(fp)} frequent patterns.")
 
         # start = time.time()
-        fp = spatial_query.find_maximal_patterns(fp=fp)
+        fp = find_maximal_patterns(fp=fp)
         # end = time.time()
         # print(f"time for identify maximal patterns: {end - start} seconds")
 
@@ -335,22 +309,16 @@ class spatial_query_multi:
         pd.Dataframe containing the cell type name, motifs, number of motifs nearby given cell type,
         number of spots of cell type, number of motifs in single FOV, p value of hypergeometric distribution.
         """
-        if dataset is None:
-            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        if isinstance(dataset, str):
-            dataset = [dataset]
+        self.check_celltype(ct)
+        dataset = self.check_dataset(dataset)
 
         max_dist = min(max_dist, self.max_radius)
 
         out = []
-        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
-        if not any(if_exist_label):
-            raise ValueError(f"Found no {self.label_key} in any datasets!")
-
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
-        all_labels = pd.concat([s.labels for s in self.spatial_queries])
-        labels_unique_all = set(all_labels.unique())
+        all_labels = np.concatenate([s.labels for s in self.spatial_queries])
+        labels_unique_all = set(np.unique(all_labels))
         if motifs is None:
             fp = self.find_fp_knn(ct=ct, k=k, dataset=dataset,
                                   min_support=min_support, max_dist=max_dist)
@@ -382,8 +350,8 @@ class spatial_query_multi:
                     continue
 
                 cell_pos = s.spatial_pos
-                labels = np.array(s.labels)
-                labels_unique = np.unique(labels)
+                labels = s.labels
+                labels_unique = s.labels_unique
 
                 contain_motif = [m in labels_unique for m in motif]
                 if not np.all(contain_motif):
@@ -494,15 +462,10 @@ class spatial_query_multi:
             - Dictionary with cell IDs of center cell type with given motif in their neighborhood:
               {'motif_1': {'dataset_1': [ids]}}
         """
-        if dataset is None:
-            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        if isinstance(dataset, str):
-            dataset = [dataset]
+        dataset = self.check_dataset(dataset)
+        self.check_celltype(ct)
 
         out = []
-        if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
-        if not any(if_exist_label):
-            raise ValueError(f"Found no {self.label_key} in any datasets!")
 
         max_dist = min(max_dist, self.max_radius)
 
@@ -522,8 +485,8 @@ class spatial_query_multi:
             # At this point, motifs should be list[list[str]]
 
             # Filter out undefined cell types from each motif
-            all_labels = pd.concat([s.labels for s in self.spatial_queries])
-            labels_unique_all = set(all_labels.unique())
+            all_labels = np.concatenate([s.labels for s in self.spatial_queries])
+            labels_unique_all = set(np.unique(all_labels))
 
             filtered_motifs = []
             for motif in motifs:
@@ -568,8 +531,8 @@ class spatial_query_multi:
                     continue
 
                 cell_pos = s.spatial_pos
-                labels = np.array(s.labels)
-                labels_unique = np.unique(labels)
+                labels = s.labels
+                labels_unique = s.labels_unique
 
                 contain_motif = [m in labels_unique for m in motif]
                 if not np.all(contain_motif):
@@ -617,7 +580,7 @@ class spatial_query_multi:
                     motif_mask = np.all(neighbor_matrix[:, int_motifs] > 0, axis=1)
                     n_motif_labels += np.sum(motif_mask)
 
-                    if ct in np.unique(labels):
+                    if ct in labels_unique:
                         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
                         mask = int_labels[matching_cells_indices] == int_ct
                         center_mask = mask & motif_mask
@@ -631,7 +594,7 @@ class spatial_query_multi:
                             if len(center_indices) > 0:
                                 idxs_center = np.array(idxs_filter, dtype=object)[mask & motif_mask]
                                 all_neighbors_center = np.concatenate(idxs_center)
-                                motif_mask_all = np.isin(np.array(s.labels), motif)
+                                motif_mask_all = np.isin(s.labels, motif)
                                 valid_neighbors_center = all_neighbors_center[motif_mask_all[all_neighbors_center]]
                                 id_motif_celltype = set(valid_neighbors_center)
 
@@ -698,7 +661,7 @@ class spatial_query_multi:
 
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
         cell_pos = sp_object.spatial_pos
-        labels = np.array(sp_object.labels)
+        labels = sp_object.labels
         if ct not in np.unique(labels):
             return pd.DataFrame(columns=['support', 'itemsets'])
 
@@ -755,10 +718,10 @@ class spatial_query_multi:
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
         cell_pos = sp_object.spatial_pos
         labels = sp_object.labels
-        if ct not in labels.unique():
+        if ct not in np.unique(labels):
             return pd.DataFrame(columns=['support, itemsets'])
 
-        cinds = [id for id, l in enumerate(labels) if l == ct]
+        cinds = np.where(labels == ct)[0]
         ct_pos = cell_pos[cinds]
 
         fp, _, _ = sp_object.build_fptree_dist(cell_pos=ct_pos,
@@ -787,7 +750,7 @@ class spatial_query_multi:
         ct:
             Cell type of interest as center point.
         datasets:
-            Dataset names used to perform differential analysis
+            Dataset names used to perform differential analysis. Require 2 datasets.
         k:
             Number of nearest neighbors.
         min_support:
@@ -805,11 +768,7 @@ class spatial_query_multi:
         max_dist = min(max_dist, self.max_radius)
 
         # Check if the two datasets are valid
-        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        for ds in datasets:
-            if ds not in valid_ds_names:
-                raise ValueError(f"Invalid input dataset name: {ds}.\n"
-                                 f"Valid dataset names are: {set(valid_ds_names)}")
+        datasets = self.check_dataset(datasets)
 
         flag = 0
         # Identify frequent patterns in each dataset
@@ -929,11 +888,7 @@ class spatial_query_multi:
             raise ValueError("Require 2 datasets for differential analysis.")
 
         # Check if the two datasets are valid
-        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        for ds in datasets:
-            if ds not in valid_ds_names:
-                raise ValueError(f"Invalid input dataset name: {ds}.\n"
-                                 f"Valid dataset names are: {set(valid_ds_names)}")
+        datasets = self.check_dataset(datasets)
 
         max_dist = min(max_dist, self.max_radius)
 
@@ -1415,3 +1370,26 @@ class spatial_query_multi:
 
         plt.tight_layout()
         plt.show()
+
+    def check_dataset(self,
+                      dataset: Optional[Union[str, List[str]]] = None, ) -> List[str]:
+        if dataset is None:
+            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
+
+        if isinstance(dataset, str):
+            dataset = [dataset]
+
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
+
+        for ds in dataset:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}. \n"
+                                 f"Valid dataset names are: {set(valid_ds_names)}")
+
+        return dataset
+
+    def check_celltype(self,
+                       cell_type: str, ):
+        if_exist_label = [cell_type in s.labels.unique() for s in self.spatial_queries]
+        if not any(if_exist_label):
+            raise ValueError(f"Invalid input cell type: {cell_type}. \n")
