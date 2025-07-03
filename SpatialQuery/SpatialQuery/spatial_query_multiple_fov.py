@@ -1004,122 +1004,78 @@ class spatial_query_multi:
 
         # For each gene, calculate the number of cells in the provided indices expressing the gene in each group
         if genes is None:
-            genes = set.union(*[set(s.index.scfindGenes) for s in self.spatial_queries])
+            genes = set.intersection(*[set(s.index.scfindGenes) for s in self.spatial_queries])
             genes = list(genes)
-            print('All genes are used.')
+            print('All overlapping genes across datasets are used.')
 
-        n_1 = np.sum([len(ids) for ids in ind_group1.values()])
-        n_2 = np.sum([len(ids) for ids in ind_group2.values()])
-
-        valid_ds1 = [ds for ds in ind_group1.keys() if ds in self.datasets]
-        valid_ds2 = [ds for ds in ind_group2.keys() if ds in self.datasets]
+        # Filter to only include valid datasets
+        filtered_ind_group1 = {ds: indices for ds, indices in ind_group1.items() if
+                               ds in self.datasets and len(indices) > 0}
+        filtered_ind_group2 = {ds: indices for ds, indices in ind_group2.items() if
+                               ds in self.datasets and len(indices) > 0}
 
         # Check if there are valid datasets
-        if not valid_ds1:
-            raise ValueError("No valid datasets found in ind_group1.")
-        if not valid_ds2:
-            raise ValueError("No valid datasets found in ind_group2.")
+        if not filtered_ind_group1 or not filtered_ind_group2:
+            raise ValueError(f"No valid datasets found in ind_group{1 if not filtered_ind_group1 else 2}.")
 
-        group1_results = []
+        n_1 = np.sum([len(ids) for ids in filtered_ind_group1.values()])
+        n_2 = np.sum([len(ids) for ids in filtered_ind_group2.values()])
 
-        # start = time()
-        for ds, ids in ind_group1.items():
-            print(f"Processing {ds} in group1...")
-            if ds not in valid_ds1:
-                print(f'Warning: {ds} is not a valid dataset name. Ignoring it.')
-                continue
+        print(f"Group 1: {n_1} cells across {len(filtered_ind_group1)} datasets")
+        print(f"Group 2: {n_2} cells across {len(filtered_ind_group2)} datasets")
 
-            ds_i = self.datasets.index(ds)
-            sp = self.spatial_queries[ds_i]
+        out = self.index.index.de_genes_with_indices_multi_dataset(
+            genes,
+            filtered_ind_group1,
+            filtered_ind_group2,
+            min_fraction
+        )
 
-            # Get counts of cells expressing each gene in this dataset
-            # start1 = time()
-            genes_sp = sp.index._case_correct(genes, if_print=False)
-            if not genes_sp:
-                continue
+        if not out:
+            print("No genes meet the minimum fraction threshold.")
+            return pd.DataFrame(columns=[
+                'gene', 'proportion_1', 'proportion_2', 'abs_difference',
+                'p_value', 'adj_p_value', 'de_in'
+            ])
 
-            ds_counts = sp.index.index.cell_counts_in_indices_genes(ids, genes_sp)
-            # end1 = time()
-            # print(f'Time for cell search in group1: {end1 - start1}')
+        out_df = pd.DataFrame(out)
 
-            genes_list = [item['gene'] for item in ds_counts]
-            counts_list = [item['expressed_cells'] for item in ds_counts]
+        # Apply multiple testing correction
+        adjusted_pvals = multipletests(out_df['p_value'], method='holm')[1]
+        out_df['adj_p_value'] = adjusted_pvals
 
-            # Create a DataFrame
-            if genes_list:
-                temp_df = pd.DataFrame({'gene': genes_list, 'count': counts_list})
-                group1_results.append(temp_df)
+        # Filter for significant results
+        results_df = out_df[out_df['adj_p_value'] < 0.05].copy()
 
-        # end = time()
-        # print(f'Time for cell search in group1: {end - start}')
-        # Count cells expressing each gene in group 2
-        group2_results = []
-        # start = time()
-        for ds, ids in ind_group2.items():
-            print(f"Processing {ds} in group2...")
-            if ds not in valid_ds2:
-                print(f'Warning: {ds} is not a valid dataset name. Ignoring it.')
-                continue
-
-            ds_i = self.datasets.index(ds)
-            sp = self.spatial_queries[ds_i]
-
-            # Get counts of cells expressing each gene in this dataset
-            genes_sp = sp.index._case_correct(genes, if_print=False)
-            if not genes_sp:
-                continue
-
-            ds_counts = sp.index.index.cell_counts_in_indices_genes(ids, genes_sp)
-
-            genes_list = [item['gene'] for item in ds_counts]
-            counts_list = [item['expressed_cells'] for item in ds_counts]
-
-            # Create a DataFrame in one operation
-            if genes_list:
-                temp_df = pd.DataFrame({'gene': genes_list, 'count': counts_list})
-                group2_results.append(temp_df)
-
-        # end = time()
-        # print(f'Time for cell search in group2: {end - start}')
-
-        # Prepare data for statistical testing
-        # Combine all results
-        # start = time()
-        if group1_results:
-            group1_df = pd.concat(group1_results, ignore_index=True)
-            group1_agg = group1_df.groupby('gene')['count'].sum().reset_index()
-            group1_agg = group1_agg.rename(columns={'count': 'count_1'})
-        else:
-            group1_agg = pd.DataFrame(columns=['gene', 'count_1'])
-
-        if group2_results:
-            group2_df = pd.concat(group2_results, ignore_index=True)
-            group2_agg = group2_df.groupby('gene')['count'].sum().reset_index()
-            group2_agg = group2_agg.rename(columns={'count': 'count_2'})
-        else:
-            group2_agg = pd.DataFrame(columns=['gene', 'count_2'])
-
-        # Merge the two groups
-        merged_df = pd.merge(group1_agg, group2_agg, on='gene', how='outer').fillna(0)
+        # Add DE direction information
+        results_df['de_in'] = np.where(
+            (results_df['proportion_1'] > results_df['proportion_2']),
+            'group1',
+            np.where(
+                (results_df['proportion_2'] > results_df['proportion_1']),
+                'group2',
+                None
+            )
+        )
 
         # Calculate proportions
-        merged_df['proportion_1'] = merged_df['count_1'] / n_1
-        merged_df['proportion_2'] = merged_df['count_2'] / n_2
+        out_df['proportion_1'] = out_df['count_1'] / n_1
+        out_df['proportion_2'] = out_df['count_2'] / n_2
 
         # Filter by minimum fraction
-        filtered_df = merged_df[(merged_df['proportion_1'] >= min_fraction) |
-                                (merged_df['proportion_2'] >= min_fraction)].copy()
+        filtered_df = out_df[(out_df['proportion_1'] >= min_fraction) |
+                             (out_df['proportion_2'] >= min_fraction)].copy()
 
         if filtered_df.empty:
             print("No genes meet the minimum fraction threshold.")
             return pd.DataFrame(
-                columns=["gene", "proportion_1", "proportion_2", "abs",
-                         "difference", "p_value", "adj_p_value", "de_in"]
+                columns=["gene", "proportion_1", "proportion_2", "abs_difference",
+                         "p_value", "adj_p_value", "de_in"]
             )
 
         # Calculate differences
-        filtered_df.loc[:, 'difference'] = filtered_df['proportion_1'] - filtered_df['proportion_2']
-        filtered_df.loc[:, 'abs'] = filtered_df['difference'].abs()
+        filtered_df['difference'] = filtered_df['proportion_1'] - filtered_df['proportion_2']
+        filtered_df['abs_difference'] = filtered_df['difference'].abs()
 
         # For Fisher's exact test, prepare arrays for vectorized operations
         count_1_array = filtered_df['count_1'].values.astype(int)
@@ -1151,7 +1107,7 @@ class spatial_query_multi:
         )
 
         # Add p-values to DataFrame
-        filtered_df.loc[:, 'p_value'] = p_values
+        filtered_df['p_value'] = p_values
 
         # Sort by p-value
         filtered_df = filtered_df.sort_values('p_value')
@@ -1179,8 +1135,8 @@ class spatial_query_multi:
         # print(f'Time for statistical testing: {end - start}')
 
         # Return the final results
-        return filtered_df[["gene", "proportion_1", "proportion_2", "abs",
-                            "difference", "p_value", "adj_p_value", "de_in"]]
+        return filtered_df[["gene", "proportion_1", "proportion_2", "abs_difference",
+                            "p_value", "adj_p_value", "de_in"]]
 
     def cell_type_distribution(self,
                                dataset: Union[str, List[str]] = None,
@@ -1203,16 +1159,7 @@ class spatial_query_multi:
         if data_type not in ['number', 'proportion']:
             raise ValueError("Invalild data_type. It should be one of 'number' or 'proportion'.")
 
-        if dataset is None:
-            dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        if isinstance(dataset, str):
-            dataset = [dataset]
-
-        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        for ds in dataset:
-            if ds not in valid_ds_names:
-                raise ValueError(f"Invalid input dataset name: {ds}.\n "
-                                 f"Valid dataset names are: {set(valid_ds_names)}")
+        dataset = self.check_dataset(dataset)
 
         summary = defaultdict(lambda: defaultdict(int))
 

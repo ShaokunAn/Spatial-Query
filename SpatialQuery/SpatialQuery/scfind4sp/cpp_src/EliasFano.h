@@ -172,6 +172,8 @@ class EliasFanoDB
   std::vector<py::dict> DEGenes(const py::list &ct1, const py::list &ct2, const py::list genes_obj, const double &min_fraction);
   std::vector<py::dict> DEGenesIndices(const py::list &indices1, const py::list &indices2, const py::list& genes_obj, double min_fraction);
   std::vector<py::dict> findCellExpressingGenesinIndices(const py::list &indices, const py::list& genes_obj);
+  int count_expressing_cells_in_dataset(const std::string& gene, const std::string& dataset, const std::vector<int>& indices);
+  std::vector<py::dict> de_genes_with_indices_multi_dataset(const py::list& genes_obj, const py::dict& ind_group1, const py::dict& ind_group2, double min_fraction);
 
 
 };

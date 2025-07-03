@@ -1357,6 +1357,136 @@ std::vector<py::dict> EliasFanoDB::DEGenesIndices(const py::list &indices1, cons
   return results;
 }
 
+std::vector<py::dict> EliasFanoDB::de_genes_with_indices_multi_dataset(
+    const py::list& genes_obj,
+    const py::dict& ind_group1,
+    const py::dict& ind_group2,
+    double min_fraction)
+{
+    // Convert genes to vector
+    std::vector<std::string> genes;
+    bool use_gene_names = genes_obj.is_none();
+    if (!use_gene_names) {
+        genes = genes_obj.cast<std::vector<std::string>>();
+    } else {
+        genes.reserve(this->genes.size());
+        for (auto const &g : this->genes) {
+            genes.push_back(g.first);
+        }
+    }
+
+    // Convert Python dictionaries to C++ maps
+    std::map<std::string, std::vector<int>> group1_indices;
+    std::map<std::string, std::vector<int>> group2_indices;
+
+    for (auto item : ind_group1) {
+        std::string dataset = py::str(item.first);
+        std::vector<int> indices = item.second.cast<std::vector<int>>();
+        group1_indices[dataset] = indices;
+    }
+
+    for (auto item : ind_group2) {
+        std::string dataset = py::str(item.first);
+        std::vector<int> indices = item.second.cast<std::vector<int>>();
+        group2_indices[dataset] = indices;
+    }
+
+    std::vector<py::dict> results;
+    results.reserve(genes.size());
+
+    // Process each gene
+    for (const auto& gene : genes) {
+        // Get gene index
+        auto gene_it = this->index.find(gene);
+        if (gene_it == this->index.end()) {
+            continue; // Gene not found in index
+        }
+
+        int total_count1 = 0; // Total expressing cells in group 1
+        int total_count2 = 0; // Total expressing cells in group 2
+
+        // Process group 1 datasets
+        for (const auto& ds_pair : group1_indices) {
+            const std::string& dataset = ds_pair.first;
+            const std::vector<int>& indices = ds_pair.second;
+
+            if (indices.empty()) continue;
+
+            // Count expressing cells in this dataset for this gene
+            int dataset_count = count_expressing_cells_in_dataset(gene, dataset, indices);
+            total_count1 += dataset_count;
+        }
+
+        // Process group 2 datasets
+        for (const auto& ds_pair : group2_indices) {
+            const std::string& dataset = ds_pair.first;
+            const std::vector<int>& indices = ds_pair.second;
+
+            if (indices.empty()) continue;
+
+            // Count expressing cells in this dataset for this gene
+            int dataset_count = count_expressing_cells_in_dataset(gene, dataset, indices);
+            total_count2 += dataset_count;
+        }
+
+        // Create result dictionary
+        py::dict result;
+        result["gene"] = gene;
+        result["count_1"] = total_count1;
+        result["count_2"] = total_count2;
+        results.push_back(result);
+    }
+
+    return results;
+}
+
+int EliasFanoDB::count_expressing_cells_in_dataset(
+    const std::string& gene,
+    const std::string& dataset,
+    const std::vector<int>& indices)
+{
+    // In the unified index, each dataset is treated as one "cell type"
+    // So we directly look for the dataset name in cell_types
+    auto ct_it = this->cell_types.find(dataset);
+    if (ct_it == this->cell_types.end()) {
+        std::cerr << "Dataset not found in index: " << dataset << std::endl;
+        return 0;
+    }
+
+    CellTypeID ct_id = ct_it->second;
+
+    // Get gene expression data for this dataset
+    auto gene_it = this->index.find(gene);
+    if (gene_it == this->index.end()) {
+        return 0; // Gene not found
+    }
+
+    auto ct_gene_it = gene_it->second.find(ct_id);
+    if (ct_gene_it == gene_it->second.end()) {
+        return 0; // No expression data for this gene in this dataset
+    }
+
+    // Convert indices to set for faster lookup
+    std::set<int> indices_set(indices.begin(), indices.end());
+
+    // Get the Elias-Fano compressed data
+    const auto& ef_data = this->ef_data.at(ct_gene_it->second);
+
+    int expressing_count = 0;
+
+    // Iterate through expressing cells in this dataset
+    auto it = ef_data.begin();
+    while (it != ef_data.end()) {
+        int cell_id = *it;
+        if (indices_set.count(cell_id)) {
+            expressing_count++;
+        }
+        ++it;
+    }
+
+    return expressing_count;
+}
+
 
 std::vector<py::dict> EliasFanoDB::findCellExpressingGenesinIndices(const py::list &indices, const py::list& genes_obj)
 {
@@ -1642,5 +1772,6 @@ PYBIND11_MODULE(SpatialQueryEliasFanoDB, m){
     .def("getCellTypeSupport", &EliasFanoDB::getCellTypeSupport)
     .def("DEGenesIndices", &EliasFanoDB::DEGenesIndices)
     .def("cell_counts_in_indices_genes", &EliasFanoDB::findCellExpressingGenesinIndices)
+    .def("de_genes_with_indices_multi_dataset", &EliasFanoDB::de_genes_with_indices_multi_dataset)
     .def("DEGenes", &EliasFanoDB::DEGenes);
 }
