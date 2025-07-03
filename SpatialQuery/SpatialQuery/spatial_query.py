@@ -16,6 +16,7 @@ from scipy.stats import hypergeom
 from statsmodels.stats.multitest import multipletests
 from sklearn.preprocessing import LabelEncoder
 from .scfind4sp import SCFind
+from .utils import distinguish_duplicates, remove_suffix, has_motif, find_maximal_patterns
 
 
 class spatial_query:
@@ -143,98 +144,6 @@ class spatial_query:
         )
         return index
 
-    @staticmethod
-    def has_motif(neighbors: List[str], labels: List[str]) -> bool:
-        """
-        Determines whether all elements in 'neighbors' are present in 'labels'.
-        If all elements are present, returns True. Otherwise, returns False.
-
-        Parameter
-        ---------
-        neighbors:
-            List of elements to check.
-        labels:
-            List in which to check for elements from 'neighbors'.
-
-        Return
-        ------
-        True if all elements of 'neighbors' are in 'labels', False otherwise.
-        """
-        # Set elements in neighbors and labels to be unique.
-        # neighbors = set(neighbors)
-        # labels = set(labels)
-        freq_neighbors = Counter(neighbors)
-        freq_labels = Counter(labels)
-        for element, count in freq_neighbors.items():
-            if freq_labels[element] < count:
-                return False
-
-        return True
-        # if len(neighbors) <= len(labels):
-        #     for n in neighbors:
-        #         if n in labels:
-        #             pass
-        #         else:
-        #             return False
-        #     return True
-        # return False
-
-    @staticmethod
-    def _distinguish_duplicates(transaction: List[str]):
-        """
-        Append suffix to items of transaction to distinguish the duplicate items.
-        """
-        counter = dict(Counter(transaction))
-        trans_suf = [f"{item}_{i}" for item, value in counter.items() for i in range(value)]
-        # trans_suf = [f"{item}_{value}" for item, value in counter.items()]
-        # count_dict = defaultdict(int)
-        # for i, item in enumerate(transaction):
-        #     # Increment the count for the item, or initialize it if it's new
-        #     count_dict[item] += 1
-        #     # Update the item with its count as suffix
-        #     transaction[i] = f"{item}_{count_dict[item]}"
-        # return transaction
-        return trans_suf
-
-    @staticmethod
-    def _remove_suffix(fp: pd.DataFrame):
-        """
-        Remove the suffix of frequent patterns.
-        """
-        trans = [list(tran) for tran in fp['itemsets'].values]
-        fp_no_suffix = [[item.split('_')[0] for item in tran] for tran in trans]
-        # Create a DataFrame
-        fp['itemsets'] = fp_no_suffix
-        return fp
-
-    @staticmethod
-    def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
-        """
-        Find the maximal frequent patterns
-
-        Parameter
-        ---------
-            fp: Frequent patterns dataframe with support values and itemsets.
-
-        Return
-        ------
-            Maximal frequent patterns with support and itemsets.
-        """
-        # Convert itemsets to frozensets for set operations
-        itemsets = fp['itemsets'].apply(frozenset)
-
-        # Find all subsets of each itemset
-        subsets = set()
-        for itemset in itemsets:
-            for r in range(1, len(itemset)):
-                subsets.update(frozenset(s) for s in combinations(itemset, r))
-
-        # Identify maximal patterns (itemsets that are not subsets of any other)
-        maximal_patterns = [itemset for itemset in itemsets if itemset not in subsets]
-        # maximal_patterns_ = [list(p) for p in maximal_patterns]
-
-        # Filter the original DataFrame to keep only the maximal patterns
-        return fp[fp['itemsets'].isin(maximal_patterns)].reset_index(drop=True)
 
     def find_fp_knn(self,
                     ct: str,
@@ -676,13 +585,13 @@ class spatial_query:
         # print(f"fp_growth: {end-start} seconds")
         if if_max:
             # start = time.time()
-            fp_tree = self.find_maximal_patterns(fp=fp_tree)
+            fp_tree = find_maximal_patterns(fp=fp_tree)
             # end = time.time()
             # print(f"find_maximal_patterns: {end-start} seconds")
 
         # Remove suffix of items if treating duplicates as different items
         # if dis_duplicates:
-        #     fp_tree = self._remove_suffix(fp_tree)
+        #     fp_tree = remove_suffix(fp_tree)
 
         if len(fp_tree) == 0:
             return pd.DataFrame(columns=['support', 'itemsets']), df, valid_idxs
@@ -756,7 +665,7 @@ class spatial_query:
         #             dists[i][j] < max_dist]  # only contain the KNN whose distance is less than max_dist
         #     transaction = [self.labels[i] for i in inds[1:] if self.labels[i]]
         #     # if dis_duplicates:
-        #     #     transaction = self._distinguish_duplicates(transaction)
+        #     #     transaction = distinguish_duplicates(transaction)
         #     transactions.append(transaction)
 
         # Convert transactions to a DataFrame suitable for fpgrowth
@@ -772,12 +681,12 @@ class spatial_query:
 
         if if_max:
             # start = time.time()
-            fp_tree = self.find_maximal_patterns(fp_tree)
+            fp_tree = find_maximal_patterns(fp_tree)
             # end = time.time()
             # print(f"find_maximal_patterns: {end-start} seconds")
 
         # if dis_duplicates:
-        #     fp_tree = self._remove_suffix(fp_tree)
+        #     fp_tree = remove_suffix(fp_tree)
         if len(fp_tree) == 0:
             return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
         else:
@@ -1202,7 +1111,7 @@ class spatial_query:
         id_center = []
         for i, idx in enumerate(idxs):
             ns = [self.labels[id] for id in idx]
-            if self.has_motif(neighbors=motif, labels=ns):
+            if has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
         # Locate the index of cell types contained in motif in the
@@ -1323,7 +1232,7 @@ class spatial_query:
         id_center = []
         for i, idx in enumerate(idxs):
             ns = [self.labels[id] for id in idx]
-            if self.has_motif(neighbors=motif, labels=ns):
+            if has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
         # Locate the index of cell types contained in motif in the
@@ -1446,7 +1355,7 @@ class spatial_query:
 
         # for id in cinds:
         #
-        #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[id] if idx != id]):
+        #     if has_motif(sort_motif, [self.labels[idx] for idx in idxs[id] if idx != id]):
         #         cind_with_motif.append(id)
 
         # Locate the index of motifs in the neighborhood of center cell type.

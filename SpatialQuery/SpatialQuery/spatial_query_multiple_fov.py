@@ -1,26 +1,21 @@
-from typing import List, Union, Optional, Dict, Tuple, Any
+from collections import defaultdict
+from typing import List, Union, Optional, Dict
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
 import statsmodels.stats.multitest as mt
 from anndata import AnnData
-from mlxtend.frequent_patterns import fpgrowth
-from sklearn.preprocessing import MultiLabelBinarizer
-from pandas import DataFrame
-from scipy.stats import hypergeom
-import time
-import matplotlib.pyplot as plt
-from collections import defaultdict
-from sklearn.preprocessing import LabelEncoder
-from statsmodels.stats.multitest import multipletests
-from .scfind4sp import SCFind
-
 from joblib import Parallel, delayed
+from mlxtend.frequent_patterns import fpgrowth
+from scipy.stats import hypergeom
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MultiLabelBinarizer
+from statsmodels.stats.multitest import multipletests
 
+from .scfind4sp import SCFind
 from .spatial_query import spatial_query
-
-from time import time
 
 
 class spatial_query_multi:
@@ -86,7 +81,7 @@ class spatial_query_multi:
         self.datasets = modified_datasets
 
         self.spatial_queries = [spatial_query(
-            adata=adata, 
+            adata=adata,
             dataset=self.datasets[i],
             spatial_key=spatial_key,
             label_key=label_key,
@@ -94,12 +89,13 @@ class spatial_query_multi:
             max_radius=self.max_radius,
             n_split=n_split,
             build_gene_index=False,
-            ) for i, adata in enumerate(adatas)]
+        ) for i, adata in enumerate(adatas)]
 
         if build_gene_index:
             if (feature_name is None or feature_name not in adata.var.columns for adata in adatas).any():
-                raise ValueError(f"feature_name {feature_name} not in one adata.var. Please provide a valid feature name"
-                                 f"or double check adata.var in input.")
+                raise ValueError(
+                    f"feature_name {feature_name} not in one adata.var. Please provide a valid feature name"
+                    f"or double check adata.var in input.")
 
             self.index = self.build_scfind_index(
                 adatas,
@@ -430,7 +426,8 @@ class spatial_query_multi:
 
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(),
+                         'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
@@ -584,7 +581,7 @@ class spatial_query_multi:
                     _, matching_cells_indices = s._query_pattern(motif)
                     if not matching_cells_indices:
                         # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
-                        continue 
+                        continue
                     matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
                     matching_cells_indices = np.unique(matching_cells_indices)
                     matching_cells_indices.sort()
@@ -645,7 +642,8 @@ class spatial_query_multi:
                 n_ct = round(n_ct / motif.count(ct))
             hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
             motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
+                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(),
+                         'p-values': hyge.sf(n_motif_ct)}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
@@ -938,7 +936,7 @@ class spatial_query_multi:
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
         max_dist = min(max_dist, self.max_radius)
-        
+
         flag = 0
         # Identify frequent patterns in each dataset
         for d in datasets:
@@ -1068,10 +1066,6 @@ class spatial_query_multi:
             raise ValueError("No valid datasets found in ind_group2.")
 
         group1_results = []
-
-
-
-
 
         # start = time()
         for ds, ids in ind_group1.items():
@@ -1214,7 +1208,7 @@ class spatial_query_multi:
         else:
             filtered_df['adj_p_value'] = filtered_df['p_value']
 
-        filtered_df = filtered_df[filtered_df['adj_p_value']<0.05].reset_index(drop=True)
+        filtered_df = filtered_df[filtered_df['adj_p_value'] < 0.05].reset_index(drop=True)
 
         # Add information about which group shows higher expression
         filtered_df['de_in'] = np.where(
@@ -1421,6 +1415,3 @@ class spatial_query_multi:
 
         plt.tight_layout()
         plt.show()
-
-
-
