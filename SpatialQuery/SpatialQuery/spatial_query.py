@@ -202,7 +202,7 @@ class spatial_query:
         ------
         Frequent patterns in the neighborhood of certain cell type.
         """
-        if ct not in self.labels.unique():
+        if ct not in self.labels_unique:
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         cinds = np.where(self.labels == ct)[0]
@@ -353,9 +353,9 @@ class spatial_query:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['adjusted p-values'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adjusted p-values', ignore_index=True)
             return out_pd
 
     def motif_enrichment_dist(self,
@@ -504,9 +504,9 @@ class spatial_query:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['adjusted p-values'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adjusted p-values', ignore_index=True)
             return out_pd
 
     def build_fptree_dist(self,

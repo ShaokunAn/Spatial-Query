@@ -1375,20 +1375,20 @@ std::vector<py::dict> EliasFanoDB::de_genes_with_indices_multi_dataset(
         }
     }
 
-    // Convert Python dictionaries to C++ maps
-    std::map<std::string, std::vector<int>> group1_indices;
-    std::map<std::string, std::vector<int>> group2_indices;
+    // Convert Python dictionaries to C++ maps and calculate totals
+    std::map<std::string, std::set<int>> group1_indices_sets;
+    std::map<std::string, std::set<int>> group2_indices_sets;
 
     for (auto item : ind_group1) {
         std::string dataset = py::str(item.first);
         std::vector<int> indices = item.second.cast<std::vector<int>>();
-        group1_indices[dataset] = indices;
+        group1_indices_sets[dataset] = std::set<int>(indices.begin(), indices.end());
     }
 
     for (auto item : ind_group2) {
         std::string dataset = py::str(item.first);
         std::vector<int> indices = item.second.cast<std::vector<int>>();
-        group2_indices[dataset] = indices;
+        group2_indices_sets[dataset] = std::set<int>(indices.begin(), indices.end());
     }
 
     std::vector<py::dict> results;
@@ -1396,7 +1396,7 @@ std::vector<py::dict> EliasFanoDB::de_genes_with_indices_multi_dataset(
 
     // Process each gene
     for (const auto& gene : genes) {
-        // Get gene index
+        // Get gene index once
         auto gene_it = this->index.find(gene);
         if (gene_it == this->index.end()) {
             continue; // Gene not found in index
@@ -1406,26 +1406,26 @@ std::vector<py::dict> EliasFanoDB::de_genes_with_indices_multi_dataset(
         int total_count2 = 0; // Total expressing cells in group 2
 
         // Process group 1 datasets
-        for (const auto& ds_pair : group1_indices) {
+        for (const auto& ds_pair : group1_indices_sets) {
             const std::string& dataset = ds_pair.first;
-            const std::vector<int>& indices = ds_pair.second;
+            const std::set<int>& indices_set = ds_pair.second;
 
-            if (indices.empty()) continue;
+            if (indices_set.empty()) continue;
 
             // Count expressing cells in this dataset for this gene
-            int dataset_count = count_expressing_cells_in_dataset(gene, dataset, indices);
+            int dataset_count = count_expressing_cells_in_dataset(gene_it->second, dataset, indices_set);
             total_count1 += dataset_count;
         }
 
         // Process group 2 datasets
-        for (const auto& ds_pair : group2_indices) {
+        for (const auto& ds_pair : group2_indices_sets) {
             const std::string& dataset = ds_pair.first;
-            const std::vector<int>& indices = ds_pair.second;
+            const std::set<int>& indices_set = ds_pair.second;
 
-            if (indices.empty()) continue;
+            if (indices_set.empty()) continue;
 
             // Count expressing cells in this dataset for this gene
-            int dataset_count = count_expressing_cells_in_dataset(gene, dataset, indices);
+            int dataset_count = count_expressing_cells_in_dataset(gene_it->second, dataset, indices_set);
             total_count2 += dataset_count;
         }
 
@@ -1434,6 +1434,7 @@ std::vector<py::dict> EliasFanoDB::de_genes_with_indices_multi_dataset(
         result["gene"] = gene;
         result["count_1"] = total_count1;
         result["count_2"] = total_count2;
+
         results.push_back(result);
     }
 
@@ -1441,47 +1442,36 @@ std::vector<py::dict> EliasFanoDB::de_genes_with_indices_multi_dataset(
 }
 
 int EliasFanoDB::count_expressing_cells_in_dataset(
-    const std::string& gene,
+    const GeneContainer& gene_container,
     const std::string& dataset,
-    const std::vector<int>& indices)
+    const std::set<int>& indices_set)
 {
-    // In the unified index, each dataset is treated as one "cell type"
-    // So we directly look for the dataset name in cell_types
+    // Find the dataset in cell_types
     auto ct_it = this->cell_types.find(dataset);
     if (ct_it == this->cell_types.end()) {
-        std::cerr << "Dataset not found in index: " << dataset << std::endl;
         return 0;
     }
 
     CellTypeID ct_id = ct_it->second;
 
-    // Get gene expression data for this dataset
-    auto gene_it = this->index.find(gene);
-    if (gene_it == this->index.end()) {
-        return 0; // Gene not found
-    }
-
-    auto ct_gene_it = gene_it->second.find(ct_id);
-    if (ct_gene_it == gene_it->second.end()) {
+    // Get expression data for this dataset
+    auto ct_gene_it = gene_container.find(ct_id);
+    if (ct_gene_it == gene_container.end()) {
         return 0; // No expression data for this gene in this dataset
     }
 
-    // Convert indices to set for faster lookup
-    std::set<int> indices_set(indices.begin(), indices.end());
+    // Get the Elias-Fano compressed data and decode it
+    const EliasFano& ef = this->ef_data.at(ct_gene_it->second);
+    std::vector<int> cell_ids = eliasFanoDecoding(ef);
 
-    // Get the Elias-Fano compressed data
-    const auto& ef_data = this->ef_data.at(ct_gene_it->second);
-
+    // Convert to 0-based indexing and count intersections efficiently
     int expressing_count = 0;
-
-    // Iterate through expressing cells in this dataset
-    auto it = ef_data.begin();
-    while (it != ef_data.end()) {
-        int cell_id = *it;
-        if (indices_set.count(cell_id)) {
+    for (auto cell_id : cell_ids) {
+        // EliasFano uses 1-based indexing, so subtract 1
+        int cell_idx = cell_id - 1;
+        if (indices_set.find(cell_idx) != indices_set.end()) {
             expressing_count++;
         }
-        ++it;
     }
 
     return expressing_count;

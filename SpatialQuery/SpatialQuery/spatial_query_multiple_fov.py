@@ -17,6 +17,7 @@ from statsmodels.stats.multitest import multipletests
 from .scfind4sp import SCFind
 from .spatial_query import spatial_query
 from .utils import find_maximal_patterns
+from time import time
 
 
 class spatial_query_multi:
@@ -93,7 +94,7 @@ class spatial_query_multi:
         ) for i, adata in enumerate(adatas)]
 
         if build_gene_index:
-            if (feature_name is None or feature_name not in adata.var.columns for adata in adatas).any():
+            if any(feature_name is None or feature_name not in adata.var.columns for adata in adatas):
                 raise ValueError(
                     f"feature_name {feature_name} not in one adata.var. Please provide a valid feature name"
                     f"or double check adata.var in input.")
@@ -1004,8 +1005,7 @@ class spatial_query_multi:
 
         # For each gene, calculate the number of cells in the provided indices expressing the gene in each group
         if genes is None:
-            genes = set.intersection(*[set(s.index.scfindGenes) for s in self.spatial_queries])
-            genes = list(genes)
+            genes = self.index.scfindGenes
             print('All overlapping genes across datasets are used.')
 
         # Filter to only include valid datasets
@@ -1024,12 +1024,15 @@ class spatial_query_multi:
         print(f"Group 1: {n_1} cells across {len(filtered_ind_group1)} datasets")
         print(f"Group 2: {n_2} cells across {len(filtered_ind_group2)} datasets")
 
+        start = time()
         out = self.index.index.de_genes_with_indices_multi_dataset(
             genes,
             filtered_ind_group1,
             filtered_ind_group2,
             min_fraction
         )
+        end = time()
+        print(f'time of computing cells of {len(genes)} genes: {end-start:.2f} seconds')
 
         if not out:
             print("No genes meet the minimum fraction threshold.")
@@ -1039,24 +1042,6 @@ class spatial_query_multi:
             ])
 
         out_df = pd.DataFrame(out)
-
-        # Apply multiple testing correction
-        adjusted_pvals = multipletests(out_df['p_value'], method='holm')[1]
-        out_df['adj_p_value'] = adjusted_pvals
-
-        # Filter for significant results
-        results_df = out_df[out_df['adj_p_value'] < 0.05].copy()
-
-        # Add DE direction information
-        results_df['de_in'] = np.where(
-            (results_df['proportion_1'] > results_df['proportion_2']),
-            'group1',
-            np.where(
-                (results_df['proportion_2'] > results_df['proportion_1']),
-                'group2',
-                None
-            )
-        )
 
         # Calculate proportions
         out_df['proportion_1'] = out_df['count_1'] / n_1
@@ -1337,6 +1322,6 @@ class spatial_query_multi:
 
     def check_celltype(self,
                        cell_type: str, ):
-        if_exist_label = [cell_type in s.labels.unique() for s in self.spatial_queries]
+        if_exist_label = [cell_type in s.labels_unique for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Invalid input cell type: {cell_type}. \n")

@@ -156,6 +156,21 @@ class SCFind:
         self.serialized = None
         self.index_exist = True
 
+    def mergeDataset(self, new_object: 'SCFind') -> None:
+        if not self.index_exist:
+            raise ValueError("SCFind index is not built. Please build index first by calling \
+            object.buildCellTypeIndex().")
+
+        common_datasets = set(self.datasets).intersection(new_object.datasets)
+
+        print(f"Merging {new_object.datasets}")
+        if common_datasets:
+            raise Warning("Common dataset names exist, undefined merging behavior, please fix this...")
+
+        self.index.mergeDB(new_object.index)
+        self.datasets.extend([dataset for dataset in new_object.datasets])
+
+
     def markerGenes(self,
                     gene_list: Union[str, List[str]],
                     datasets: Optional[Union[str, List[str]]] = None,
@@ -870,6 +885,7 @@ class SCFind:
         """
         Identify differentially expressed (DE) genes between two groups of cells
         with indices of non-zero expressing cells in scfind index.
+        When calling this function, there should be only 1 dataset contained in index.
 
         Parameter:
         ----------
