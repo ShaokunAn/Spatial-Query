@@ -1,4 +1,4 @@
-from typing import List, Union, Optional, Dict, Tuple, Any
+from typing import List, Union, Optional, Dict, Tuple, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -7,7 +7,6 @@ import statsmodels.stats.multitest as mt
 from anndata import AnnData
 from mlxtend.frequent_patterns import fpgrowth
 from sklearn.preprocessing import MultiLabelBinarizer
-from pandas import DataFrame
 from scipy.stats import hypergeom
 import time
 import matplotlib.pyplot as plt
@@ -18,6 +17,9 @@ from statsmodels.stats.multitest import multipletests
 from joblib import Parallel, delayed
 
 from .spatial_query import spatial_query
+from . import spatial_utils
+import anndata as ad
+import scanpy as sc
 
 from time import time
 
@@ -33,6 +35,7 @@ class spatial_query_multi:
                  n_split: int = 10,
                  build_gene_index: bool = False,
                  feature_name: Optional[str] = None,
+                 if_lognorm: bool = True,
                  ):
         """
         Initiate models, including setting attributes and building kd-tree for each field of view.
@@ -59,6 +62,8 @@ class spatial_query_multi:
         feature_name:
             The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
             only used if build_gene_index is True
+        if_lognorm:
+            Whether to log normalize the expression data, default is True
         """
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
@@ -94,7 +99,9 @@ class spatial_query_multi:
             n_split=n_split,
             build_gene_index=build_gene_index,
             feature_name=feature_name,
+            if_lognorm=if_lognorm,
             ) for i, adata in enumerate(adatas)]
+        
 
     def find_fp_knn(self,
                     ct: str,
@@ -1009,8 +1016,9 @@ class spatial_query_multi:
                  ind_group1: Dict[str, List[int]],
                  ind_group2: Dict[str, List[int]],
                  genes: Optional[Union[str, List[str]]] = None,
-                 min_fraction: float = 0.05
-                 ):
+                 min_fraction: float = 0.05,
+                 method: Literal['fisher', 't-test', 'wilcoxon'] = 'fisher',
+                 ) -> pd.DataFrame:
         """
         Perform differential expression analysis on the given indices.
         The ind_group1 and ind_group2 should be a defaultdict with keys as modified dataset names and values as
@@ -1028,16 +1036,37 @@ class spatial_query_multi:
             Genes to be searched in the gene index.
         min_fraction: float, default=0.05
             The minimum fraction of cells that express a gene for it to be considered differentially expressed.
+        method: Literal['fisher', 't-test', 'wilcoxon'], default='fisher'
+            The method to use for DE analysis. If build_gene_index=True, only Fisher's exact test is supported.
 
         Returns
         -------
+        pd.DataFrame
+            DataFrame containing differential expression results.
         """
-        if not self.build_gene_index:
-            raise ValueError("Please build gene index first by setting build_gene_index=True in the constructor.")
+        if self.build_gene_index:
+            # Use scfind index-based method with Fisher's exact test
+            if method != 'fisher':
+                print(f"Warning: When build_gene_index=True, only Fisher's exact test is supported. Ignoring method='{method}'.")
+            return self._de_genes_scfind(ind_group1, ind_group2, genes, min_fraction)
+        else:
+            # Use adata.X directly with specified method
+            return self._de_genes_adata(ind_group1, ind_group2, genes, min_fraction, method)
+
+    def _de_genes_scfind(self,
+                         ind_group1: Dict[str, List[int]],
+                         ind_group2: Dict[str, List[int]],
+                         genes: Optional[Union[str, List[str]]] = None,
+                         min_fraction: float = 0.05
+                         ) -> pd.DataFrame:
+        """
+        Perform differential expression analysis using scfind index with Fisher's exact test.
+        This method is used when build_gene_index=True.
+        """
 
         # For each gene, calculate the number of cells in the provided indices expressing the gene in each group
         if genes is None:
-            genes = set.union(*[set(s.index.scfindGenes) for s in self.spatial_queries])
+            genes = set.union(*[set(s.genes) for s in self.spatial_queries])
             genes = list(genes)
             print('All genes are used.')
 
@@ -1213,6 +1242,103 @@ class spatial_query_multi:
         # Return the final results
         return filtered_df[["gene", "proportion_1", "proportion_2", "abs",
                             "difference", "p_value", "adj_p_value", "de_in"]]
+
+    def _de_genes_adata(self,
+                        ind_group1: Dict[str, List[int]],
+                        ind_group2: Dict[str, List[int]],
+                        genes: Optional[Union[str, List[str]]] = None,
+                        min_fraction: float = 0.05,
+                        method: Literal['fisher', 't-test', 'wilcoxon'] = 'fisher',
+                        ) -> pd.DataFrame:
+        """
+        Perform differential expression analysis using adata.X directly.
+        This method is used when build_gene_index=False.
+        
+        For each dataset, collect the cells and concatenate them, then perform DE analysis.
+        """
+        # Validate datasets
+        valid_ds1 = [ds for ds in ind_group1.keys() if ds in self.datasets]
+        valid_ds2 = [ds for ds in ind_group2.keys() if ds in self.datasets]
+        
+        if not valid_ds1:
+            raise ValueError("No valid datasets found in ind_group1.")
+        if not valid_ds2:
+            raise ValueError("No valid datasets found in ind_group2.")
+        
+        # Collect all cells from group 1
+        all_adatas_g1 = []
+        
+        for ds in valid_ds1:
+            if ds not in ind_group1 or len(ind_group1[ds]) == 0:
+                continue
+            
+            ds_i = self.datasets.index(ds)
+            sp = self.spatial_queries[ds_i]
+            
+            # Get the adata for this dataset
+            if sp.adata is None:
+                raise ValueError(f"Error: {ds} does not have adata.X. Please use use fisher's exact using indexed data.")
+            
+            # Extract cells for group 1
+            idx_g1 = ind_group1[ds]
+            adata_subset = sp.adata[idx_g1].copy()
+            all_adatas_g1.append(adata_subset)
+        
+        # Collect all cells from group 2
+        all_adatas_g2 = []
+        
+        for ds in valid_ds2:
+            if ds not in ind_group2 or len(ind_group2[ds]) == 0:
+                continue
+            
+            ds_i = self.datasets.index(ds)
+            sp = self.spatial_queries[ds_i]
+            
+            # Get the adata for this dataset
+            if sp.adata is None:
+                raise ValueError(f"Error: {ds} does not have adata.X. Please use use fisher's exact using indexed data.")
+                continue
+            
+            # Extract cells for group 2
+            idx_g2 = ind_group2[ds]
+            adata_subset = sp.adata[idx_g2].copy()
+            all_adatas_g2.append(adata_subset)
+        
+        if not all_adatas_g1:
+            raise ValueError("No valid adata found in group 1.")
+        if not all_adatas_g2:
+            raise ValueError("No valid adata found in group 2.")
+        
+        # Concatenate all adatas
+        print(f"Concatenating {len(all_adatas_g1)} datasets from group 1...")
+        print(f"Concatenating {len(all_adatas_g2)} datasets from group 2...")
+        
+        adata_g1 = ad.concat(all_adatas_g1, join='inner')
+        adata_g2 = ad.concat(all_adatas_g2, join='inner')
+        
+        # Combine both groups
+        adata_combined = ad.concat([adata_g1, adata_g2], join='inner')
+        
+        # Get the overlapping genes of each data
+        genes_list = list(set.intersection(*[set(s.genes) for s in self.spatial_queries]))
+        
+        # Create indices for combined adata
+        ind_combined_g1 = list(range(len(adata_g1)))
+        ind_combined_g2 = list(range(len(adata_g1), len(adata_combined)))
+        
+        # Perform DE analysis using spatial_utils
+        if method == 'fisher':
+            results_df = spatial_utils.de_genes_fisher(
+                adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction
+            )
+        elif method == 't-test' or method == 'wilcoxon':
+            results_df = spatial_utils.de_genes_scanpy(
+                adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction, method=method
+            )
+        else:
+            raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
+        
+        return results_df
 
     def cell_type_distribution(self,
                                dataset: Union[str, List[str]] = None,

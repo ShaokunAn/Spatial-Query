@@ -68,7 +68,6 @@ int getSizeBoolVector(const std::vector<bool>& v);
 
 std::vector<double> decompressValues(const Quantile& q, const unsigned char& quantization_bits);
 
-double fisher_exact_test(int a, int b, int c, int d);
 
 
 

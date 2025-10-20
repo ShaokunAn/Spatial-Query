@@ -169,7 +169,6 @@ class EliasFanoDB
 
   int mergeDB(const EliasFanoDB& db);
 
-  std::vector<py::dict> DEGenes(const py::list &ct1, const py::list &ct2, const py::list genes_obj, const double &min_fraction);
   std::vector<py::dict> DEGenesIndices(const py::list &indices1, const py::list &indices2, const py::list& genes_obj, double min_fraction);
   std::vector<py::dict> findCellExpressingGenesinIndices(const py::list &indices, const py::list& genes_obj);
 

@@ -1,4 +1,21 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
+from pybind11.setup_helpers import build_ext
+import pybind11
+
+# Define C++ extension
+cpp_extension = Extension(
+    name="SpatialQueryEliasFanoDB",
+    sources=[
+        "SpatialQuery/scfind4sp/cpp_src/eliasFano.cpp",
+        "SpatialQuery/scfind4sp/cpp_src/QueryScore.cpp", 
+        "SpatialQuery/scfind4sp/cpp_src/fp_growth.cpp",
+        "SpatialQuery/scfind4sp/cpp_src/serialization.cpp",
+        "SpatialQuery/scfind4sp/cpp_src/utils.cpp",
+    ],
+    include_dirs=["SpatialQuery/scfind4sp/cpp_src"] + [pybind11.get_include()],
+    language="c++",
+    extra_compile_args=["-std=c++11"],
+)
 
 setup(
     name='SpatialQuery',
@@ -26,8 +43,11 @@ setup(
         'mlxtend>=0.23.1',
         'seaborn>=0.13.2',
         'scikit-learn>=1.3.2',
-        'statsmodels>=0.14.4',
-        'scanpy>=1.11.1'
+        'statsmodels>=0.14.0',
+        'scanpy>=1.9.5',
+        'pybind11>=2.6'
     ],
-    include_package_data=True, 
+    setup_requires=['pybind11>=2.6'],
+    include_package_data=True,
+    ext_modules=[cpp_extension],
 )

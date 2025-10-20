@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="Black">
-    <option name="sdkName" value="scfind_py" />
-  </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="scfind_py" project-jdk-type="Python SDK" />
-</project>

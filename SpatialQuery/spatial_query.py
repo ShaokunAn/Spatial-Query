@@ -1,6 +1,5 @@
 from collections import Counter
-from itertools import combinations
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Literal
 
 import matplotlib.pyplot as plt
 import statsmodels.stats.multitest as mt
@@ -8,14 +7,14 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from anndata import AnnData
-from mlxtend.frequent_patterns import fpgrowth
-from sklearn.preprocessing import MultiLabelBinarizer
 from pandas import DataFrame
 from scipy.spatial import KDTree
-from scipy.stats import hypergeom
-from statsmodels.stats.multitest import multipletests
+from scipy.stats import hypergeom, fisher_exact
 from sklearn.preprocessing import LabelEncoder
+from statsmodels.stats.multitest import multipletests
 from .scfind4sp import SCFind
+import scanpy as sc
+from . import spatial_utils
 
 
 class spatial_query:
@@ -44,6 +43,8 @@ class spatial_query:
     feature_name:
         The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
         only used if build_gene_index is True
+    if_lognorm:
+        Whether to log normalize the expression data, default is True
     """
     def __init__(self,
                  adata: AnnData,
@@ -55,6 +56,7 @@ class spatial_query:
                  n_split: int = 10,
                  build_gene_index: bool = False,
                  feature_name: Optional[str] = None,
+                 if_lognorm: bool = True,
                  ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
@@ -69,10 +71,20 @@ class spatial_query:
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
         self.overlap_radius = max_radius  # the upper limit of radius in case missing cells with large radius of query
         self.n_split = n_split
-        self.grid_cell_types, self.grid_indices = self._initialize_grids()
+        self.grid_cell_types, self.grid_indices = spatial_utils.initialize_grids(
+            self.spatial_pos, self.labels, self.n_split, self.overlap_radius
+        )
         self.build_gene_index = build_gene_index
+        
+        self.adata = None
+        self.genes = None
+        self.index = None
+
+        valid_features = adata.var[feature_name].isna()
+        adata = adata[:, ~valid_features]
 
         if build_gene_index:
+            # Store data with scfind method
             if '_' not in dataset:
                 # Add _ to dataset_name if missing, to keep name format consistent when dealing with
                 # multiple FOVs and single FOV
@@ -84,162 +96,31 @@ class spatial_query:
             if label_key not in adata.obs.columns:
                 raise ValueError(f"{label_key} not in adata.obs. Please double-check valid label name.")
 
-            self.index = self.build_scfind_index(
-                adata,
+            self.index = SCFind()
+            self.index.buildCellTypeIndex(
+                adata=adata,
                 dataset_name=self.dataset,
                 feature_name=feature_name,
                 qb=2
             )
+            self.genes = self.index.scfindGenes
         else:
-            print('build_gene_index is False. Skip building index of expression data.')
+            print('build_gene_index is False. Using adata.X for gene expression analysis.')
+            # Store adata.X and gene names for direct vectorized DE analysis
+            if if_lognorm:
+                print('Log normalizing the expression data... If data is already log normalized, please set if_lognorm to False.')
+                sc.pp.normalize_total(adata)
+                sc.pp.log1p(adata)
 
-    def _initialize_grids(self):
-        xmax, ymax = np.max(self.spatial_pos, axis=0)
-        xmin, ymin = np.min(self.spatial_pos, axis=0)
-        x_step = (xmax - xmin) / self.n_split  # separate x axis into self.n_split parts
-        y_step = (ymax - ymin) / self.n_split  # separate y axis into self.n_split parts
+            self.adata = adata
+            self.genes = adata.var[feature_name].tolist()
 
-        grid_cell_types = {}
-        grid_indices = {}
-
-        for i in range(self.n_split):
-            for j in range(self.n_split):
-                x_start = xmin + i * x_step - (self.overlap_radius if i > 0 else 0)
-                x_end = xmin + (i + 1) * x_step + (self.overlap_radius if i < (self.n_split - 1) else 0)
-                y_start = ymin + j * y_step - (self.overlap_radius if j > 0 else 0)
-                y_end = ymin + (j + 1) * y_step + (self.overlap_radius if j < (self.n_split - 1) else 0)
-
-                cell_mask = (self.spatial_pos[:, 0] >= x_start) & (self.spatial_pos[:, 0] <= x_end) & \
-                            (self.spatial_pos[:, 1] >= y_start) & (self.spatial_pos[:, 1] <= y_end)
-
-                grid_indices[(i, j)] = np.where(cell_mask)[0]
-                grid_cell_types[(i, j)] = set(self.labels[cell_mask])
-
-        return grid_cell_types, grid_indices
-
-    def _query_pattern(self, pattern):
-        matching_grids = []
-        matching_cells_indices = {}
-        for grid, cell_types in self.grid_cell_types.items():
-            if all(cell_type in cell_types for cell_type in pattern):
-                matching_grids.append(grid)
-                indices = self.grid_indices[grid]
-                matching_cells_indices[grid] = indices
-        return matching_grids, matching_cells_indices
-
-    def build_scfind_index(
-            self,
-            adata,
-            dataset_name,
-            feature_name,
-            qb,
-    ):
-        index = SCFind()
-        index.buildCellTypeIndex(
-            adata=adata,
-            dataset_name=dataset_name,
-            feature_name=feature_name,
-            qb=qb
-        )
-        return index
-
-    @staticmethod
-    def has_motif(neighbors: List[str], labels: List[str]) -> bool:
-        """
-        Determines whether all elements in 'neighbors' are present in 'labels'.
-        If all elements are present, returns True. Otherwise, returns False.
-
-        Parameter
-        ---------
-        neighbors:
-            List of elements to check.
-        labels:
-            List in which to check for elements from 'neighbors'.
-
-        Return
-        ------
-        True if all elements of 'neighbors' are in 'labels', False otherwise.
-        """
-        # Set elements in neighbors and labels to be unique.
-        # neighbors = set(neighbors)
-        # labels = set(labels)
-        freq_neighbors = Counter(neighbors)
-        freq_labels = Counter(labels)
-        for element, count in freq_neighbors.items():
-            if freq_labels[element] < count:
-                return False
-
-        return True
-        # if len(neighbors) <= len(labels):
-        #     for n in neighbors:
-        #         if n in labels:
-        #             pass
-        #         else:
-        #             return False
-        #     return True
-        # return False
-
-    @staticmethod
-    def _distinguish_duplicates(transaction: List[str]):
-        """
-        Append suffix to items of transaction to distinguish the duplicate items.
-        """
-        counter = dict(Counter(transaction))
-        trans_suf = [f"{item}_{i}" for item, value in counter.items() for i in range(value)]
-        # trans_suf = [f"{item}_{value}" for item, value in counter.items()]
-        # count_dict = defaultdict(int)
-        # for i, item in enumerate(transaction):
-        #     # Increment the count for the item, or initialize it if it's new
-        #     count_dict[item] += 1
-        #     # Update the item with its count as suffix
-        #     transaction[i] = f"{item}_{count_dict[item]}"
-        # return transaction
-        return trans_suf
-
-    @staticmethod
-    def _remove_suffix(fp: pd.DataFrame):
-        """
-        Remove the suffix of frequent patterns.
-        """
-        trans = [list(tran) for tran in fp['itemsets'].values]
-        fp_no_suffix = [[item.split('_')[0] for item in tran] for tran in trans]
-        # Create a DataFrame
-        fp['itemsets'] = fp_no_suffix
-        return fp
-
-    @staticmethod
-    def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
-        """
-        Find the maximal frequent patterns
-
-        Parameter
-        ---------
-            fp: Frequent patterns dataframe with support values and itemsets.
-
-        Return
-        ------
-            Maximal frequent patterns with support and itemsets.
-        """
-        # Convert itemsets to frozensets for set operations
-        itemsets = fp['itemsets'].apply(frozenset)
-
-        # Find all subsets of each itemset
-        subsets = set()
-        for itemset in itemsets:
-            for r in range(1, len(itemset)):
-                subsets.update(frozenset(s) for s in combinations(itemset, r))
-
-        # Identify maximal patterns (itemsets that are not subsets of any other)
-        maximal_patterns = [itemset for itemset in itemsets if itemset not in subsets]
-        # maximal_patterns_ = [list(p) for p in maximal_patterns]
-
-        # Filter the original DataFrame to keep only the maximal patterns
-        return fp[fp['itemsets'].isin(maximal_patterns)].reset_index(drop=True)
 
     def find_fp_knn(self,
                     ct: str,
                     k: int = 30,
                     min_support: float = 0.5,
+                    max_dist: float = 200,
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type.
@@ -252,6 +133,8 @@ class spatial_query:
             Number of nearest neighbors.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
+        max_dist:
+            Maximum distance for considering a cell as a neighbor.
 
         Return
         ------
@@ -263,9 +146,14 @@ class spatial_query:
         cinds = [id for id, l in enumerate(self.labels) if l == ct]
         ct_pos = self.spatial_pos[cinds]
 
-        fp, _, _ = self.build_fptree_knn(cell_pos=ct_pos, k=k,
-                                         min_support=min_support,
-                                         )
+        fp, _, _ = spatial_utils.build_fptree_knn(
+            kd_tree=self.kd_tree,
+            labels=self.labels,
+            max_radius=max_dist,
+            cell_pos=ct_pos,
+            k=k,
+            min_support=min_support,
+        )
 
         return fp
 
@@ -300,11 +188,16 @@ class spatial_query:
         ct_pos = self.spatial_pos[cinds]
         max_dist = min(max_dist, self.max_radius)
 
-        fp, _, _ = self.build_fptree_dist(cell_pos=ct_pos,
-                                          max_dist=max_dist,
-                                          min_size=min_size,
-                                          min_support=min_support,
-                                          cinds=cinds)
+        fp, _, _ = spatial_utils.build_fptree_dist(
+            kd_tree=self.kd_tree,
+            labels=self.labels,
+            max_radius=self.max_radius,
+            cell_pos=ct_pos,
+            max_dist=max_dist,
+            min_size=min_size,
+            min_support=min_support,
+            cinds=cinds
+        )
 
         return fp
 
@@ -353,9 +246,11 @@ class spatial_query:
 
         out = []
         if motifs is None:
-            fp = self.find_fp_knn(ct=ct, k=k,
-                                  min_support=min_support,
-                                  )
+            fp = self.find_fp_knn(
+                ct=ct, k=k,
+                min_support=min_support,
+                max_dist=max_dist,
+                )
             motifs = fp['itemsets']
         else:
             if isinstance(motifs, str):
@@ -420,13 +315,13 @@ class spatial_query:
 
                 # Use the idxs array which contains the original KNN indices
                 # But filter by valid_neighbors which has distance filtering
-                valid_idxs_of_centers = np.array([
+                valid_idxs_of_centers = [
                     idxs[c, 1:][valid_neighbors[c, :]]  # Get valid neighbors by distance for each center
                     for c in cind_with_motif
-                ])
+                ]
 
                 # Flatten and filter for motif types
-                valid_neighbors_flat = np.concatenate([row for row in valid_idxs_of_centers])
+                valid_neighbors_flat = np.concatenate(valid_idxs_of_centers)
                 valid_motif_neighbors = valid_neighbors_flat[motif_mask[valid_neighbors_flat]]
 
                 # Store unique IDs
@@ -531,13 +426,15 @@ class spatial_query:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
 
-            _, matching_cells_indices = self._query_pattern(motif)
+            _, matching_cells_indices = spatial_utils.query_pattern(
+                motif, self.grid_cell_types, self.grid_indices
+            )
             if not matching_cells_indices:
                 # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
                 continue
             matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
             matching_cells_indices = np.unique(matching_cells_indices)
-            print(f"number of cells skipped: {len(matching_cells_indices)}")
+            # print(f"number of cells skipped: {len(matching_cells_indices)}")
             print(f"proportion of cells searched: {len(matching_cells_indices) / len(self.spatial_pos)}")
             idxs_in_grids = self.kd_tree.query_ball_point(
                 self.spatial_pos[matching_cells_indices],
@@ -602,190 +499,6 @@ class spatial_query:
             out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
             return out_pd
 
-    def build_fptree_dist(self,
-                          cell_pos: np.ndarray = None,
-                          max_dist: float = 100,
-                          min_support: float = 0.5,
-                          if_max: bool = True,
-                          min_size: int = 0,
-                          cinds: List[int] = None,
-                          max_ns: int = 100) -> tuple:
-        """
-        Build a frequency pattern tree based on the distance of cell types.
-
-        Parameter
-        ---------
-        cell_pos:
-            Spatial coordinates of input points.
-            If cell_pos is None, use all spots in fov to compute frequent patterns.
-        max_dist:
-            Maximum distance to consider a cell as a neighbor.
-        min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern.
-        if_max:
-            By default return the maximum set of frequent patterns without the subsets. If if_max=False, return all
-            patterns whose support values are greater than min_support.
-        min_size:
-            Minimum neighborhood size for each point to consider.
-        max_ns:
-            Maximum number of neighborhood size for each point.
-
-        Return
-        ------
-        A tuple containing the FPs, the transactions table and the nerghbors index.
-        """
-        if cell_pos is None:
-            cell_pos = self.spatial_pos
-
-        max_dist = min(max_dist, self.max_radius)
-
-        # start = time.time()
-        idxs = self.kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False, workers=-1)
-        if cinds is None:
-            cinds = list(range(len(idxs)))
-        # end = time.time()
-        # print("query: {end-start} seconds")
-
-        # Prepare data for FP-Tree construction
-        # start = time.time()
-        transactions = []
-        valid_idxs = []
-        labels = np.array(self.labels)
-        for i_idx, idx in zip(cinds, idxs):
-            if not idx:
-                continue
-            idx_array = np.array(idx)
-            valid_mask = idx_array != i_idx
-            valid_indices = idx_array[valid_mask][:max_ns]
-
-            transaction = labels[valid_indices]
-            if len(transaction) > min_size:
-                transactions.append(transaction.tolist())
-                valid_idxs.append(valid_indices)
-        # end = time.time()
-        # print(f"build transactions: {end-start} seconds")
-        # Convert transactions to a DataFrame suitable for fpgrowth
-        # start = time.time()
-        mlb = MultiLabelBinarizer()
-        encoded_data = mlb.fit_transform(transactions)
-        df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
-
-        # Construct FP-Tree using fpgrowth
-        fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
-        # end = time.time()
-        # print(f"fp_growth: {end-start} seconds")
-        if if_max:
-            # start = time.time()
-            fp_tree = self.find_maximal_patterns(fp=fp_tree)
-            # end = time.time()
-            # print(f"find_maximal_patterns: {end-start} seconds")
-
-        # Remove suffix of items if treating duplicates as different items
-        # if dis_duplicates:
-        #     fp_tree = self._remove_suffix(fp_tree)
-
-        if len(fp_tree) == 0:
-            return pd.DataFrame(columns=['support', 'itemsets']), df, valid_idxs
-        else:
-            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
-            fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
-            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
-            fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
-            return fp_tree, df, valid_idxs
-
-    def build_fptree_knn(self,
-                         cell_pos: np.ndarray = None,
-                         k: int = 30,
-                         min_support: float = 0.5,
-                         max_dist: float = 200,
-                         if_max: bool = True
-                         ) -> tuple:
-        """
-        Build a frequency pattern tree based on knn
-
-        Parameter
-        ---------
-        cell_pos:
-            Spatial coordinates of input points.
-            If cell_pos is None, use all spots in fov to compute frequent patterns.
-        k:
-            Number of neighborhood size for each point.
-        min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern
-        max_dist:
-            The maximum distance at which points are considered neighbors.
-        if_max:
-            By default return the maximum set of frequent patterns without the subsets. If if_max=False, return all
-            patterns whose support values are greater than min_support.
-
-        Return
-        ------
-        A tuple containing the FPs, the transactions table, and the neighbors index.
-        """
-        if cell_pos is None:
-            cell_pos = self.spatial_pos
-
-        max_dist = min(max_dist, self.max_radius)
-        # start = time.time()
-        dists, idxs = self.kd_tree.query(cell_pos, k=k + 1, workers=-1)
-        # end = time.time()
-        # print(f"knn query: {end-start} seconds")
-
-        # Prepare data for FP-Tree construction
-        # start = time.time()
-        idxs = np.array(idxs)
-        dists = np.array(dists)
-        labels = np.array(self.labels)
-        transactions = []
-        mask = dists < max_dist
-        for i, idx in enumerate(idxs):
-            inds = idx[mask[i]]
-            if len(inds) == 0:
-                continue
-            transaction = labels[inds[1:]]
-            # if dis_duplicates:
-            #     transaction = distinguish_duplicates_numpy(transaction)
-            transactions.append(transaction)  # 将 NumPy 数组转换回列表
-
-        # end = time.time()
-        # print(f"build transactions: {end-start} seconds")
-
-        # transactions = []
-        # for i, idx in enumerate(idxs):
-        #     inds = [id for j, id in enumerate(idx) if
-        #             dists[i][j] < max_dist]  # only contain the KNN whose distance is less than max_dist
-        #     transaction = [self.labels[i] for i in inds[1:] if self.labels[i]]
-        #     # if dis_duplicates:
-        #     #     transaction = self._distinguish_duplicates(transaction)
-        #     transactions.append(transaction)
-
-        # Convert transactions to a DataFrame suitable for fpgrowth
-        # start = time.time()
-        mlb = MultiLabelBinarizer()
-        encoded_data = mlb.fit_transform(transactions)
-        df = pd.DataFrame(encoded_data.astype(bool), columns=mlb.classes_)
-
-        # Construct FP-Tree using fpgrowth
-        fp_tree = fpgrowth(df, min_support=min_support, use_colnames=True)
-        # end = time.time()
-        # print(f"fp-growth: {end-start} seconds")
-
-        if if_max:
-            # start = time.time()
-            fp_tree = self.find_maximal_patterns(fp_tree)
-            # end = time.time()
-            # print(f"find_maximal_patterns: {end-start} seconds")
-
-        # if dis_duplicates:
-        #     fp_tree = self._remove_suffix(fp_tree)
-        if len(fp_tree) == 0:
-            return pd.DataFrame(columns=['support', 'itemsets']), df, idxs
-        else:
-            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: tuple(sorted(x)))
-            fp_tree = fp_tree.drop_duplicates().reset_index(drop=True)
-            fp_tree['itemsets'] = fp_tree['itemsets'].apply(lambda x: list(x))
-            fp_tree = fp_tree.sort_values(by='support', ignore_index=True, ascending=False)
-            return fp_tree, df, idxs
 
     def find_patterns_grid(self,
                            max_dist: float = 100,
@@ -831,7 +544,11 @@ class spatial_query:
         y_grid = np.arange(ymin - max_dist, ymax + max_dist, max_dist)
         grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
 
-        fp, trans_df, idxs = self.build_fptree_dist(
+        fp, trans_df, idxs = spatial_utils.build_fptree_dist(
+            kd_tree=self.kd_tree,
+            labels=self.labels,
+            max_radius=self.max_radius,
+            spatial_pos=self.spatial_pos,
             cell_pos=grid,
             max_dist=max_dist,
             min_size=min_size,
@@ -957,7 +674,11 @@ class spatial_query:
         pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
                                np.random.rand(n_points) * (ymax - ymin) + ymin))
 
-        fp, trans_df, idxs = self.build_fptree_dist(
+        fp, trans_df, idxs = spatial_utils.build_fptree_dist(
+            kd_tree=self.kd_tree,
+            labels=self.labels,
+            max_radius=self.max_radius,
+            spatial_pos=self.spatial_pos,
             cell_pos=pos,
             max_dist=max_dist,
             min_size=min_size,
@@ -1028,6 +749,7 @@ class spatial_query:
                  ind_group2: List[int],
                  genes: Optional[Union[str, List[str]]] = None,
                  min_fraction: float = 0.05,
+                 method: Literal['fisher', 't-test', 'wilcoxon'] = 'fisher',
                  ) -> pd.DataFrame:
         """
         Identify differential genes between two groups of cells.
@@ -1035,41 +757,64 @@ class spatial_query:
         Paramaters
         ---------
         ind_group1: List of indices of cells in group 1.
-
         ind_group2: List of indices of cells in group 2.
-
         genes: List of gene names to query. If None, all genes will be used.
-
         min_fraction: The minimum fraction of cells that express a gene for it to be considered differentially expressed.
-
-        Return
+        method: The method to use for DE analysis. Please choose from fisher, t-test, or wilcoxon. If build_gene_index=True, only Fisher's exact test is supported.
+        Return  
         ------
         pd.DataFrame containing the differentially expressed genes between the two groups.
         """
-        if not self.build_gene_index:
-            raise ValueError("Please build gene index first by setting build_gene_index=True in the constructor.")
+        if self.build_gene_index:
+            # Use scfind index for DE analysis with Fisher's exact test.
+            if genes is None:
+                genes = self.index.scfindGenes
 
-        if genes is None:
-            genes = self.index.scfindGenes
+            print(f'Using scfind index for DE analysis with {method} test.')
 
-        out = self.index.de_genes_with_indices(genes, ind_group1, ind_group2, min_fraction)
+            out = self.index.de_genes_with_indices(genes, ind_group1, ind_group2, min_fraction)
+            out_df = pd.DataFrame(out)
 
-        out_df = pd.DataFrame(out)
+            print(f"number of tested genes using scfind index: {len(out_df)}")
 
-        adjusted_pvals = multipletests(out_df['p_value'], method='holm')[1]
-        out_df['adj_p_value'] = adjusted_pvals
-        results_df = out_df[out_df['adj_p_value'] < 0.05]
-        results_df['de_in'] = np.where(
-            (results_df['proportion_1'] > results_df['proportion_2']),
-            'group1',
-            np.where(
-                (results_df['proportion_2'] > results_df['proportion_1']),
-                'group2',
-                None
+            # Calculate Fisher's exact test p-values in Python using scipy
+            p_values = []
+            for _, row in out_df.iterrows():
+                table = [[int(row['a']), int(row['b'])], 
+                        [int(row['c']), int(row['d'])]]
+                _, p_value = fisher_exact(table, alternative='two-sided')
+                p_values.append(p_value)
+            
+            out_df['p_value'] = p_values
+
+            adjusted_pvals = multipletests(out_df['p_value'], method='fdr_bh')[1]
+            out_df['adj_p_value'] = adjusted_pvals
+            results_df = out_df[out_df['adj_p_value'] < 0.05]
+            results_df.loc[:, 'de_in'] = np.where(
+                (results_df['proportion_1'] >= results_df['proportion_2']),
+                'group1',
+                np.where(
+                    (results_df['proportion_2'] > results_df['proportion_1']),
+                    'group2',
+                    None
+                )
             )
-        )
+            results_df = results_df[results_df['adj_p_value'] < 0.05].sort_values('p_value').reset_index(drop=True)
+        else:
+            # Use adata.X directly for DE analysis
+            if method == 'fisher':
+                results_df = spatial_utils.de_genes_fisher(
+                    self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction
+                )
+            elif method == 't-test' or method == 'wilcoxon':
+                results_df = spatial_utils.de_genes_scanpy(
+                    self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, method=method
+                )
+            else:
+                raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
 
         return results_df
+
 
     def plot_fov(self,
                  min_cells_label: int = 50,
@@ -1148,24 +893,19 @@ class spatial_query:
 
     def plot_motif_grid(self,
                         motif: Union[str, List[str]],
-                        fp: pd.DataFrame,
                         fig_size: tuple = (10, 5),
                         max_dist: float = 100,
                         save_path: Optional[str] = None
                         ):
         """
-        Display the distribution of each motif around grid points. To make sure the input
-        motif can be found in the results obtained by find_patterns_grid, use the same arguments
-        as those in find_pattern_grid method.
+        Display the distribution of each motif around grid points.
 
         Parameter
         ---------
         motif:
             Motif (names of cell types) to be colored
-        fp:
-            Frequent patterns identified by find_patterns_grid.
         max_dist:
-            Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
+            Spacing distance for building grid.
         fig_size:
             Figure size.
         save_path:
@@ -1202,21 +942,24 @@ class spatial_query:
         id_center = []
         for i, idx in enumerate(idxs):
             ns = [self.labels[id] for id in idx]
-            if self.has_motif(neighbors=motif, labels=ns):
+            if spatial_utils.has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
         # Locate the index of cell types contained in motif in the
         # neighborhood of above grid points with motif nearby
-        id_motif_celltype = fp[fp['itemsets'].apply(
-            lambda p: set(p)) == set(motif)]
-        id_motif_celltype = id_motif_celltype['cell_id'].iloc[0]
+        id_motif_celltype = set()
+        for i in id_center:
+            idx = idxs[i]
+            for cell_id in idx:
+                if self.labels[cell_id] in motif:
+                    id_motif_celltype.add(cell_id)
 
         # Plot above spots and center grid points
-        # Set color map as in find_patterns_grid
-        fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
-        n_colors = len(fp_cts)
+        # Set color map using motif cell types
+        motif_unique = sorted(set(motif))
+        n_colors = len(motif_unique)
         colors = sns.color_palette('hsv', n_colors)
-        color_map = {ct: col for ct, col in zip(fp_cts, colors)}
+        color_map = {ct: col for ct, col in zip(motif_unique, colors)}
 
         motif_spot_pos = self.spatial_pos[list(id_motif_celltype), :]
         motif_spot_label = self.labels[list(id_motif_celltype)]
@@ -1239,7 +982,6 @@ class spatial_query:
                    bg_pos[:, 1],
                    color='darkgrey', s=1)
 
-        motif_unique = list(set(motif))
         for ct in motif_unique:
             ct_ind = motif_spot_label == ct
             ax.scatter(motif_spot_pos[ct_ind, 0],
@@ -1264,7 +1006,6 @@ class spatial_query:
 
     def plot_motif_rand(self,
                         motif: Union[str, List[str]],
-                        fp: pd.DataFrame,
                         max_dist: float = 100,
                         n_points: int = 1000,
                         fig_size: tuple = (10, 5),
@@ -1273,18 +1014,14 @@ class spatial_query:
                         ):
         """
         Display the random sampled points with motif in radius-based neighborhood,
-        and cell types of motif in the neighborhood of these grid points. To make sure the input
-        motif can be found in the results obtained by find_patterns_grid, use the same arguments
-        as those in find_pattern_grid method.
+        and cell types of motif in the neighborhood of these random points.
 
         Parameter
         ---------
         motif:
             Motif (names of cell types) to be colored
-        fp:
-            Frequent patterns identified by find_patterns_grid.
         max_dist:
-            Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
+            Radius for neighborhood search.
         n_points:
             Number of random points to generate.
         fig_size:
@@ -1319,25 +1056,28 @@ class spatial_query:
 
         idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=False, workers=-1)
 
-        # Locate the index of grid points acting as centers with motif nearby
+        # Locate the index of random points acting as centers with motif nearby
         id_center = []
         for i, idx in enumerate(idxs):
             ns = [self.labels[id] for id in idx]
-            if self.has_motif(neighbors=motif, labels=ns):
+            if spatial_utils.has_motif(neighbors=motif, labels=ns):
                 id_center.append(i)
 
         # Locate the index of cell types contained in motif in the
         # neighborhood of above random points with motif nearby
-        id_motif_celltype = fp[fp['itemsets'].apply(
-            lambda p: set(p)) == set(motif)]
-        id_motif_celltype = id_motif_celltype['cell_id'].iloc[0]
+        id_motif_celltype = set()
+        for i in id_center:
+            idx = idxs[i]
+            for cell_id in idx:
+                if self.labels[cell_id] in motif:
+                    id_motif_celltype.add(cell_id)
 
-        # Plot above spots and center grid points
-        # Set color map as in find_patterns_grid
-        fp_cts = sorted(set(t for items in fp['itemsets'] for t in list(items)))
-        n_colors = len(fp_cts)
+        # Plot above spots and center random points
+        # Set color map using motif cell types
+        motif_unique = sorted(set(motif))
+        n_colors = len(motif_unique)
         colors = sns.color_palette('hsv', n_colors)
-        color_map = {ct: col for ct, col in zip(fp_cts, colors)}
+        color_map = {ct: col for ct, col in zip(motif_unique, colors)}
 
         motif_spot_pos = self.spatial_pos[list(id_motif_celltype), :]
         motif_spot_label = self.labels[list(id_motif_celltype)]
@@ -1352,7 +1092,6 @@ class spatial_query:
         ax.scatter(bg_adata[:, 0],
                    bg_adata[:, 1],
                    color='darkgrey', s=1)
-        motif_unique = list(set(motif))
         for ct in motif_unique:
             ct_ind = motif_spot_label == ct
             ax.scatter(motif_spot_pos[ct_ind, 0],
