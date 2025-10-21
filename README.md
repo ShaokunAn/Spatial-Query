@@ -57,8 +57,10 @@ sq = spatial_query(
     dataset="ST_sample",
     spatial_key="X_spatial",  # spatial coordinates in adata.obsm
     label_key="predicted_label",  # cell type labels in adata.obs
-    build_gene_index=False,  # Build gene expression index. If set True, build scfind index otherwise use adata.X directly for DE gene analysis
-    feature_name="gene_ids"  # gene names in adata.var
+    build_gene_index=False,  # build gene expression index. If set True, build scfind index otherwise use adata.X directly for DE gene analysis
+    feature_name="gene_ids",  # gene names in adata.var
+    if_lognorm=True  # perfrom log-normalization of adata.X if True when initializing spatial_query object. 
+
 )
 
 # Find frequent patterns around a specific cell type
@@ -333,7 +335,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Contact
 
 - **Author**: Shaokun An
-- **Email**: shan12@bwh.harvard.edu
+- **Email**: shaokunan1@gmail.com
 - **GitHub**: [@ShaokunAn](https://github.com/ShaokunAn)
 
 ## Acknowledgments
