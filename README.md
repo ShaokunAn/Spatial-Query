@@ -22,7 +22,7 @@ git clone https://github.com/ShaokunAn/Spatial-Query.git
 cd Spatial-Query
 
 # Install in development mode
-pip install -e .
+pip install .
 
 # Or install directly from GitHub
 pip install git+https://github.com/ShaokunAn/Spatial-Query.git@dev

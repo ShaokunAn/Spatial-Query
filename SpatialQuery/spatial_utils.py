@@ -163,7 +163,6 @@ def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
 
 def build_fptree_dist(kd_tree,
                       labels,
-                      max_radius,
                       cell_pos: np.ndarray = None,
                       spatial_pos: np.ndarray = None,
                       max_dist: float = 100,
@@ -181,8 +180,6 @@ def build_fptree_dist(kd_tree,
         KDTree for spatial queries
     labels:
         Cell type labels
-    max_radius:
-        Maximum radius for queries
     cell_pos:
         Spatial coordinates of input points.
         If cell_pos is None, use all spots in fov to compute frequent patterns.
@@ -202,12 +199,10 @@ def build_fptree_dist(kd_tree,
 
     Return
     ------
-    A tuple containing the FPs, the transactions table and the nerghbors index.
+    A tuple containing the FPs, the transactions table and the neighbors index.
     """
     if cell_pos is None:
         cell_pos = spatial_pos
-
-    max_dist = min(max_dist, max_radius)
 
     idxs = kd_tree.query_ball_point(cell_pos, r=max_dist, return_sorted=False, workers=-1)
     if cinds is None:
@@ -252,7 +247,6 @@ def build_fptree_dist(kd_tree,
 
 def build_fptree_knn(kd_tree,
                      labels,
-                     max_radius,
                      cell_pos: np.ndarray = None,
                      spatial_pos: np.ndarray = None,
                      k: int = 30,
@@ -269,8 +263,6 @@ def build_fptree_knn(kd_tree,
         KDTree for spatial queries
     labels:
         Cell type labels
-    max_radius:
-        Maximum radius for queries
     cell_pos:
         Spatial coordinates of input points.
         If cell_pos is None, use all spots in fov to compute frequent patterns.
@@ -293,7 +285,6 @@ def build_fptree_knn(kd_tree,
     if cell_pos is None:
         cell_pos = spatial_pos
 
-    max_dist = min(max_dist, max_radius)
     dists, idxs = kd_tree.query(cell_pos, k=k + 1, workers=-1)
 
     # Prepare data for FP-Tree construction
@@ -342,10 +333,36 @@ def de_genes_scanpy(adata,
     Perform differential expression analysis using scanpy's rank_genes_groups.
     Supports t-test and wilcoxon methods.
     """
+
+    if genes_list is None or len(genes_list) != adata.n_vars:
+        raise ValueError("genes_list is None or does not match adata.n_vars.")
+    
     # Convert indices to numpy arrays
     ind_group1 = np.array(ind_group1, dtype=np.int32)
     ind_group2 = np.array(ind_group2, dtype=np.int32)
     
+    n1, n2 = len(ind_group1), len(ind_group2)
+
+    if isinstance(adata.X, csr_matrix):
+        X1 = adata.X[ind_group1, :]
+        X2 = adata.X[ind_group2, :]
+        # Count expressing cells efficiently on sparse matrix
+        count1 = np.asarray((X1 > 0).sum(axis=0)).flatten()
+        count2 = np.asarray((X2 > 0).sum(axis=0)).flatten()
+    else:
+        X1 = adata.X[ind_group1, :]
+        X2 = adata.X[ind_group2, :]
+        # Count expressing cells
+        count1 = (X1 > 0).sum(axis=0)
+        count2 = (X2 > 0).sum(axis=0)
+        if hasattr(count1, 'A1'):  # Handle matrix type
+            count1 = count1.A1
+            count2 = count2.A1
+    prop1 = count1 / n1 
+    prop2 = count2 / n2 
+
+    pre_mask = (prop1 >= min_fraction) | (prop2 >= min_fraction)
+
     # Create temporary group labels
     group_labels = np.array(['other'] * adata.n_obs, dtype=object)
     group_labels[ind_group1] = 'group1'
@@ -358,15 +375,18 @@ def de_genes_scanpy(adata,
     # Filter to only cells in the two groups
     adata_temp = adata_temp[adata_temp.obs['_temp_de_group'] != 'other']
     
-    # If specific genes requested, subset adata to only those genes
+    # Apply pre_mask filtering to genes based on min_fraction
+    genes_to_test = np.array(genes_list)[pre_mask].tolist()
+    adata_temp = adata_temp[:, genes_to_test]
+    
+    # If specific genes requested, further subset adata to only those genes
     if genes is not None:
         if isinstance(genes, str):
             genes = [genes]
         
-        # Find valid genes that exist in the data
-        gene_mask = np.isin(genes_list, genes)
-        valid_gene_names = [g for g in genes if g in genes_list]
-        invalid_genes = [g for g in genes if g not in genes_list]
+        # Find valid genes that exist in the filtered genes
+        valid_gene_names = [g for g in genes if g in genes_to_test]
+        invalid_genes = [g for g in genes if g not in genes_to_test]
         
         if len(invalid_genes) > 0:
             print(f'Invalid genes {invalid_genes} will be skipped.')
@@ -379,7 +399,7 @@ def de_genes_scanpy(adata,
         adata_temp = adata_temp[:, valid_gene_names]
         print(f'Testing {len(valid_gene_names)} specified genes ...')
     else:
-        print(f'Testing all {adata_temp.n_vars} genes ...')
+        print(f'Testing {len(genes_to_test)} genes ...')
     
     
     # Run scanpy's differential expression
@@ -418,8 +438,6 @@ def de_genes_scanpy(adata,
     # Filter by adjusted p-value and sort
     result_df = result_df[result_df['adj_p_value'] < 0.05].sort_values('p_value').reset_index(drop=True)
     
-    print(f'Found {len(result_df)} significant genes')
-    
     return result_df
 
 
@@ -435,13 +453,16 @@ def de_genes_fisher(adata,
     Optimized to work with sparse matrices and memory-efficient.
     """
     
+    # Ensure we use the correct gene names that match adata.X columns
+    if genes_list is None or len(genes_list) != adata.n_vars:
+        raise ValueError("genes_list is None or does not match adata.n_vars.")
+    
     # Convert indices to numpy arrays
     ind_group1 = np.array(ind_group1, dtype=np.int32)
     ind_group2 = np.array(ind_group2, dtype=np.int32)
     
     n1, n2 = len(ind_group1), len(ind_group2)
     
-    # IMPORTANT: For memory efficiency, we work on slices of the data
     # Count expressing cells directly from sparse matrix (memory-efficient)
     if isinstance(adata.X, csr_matrix):
         X1 = adata.X[ind_group1, :]
@@ -514,7 +535,7 @@ def de_genes_fisher(adata,
     
     # Build results DataFrame
     result_df = pd.DataFrame({
-        'gene': np.array(genes_list)[gene_indices],
+        'gene': np.array(genes_list)[gene_indices],  # Use correct gene names
         'proportion_1': prop1[gene_indices],
         'proportion_2': prop2[gene_indices],
         'abs_difference': np.abs(prop1[gene_indices] - prop2[gene_indices]),
@@ -544,8 +565,6 @@ def de_genes_fisher(adata,
             None
         )
     )
-
-    print(f"number of tested genes using adata.X directly: {len(result_df)}")
     
     # Filter by adjusted p-value and sort by p-value
     result_df = result_df[result_df['adj_p_value'] < 0.05].sort_values('p_value').reset_index(drop=True)

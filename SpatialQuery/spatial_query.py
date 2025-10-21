@@ -88,6 +88,7 @@ class spatial_query:
         var_df = adata.var.reset_index()  # 确保有 index 信息
         duplicated = var_df.duplicated(subset=[feature_name], keep='first')
         adata = adata[:, ~duplicated.values].copy()
+        adata.var_names = adata.var[feature_name].tolist()
         
         if build_gene_index:
             # Store data with scfind method
@@ -155,10 +156,11 @@ class spatial_query:
         fp, _, _ = spatial_utils.build_fptree_knn(
             kd_tree=self.kd_tree,
             labels=self.labels,
-            max_radius=max_dist,
             cell_pos=ct_pos,
             k=k,
             min_support=min_support,
+            max_dist=max_dist,
+            if_max=True
         )
 
         return fp
@@ -197,7 +199,6 @@ class spatial_query:
         fp, _, _ = spatial_utils.build_fptree_dist(
             kd_tree=self.kd_tree,
             labels=self.labels,
-            max_radius=self.max_radius,
             cell_pos=ct_pos,
             max_dist=max_dist,
             min_size=min_size,
@@ -553,7 +554,6 @@ class spatial_query:
         fp, trans_df, idxs = spatial_utils.build_fptree_dist(
             kd_tree=self.kd_tree,
             labels=self.labels,
-            max_radius=self.max_radius,
             spatial_pos=self.spatial_pos,
             cell_pos=grid,
             max_dist=max_dist,
@@ -683,7 +683,6 @@ class spatial_query:
         fp, trans_df, idxs = spatial_utils.build_fptree_dist(
             kd_tree=self.kd_tree,
             labels=self.labels,
-            max_radius=self.max_radius,
             spatial_pos=self.spatial_pos,
             cell_pos=pos,
             max_dist=max_dist,

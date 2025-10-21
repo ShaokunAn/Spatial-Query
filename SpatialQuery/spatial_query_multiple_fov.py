@@ -17,8 +17,14 @@ from statsmodels.stats.multitest import multipletests
 from joblib import Parallel, delayed
 
 from .spatial_query import spatial_query
-from .spatial_utils import find_maximal_patterns
-from . import spatial_utils
+from .spatial_utils import (
+    find_maximal_patterns,
+    query_pattern,
+    build_fptree_knn,
+    build_fptree_dist,
+    de_genes_scanpy,
+    de_genes_fisher,
+    )
 import anndata as ad
 import scanpy as sc
 
@@ -576,7 +582,7 @@ class spatial_query_multi:
                     continue
                 else:
                     n_labels += labels.shape[0]
-                    _, matching_cells_indices = s._query_pattern(motif)
+                    _, matching_cells_indices = query_pattern(motif, s.grid_cell_types, s.grid_indices)
                     if not matching_cells_indices:
                         # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
                         continue 
@@ -704,8 +710,12 @@ class spatial_query_multi:
         # Identify frequent patterns of cell types, including those subsets of patterns
         # whose support value exceeds min_support. Focus solely on the multiplicity
         # of cell types, rather than their frequency.
-        fp, _, _ = sp_object.build_fptree_knn(
+        fp, _, _ = build_fptree_knn(
+            kd_tree=sp_object.kd_tree,
+            labels=labels,
+            max_radius=sp_object.max_radius,
             cell_pos=ct_pos,
+            spatial_pos=cell_pos,
             k=k,
             min_support=min_support,
             if_max=False,
@@ -758,14 +768,18 @@ class spatial_query_multi:
         cinds = [id for id, l in enumerate(labels) if l == ct]
         ct_pos = cell_pos[cinds]
 
-        fp, _, _ = sp_object.build_fptree_dist(cell_pos=ct_pos,
-                                               max_dist=max_dist,
-                                               min_support=min_support,
-                                               min_size=min_size,
-                                               if_max=False,
-                                               cinds=cinds,
-                                               max_ns=max_ns,
-                                               )
+        fp, _, _ = build_fptree_dist(
+            kd_tree=sp_object.kd_tree,
+            labels=labels,
+            cell_pos=ct_pos,
+            spatial_pos=cell_pos,
+            max_dist=max_dist,
+            min_support=min_support,
+            if_max=False,
+            min_size=min_size,
+            cinds=cinds,
+            max_ns=max_ns,
+        )
         return fp
 
     def differential_analysis_knn(self,
@@ -1068,7 +1082,7 @@ class spatial_query_multi:
 
         # For each gene, calculate the number of cells in the provided indices expressing the gene in each group
         if genes is None:
-            genes = set.union(*[set(s.genes) for s in self.spatial_queries])
+            genes = set.intersection(*[set(s.genes) for s in self.spatial_queries])
             genes = list(genes)
             print('All genes are used.')
 
@@ -1096,14 +1110,15 @@ class spatial_query_multi:
             sp = self.spatial_queries[ds_i]
 
             # Get counts of cells expressing each gene in this dataset
-            # start1 = time()
+            from time import time
+            start1 = time()
             genes_sp = sp.index._case_correct(genes, if_print=False)
             if not genes_sp:
                 continue
-
+                
             ds_counts = sp.index.index.cell_counts_in_indices_genes(ids, genes_sp)
-            # end1 = time()
-            # print(f'Time for cell search in group1: {end1 - start1}')
+            end1 = time()
+            print(f'Time for cell search in group1: {end1 - start1}')
 
             genes_list = [item['gene'] for item in ds_counts]
             counts_list = [item['expressed_cells'] for item in ds_counts]
@@ -1204,14 +1219,16 @@ class spatial_query_multi:
         # Apply Fisher's exact test - this still needs a loop but is more efficient
         # Use parallelization if available (requires joblib)
         def apply_fisher(table):
-            _, p_value = stats.fisher_exact(table)
+            _, p_value = stats.fisher_exact(table, alternative='two-sided')
             return p_value
 
         # Run tests in parallel
         # n_jobs=-1 uses all available cores
-        p_values = Parallel(n_jobs=-1)(
-            delayed(apply_fisher)(table) for table in contingency_tables
-        )
+        # p_values_parallel = Parallel(n_jobs=-1)(
+        #     delayed(apply_fisher)(table) for table in contingency_tables
+        # )
+        # Also compute p_values sequentially (without Parallel)
+        p_values = [apply_fisher(table) for table in contingency_tables]
 
         # Add p-values to DataFrame
         filtered_df.loc[:, 'p_value'] = p_values
@@ -1310,31 +1327,28 @@ class spatial_query_multi:
             raise ValueError("No valid adata found in group 1.")
         if not all_adatas_g2:
             raise ValueError("No valid adata found in group 2.")
-        
-        # Concatenate all adatas
-        print(f"Concatenating {len(all_adatas_g1)} datasets from group 1...")
-        print(f"Concatenating {len(all_adatas_g2)} datasets from group 2...")
+
         
         adata_g1 = ad.concat(all_adatas_g1, join='inner')
         adata_g2 = ad.concat(all_adatas_g2, join='inner')
         
         # Combine both groups
         adata_combined = ad.concat([adata_g1, adata_g2], join='inner')
-        
+
         # Get the overlapping genes of each data
-        genes_list = list(set.intersection(*[set(s.genes) for s in self.spatial_queries]))
-        
+        genes_list = adata_combined.var_names.tolist()
+
         # Create indices for combined adata
         ind_combined_g1 = list(range(len(adata_g1)))
         ind_combined_g2 = list(range(len(adata_g1), len(adata_combined)))
         
         # Perform DE analysis using spatial_utils
         if method == 'fisher':
-            results_df = spatial_utils.de_genes_fisher(
+            results_df = de_genes_fisher(
                 adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction
             )
         elif method == 't-test' or method == 'wilcoxon':
-            results_df = spatial_utils.de_genes_scanpy(
+            results_df = de_genes_scanpy(
                 adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction, method=method
             )
         else:
