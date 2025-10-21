@@ -57,22 +57,25 @@ sq = spatial_query(
     dataset="ST_sample",
     spatial_key="X_spatial",  # spatial coordinates in adata.obsm
     label_key="predicted_label",  # cell type labels in adata.obs
-    build_gene_index=True,  # Build gene expression index for DE analysis
+    build_gene_index=False,  # Build gene expression index. If set True, build scfind index otherwise use adata.X directly for DE gene analysis
     feature_name="gene_ids"  # gene names in adata.var
 )
 
 # Find frequent patterns around a specific cell type
 fp_results = sq.find_fp_knn(
-    ct="T_cell",  # cell type of interest
+    ct="T_cell",  # anchors cells for neighborhood analysis
     k=30,  # number of neighbors
-    min_support=0.5  # minimum support threshold
+    min_support=0.5  # minimum frequency support threshold
 )
 
 # Perform motif enrichment analysis
 enrichment_results = sq.motif_enrichment_knn(
-    motif=["T_cell", "B_cell"],  # motif to test
-    ct="T_cell",  # center cell type
-    k=30
+    ct="T_cell",  # center cell type as anchors
+    motifs=["T_cell", "B_cell"],  # motif to test. If None, frequent patterns will be searched first for enrichment analysis
+    k=30,  # number of neighbors
+    min_support=0.5,  # minimum frequency support threshold
+    max_dist=200,  # maximum distance for neighbors
+    return_cellID=False  # whether to return cell IDs for each motif and center cells
 )
 
 # Differential expression analysis
@@ -83,8 +86,15 @@ de_results = sq.de_genes(
 )
 
 # Visualize results
-sq.plot_fov(fig_size=(10, 8))
-sq.plot_motif_grid(motif=["T_cell", "B_cell"])
+sq.plot_fov(fig_size=(10, 8))  # Plot spatial data with cell types
+sq.plot_motif_grid(motif=["T_cell", "B_cell"], max_dist=50)  # Plot motif around grid points
+sq.plot_motif_celltype(
+    ct="T_cell",  # center cell type
+    motif=["T_cell", "B_cell"],  # motif to visualize
+    max_dist=100,  # radius for neighborhood
+    fig_size=(10, 5),
+    save_path=None  # path to save figure, None for display only
+)
 ```
 
 ### Multi-FOV Analysis
@@ -94,7 +104,7 @@ from SpatialQuery import spatial_query_multi
 
 # Prepare multiple datasets
 adatas = [adata1, adata2, adata3]  # List of AnnData objects
-datasets = ["sample1", "sample2", "sample3"]  # Dataset names
+datasets = ["healthy", "healthy", "disease"]  # Dataset names. 
 
 # Initialize multi-FOV spatial query
 sq_multi = spatial_query_multi(
@@ -109,21 +119,61 @@ sq_multi = spatial_query_multi(
 # Find frequent patterns across datasets
 fp_multi = sq_multi.find_fp_knn(
     ct="T_cell",
-    dataset=["sample1", "sample2"],  # specific datasets
+    dataset=["healthy"],  # specific datasets
     k=30,
     min_support=0.5
 )
 
-# Differential analysis across datasets
-diff_results = sq_multi.differential_analysis_knn(
-    ct="T_cell",
-    datasets1=["sample1"],
-    datasets2=["sample2"],
-    k=30
+# Motif enrichment analysis across datasets
+motif_results = sq_multi.motif_enrichment_knn(
+    ct="T_cell",  # center cell type
+    motifs=["T_cell", "B_cell"],  # motifs to test
+    dataset=["healthy", "disease"],  # datasets to compare
+    k=30,
+    min_support=0.5,
+    max_dist=200
 )
 
-# Cell type distribution analysis
-dist_results = sq_multi.cell_type_distribution()
+# Differential pattern analysis across datasets
+diff_results = sq_multi.differential_analysis_knn(
+    ct="T_cell",  # center cell type
+    datasets=["healthy", "disease"],  # exactly 2 datasets for comparison
+    k=30,  # number of neighbors
+    min_support=0.5,  # minimum support threshold
+    max_dist=200  # maximum distance for neighbors
+)
+
+# Differential gene expression analysis across specified groups using per-dataset indices
+from collections import defaultdict
+
+# Example: keys are modified dataset names (e.g., "healthy_0", "healthy_1"), values are index lists for that dataset
+ind_group1 = defaultdict(list)
+ind_group1["healthy_0"] = [0, 1, 2]
+ind_group1["healthy_1"] = [0, 1]
+
+ind_group2 = defaultdict(list)
+ind_group2["disease_0"] = [3, 4]
+
+
+de_multi = sq_multi.de_genes(
+    ind_group1=ind_group1,  # group 1: dict keys as dataset names, values as indices in each dataset
+    ind_group2=ind_group2,  # group 2: same structure
+    genes=["Gene_1", "Gene_2"],      # Genes of interest; uses all genes if no genes are input
+    method="fisher"         # method to perform differential gene analysis
+)
+
+# Cell type distribution analysis across datasets
+dist_results = sq_multi.cell_type_distribution()  # overall distribution
+dist_fov = sq_multi.cell_type_distribution_fov()  # per-FOV distribution
+
+# Visualize results for each FOV
+for i, sq in enumerate(sq_multi.spatial_queries):
+    sq.plot_fov(fig_size=(8, 6))
+    sq.plot_motif_celltype(
+        ct="T_cell",
+        motif=["T_cell", "B_cell"],
+        max_dist=50
+    )
 ```
 
 ## Core Classes and Methods
@@ -136,14 +186,14 @@ The main class for analyzing spatial patterns within a single field of view.
 
 - **`find_fp_knn(ct, k, min_support)`**: Find frequent patterns around a cell type using k-nearest neighbors
 - **`find_fp_dist(ct, max_dist, min_support)`**: Find frequent patterns using distance-based neighborhoods
-- **`motif_enrichment_knn(motif, ct, k)`**: Test motif enrichment using k-NN neighborhoods
-- **`motif_enrichment_dist(motif, ct, max_dist)`**: Test motif enrichment using distance-based neighborhoods
+- **`motif_enrichment_knn(ct, motifs, k, min_support, max_dist)`**: Test motif enrichment using k-NN neighborhoods
+- **`motif_enrichment_dist(ct, motifs, max_dist, min_support)`**: Test motif enrichment using distance-based neighborhoods
 - **`find_patterns_grid(max_dist, min_support)`**: Find patterns using grid-based sampling
 - **`find_patterns_rand(max_dist, n_points, min_support)`**: Find patterns using random sampling
 - **`de_genes(ind_group1, ind_group2, method)`**: Differential expression analysis
 - **`plot_fov(fig_size)`**: Visualize the spatial data
 - **`plot_motif_grid(motif, max_dist)`**: Plot motif distribution around grid points
-- **`plot_motif_rand(motif, max_dist, n_points)`**: Plot motif distribution around random points
+- **`plot_motif_rand(motif, max_dist, n_points)`**: Plot motif distribution around random sampled points
 - **`plot_motif_celltype(motif, ct, max_dist)`**: Plot motif around specific cell types
 
 #### Parameters:
@@ -151,7 +201,7 @@ The main class for analyzing spatial patterns within a single field of view.
 - `dataset`: Dataset name (default: 'ST')
 - `spatial_key`: Key for spatial coordinates in `adata.obsm` (default: 'X_spatial')
 - `label_key`: Key for cell type labels in `adata.obs` (default: 'predicted_label')
-- `build_gene_index`: Whether to build gene expression index (default: False)
+- `build_gene_index`: Whether to build gene expression index with scfind (default: False)
 - `feature_name`: Gene names key in `adata.var` (required if `build_gene_index=True`)
 
 ### `spatial_query_multi` Class (Multi-FOV)
@@ -162,13 +212,11 @@ The main class for analyzing spatial patterns across multiple fields of view or 
 
 - **`find_fp_knn(ct, dataset, k, min_support)`**: Find frequent patterns across specified datasets
 - **`find_fp_dist(ct, dataset, max_dist, min_support)`**: Find patterns using distance-based neighborhoods
-- **`motif_enrichment_knn(motif, ct, dataset, k)`**: Test motif enrichment across datasets
-- **`motif_enrichment_dist(motif, ct, dataset, max_dist)`**: Distance-based motif enrichment
-- **`find_fp_knn_fov(ct, fov, k, min_support)`**: Find patterns in specific FOV
-- **`find_fp_dist_fov(ct, fov, max_dist, min_support)`**: Distance-based patterns in specific FOV
-- **`differential_analysis_knn(ct, datasets1, datasets2, k)`**: Compare patterns between dataset groups
-- **`differential_analysis_dist(ct, datasets1, datasets2, max_dist)`**: Distance-based differential analysis
-- **`de_genes(ind_group1, ind_group2, dataset, method)`**: Differential expression analysis
+- **`motif_enrichment_knn(ct, motifs, dataset, k, min_support, max_dist)`**: Test motif enrichment across datasets
+- **`motif_enrichment_dist(ct, motifs, dataset, max_dist, min_support)`**: Distance-based motif enrichment
+- **`differential_analysis_knn(ct, datasets, k, min_support, max_dist)`**: Compare patterns between dataset groups
+- **`differential_analysis_dist(ct, datasets, max_dist, min_support)`**: Distance-based differential pattern analysis
+- **`de_genes(ind_group1, ind_group2, gene, method)`**: Differential expression analysis
 - **`cell_type_distribution()`**: Analyze cell type distribution across datasets
 - **`cell_type_distribution_fov()`**: Cell type distribution per FOV
 
@@ -197,27 +245,55 @@ import scanpy as sc
 import pandas as pd
 import numpy as np
 
-# Create example data
+# Create example spatial transcriptomics data
 n_cells = 1000
 n_genes = 2000
 
-# Spatial coordinates
+# Spatial coordinates (2D coordinates for each cell)
 spatial_coords = np.random.rand(n_cells, 2) * 100
 
-# Cell type labels
+# Cell type labels (annotated cell types)
 cell_types = np.random.choice(['T_cell', 'B_cell', 'Macrophage', 'Neuron'], n_cells)
 
-# Gene expression matrix
+# Gene expression matrix (cells × genes)
 expression_matrix = np.random.negative_binomial(5, 0.3, (n_cells, n_genes))
 
 # Create AnnData object
 adata = sc.AnnData(X=expression_matrix)
-adata.obsm['X_spatial'] = spatial_coords
-adata.obs['predicted_label'] = cell_types
-adata.var['gene_ids'] = [f'Gene_{i}' for i in range(n_genes)]
+adata.obsm['X_spatial'] = spatial_coords  # Required: spatial coordinates
+adata.obs['predicted_label'] = cell_types  # Required: cell type labels
+adata.var['gene_ids'] = [f'Gene_{i}' for i in range(n_genes)]  # Required for gene analysis
 
 # Optional: Add gene names as index
 adata.var_names = adata.var['gene_ids']
+
+# Optional: Add metadata
+adata.obs['sample_id'] = ['sample_1'] * n_cells
+adata.obs['region'] = np.random.choice(['cortex', 'medulla'], n_cells)
+```
+
+### Loading Real Data
+
+```python
+# Load from common spatial transcriptomics formats
+import scanpy as sc
+
+# Load 10X Visium data
+adata = sc.read_10x_h5("filtered_feature_bc_matrix.h5")
+adata.var_names_unique()
+
+# Load spatial coordinates (from spaceranger output)
+spatial_coords = pd.read_csv("spatial/tissue_positions_list.csv", 
+                            header=None, index_col=0)
+spatial_coords = spatial_coords[[1, 2]].values  # x, y coordinates
+adata.obsm['X_spatial'] = spatial_coords
+
+# Load cell type annotations (from external analysis)
+cell_types = pd.read_csv("cell_type_annotations.csv")
+adata.obs['predicted_label'] = cell_types['cell_type'].values
+
+# Initialize spatial query
+sq = spatial_query(adata, build_gene_index=False, feature_name="gene_ids")
 ```
 
 ## Advanced Usage
@@ -237,41 +313,14 @@ fp_results = sq.find_fp_knn(
 
 # Test specific motifs
 motif_results = sq.motif_enrichment_knn(
-    motif=["T_cell", "B_cell", "Macrophage"],
     ct="T_cell",
-    k=30
+    motifs=["T_cell", "B_cell", "Macrophage"],
+    k=30,
+    min_support=0.5,
+    max_dist=200
 )
 ```
 
-### Performance Optimization
-
-For large datasets, consider:
-
-```python
-# Use distance-based methods for better performance
-fp_results = sq.find_fp_dist(
-    ct="T_cell",
-    max_dist=100,  # distance threshold
-    min_support=0.5
-)
-
-# Build gene index only when needed
-sq = spatial_query(adata, build_gene_index=False)  # Faster initialization
-# Later: sq.build_gene_index() if DE analysis needed
-```
-
-## Citation
-
-If you use Spatial-Query in your research, please cite:
-
-```bibtex
-@software{spatial_query,
-  title={Spatial-Query: Fast spatial query and analysis for spatial transcriptomics},
-  author={Shaokun An},
-  year={2024},
-  url={https://github.com/ShaokunAn/Spatial-Query}
-}
-```
 
 ## Contributing
 
