@@ -17,6 +17,7 @@ from statsmodels.stats.multitest import multipletests
 from joblib import Parallel, delayed
 
 from .spatial_query import spatial_query
+from .spatial_utils import find_maximal_patterns
 from . import spatial_utils
 import anndata as ad
 import scanpy as sc
@@ -25,18 +26,19 @@ from time import time
 
 
 class spatial_query_multi:
-    def __init__(self,
-                 adatas: List[AnnData],
-                 datasets: List[str],
-                 spatial_key: str,
-                 label_key: str,
-                 leaf_size: int = 10,
-                 max_radius: float = 500,
-                 n_split: int = 10,
-                 build_gene_index: bool = False,
-                 feature_name: Optional[str] = None,
-                 if_lognorm: bool = True,
-                 ):
+    def __init__(
+        self,
+        adatas: List[AnnData],
+        datasets: List[str],
+        spatial_key: str,
+        label_key: str,
+        leaf_size: int = 10,
+        max_radius: float = 500,
+        n_split: int = 10,
+        build_gene_index: bool = False,
+        feature_name: str = None,
+        if_lognorm: bool = True,
+        ):
         """
         Initiate models, including setting attributes and building kd-tree for each field of view.
 
@@ -190,7 +192,7 @@ class spatial_query_multi:
         # end = time.time()
         # print(f"time for find fp_growth: {end-start} seconds, {len(fp)} frequent patterns.")
         # start = time.time()
-        fp = spatial_query.find_maximal_patterns(fp=fp)
+        fp = find_maximal_patterns(fp=fp)
         # end = time.time()
         # print(f"time for identify maximal patterns: {end - start} seconds")
 
@@ -286,7 +288,7 @@ class spatial_query_multi:
         # print(f"time for find fp_growth: {end - start} seconds, {len(fp)} frequent patterns.")
 
         # start = time.time()
-        fp = spatial_query.find_maximal_patterns(fp=fp)
+        fp = find_maximal_patterns(fp=fp)
         # end = time.time()
         # print(f"time for identify maximal patterns: {end - start} seconds")
 

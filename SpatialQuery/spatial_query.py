@@ -46,18 +46,19 @@ class spatial_query:
     if_lognorm:
         Whether to log normalize the expression data, default is True
     """
-    def __init__(self,
-                 adata: AnnData,
-                 dataset: str = 'ST',
-                 spatial_key: str = 'X_spatial',
-                 label_key: str = 'predicted_label',
-                 leaf_size: int = 10,
-                 max_radius: float = 500,
-                 n_split: int = 10,
-                 build_gene_index: bool = False,
-                 feature_name: Optional[str] = None,
-                 if_lognorm: bool = True,
-                 ):
+    def __init__(
+        self,
+        adata: AnnData,
+        dataset: str = 'ST',
+        spatial_key: str = 'X_spatial',
+        label_key: str = 'predicted_label',
+        leaf_size: int = 10,
+        max_radius: float = 500,
+        n_split: int = 10,
+        build_gene_index: bool = False,
+        feature_name: str = None,
+        if_lognorm: bool = True,
+        ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
         # Store spatial position and cell type label
@@ -80,9 +81,14 @@ class spatial_query:
         self.genes = None
         self.index = None
 
+        # filter features with NA
         valid_features = adata.var[feature_name].isna()
         adata = adata[:, ~valid_features]
-
+        # filter duplicated features
+        var_df = adata.var.reset_index()  # 确保有 index 信息
+        duplicated = var_df.duplicated(subset=[feature_name], keep='first')
+        adata = adata[:, ~duplicated.values].copy()
+        
         if build_gene_index:
             # Store data with scfind method
             if '_' not in dataset:
