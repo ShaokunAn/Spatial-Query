@@ -61,9 +61,13 @@ class spatial_query:
         ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
-        # Store spatial position and cell type label
+        
         self.spatial_key = spatial_key
+
+        # Standardize spatial position
         self.spatial_pos = np.array(adata.obsm[self.spatial_key])
+        self.spatial_pos = spatial_utils._auto_normalize_spatial_coords(self.spatial_pos)
+        
         self.dataset = dataset
         self.label_key = label_key
         self.max_radius = max_radius

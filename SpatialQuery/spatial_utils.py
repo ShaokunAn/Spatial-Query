@@ -15,7 +15,7 @@ from scipy.stats import fisher_exact
 from statsmodels.stats.multitest import multipletests
 from scipy.sparse import csr_matrix
 import scanpy as sc
-
+from scipy.spatial import KDTree
 
 def initialize_grids(spatial_pos, labels, n_split, overlap_radius):
     """
@@ -571,3 +571,29 @@ def de_genes_fisher(adata,
     
     return result_df
 
+def _auto_normalize_spatial_coords(spatial_coords: np.ndarray)->np.ndarray:
+    """
+    Normalize spatial coordinates to have a mean nearest neighbor distance of 1.
+
+    Parameters
+    ----------
+    spatial_coords : np.ndarray
+        Spatial coordinates of cells.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized spatial coordinates.
+    """
+    kd_tree = KDTree(spatial_coords)
+    distances, _ = kd_tree.query(spatial_coords, k=2)
+    nn_dist = np.mean(distances[:, 1])
+    scale_factor = 1.0 / nn_dist
+    spatial_pos_norm = spatial_coords * scale_factor
+
+    print(f"\nAuto-normalizing spatial coordinates: mean nearest neighbor distance = 1.0")
+    print(f"Scale factor: {scale_factor:.4f}")
+
+    return spatial_pos_norm
+    
+    
