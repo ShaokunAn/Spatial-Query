@@ -628,7 +628,7 @@ class spatial_query:
             ax.set_yticklabels([])
             ax.set_xticks([])
             ax.set_yticks([])
-            plt.tight_layout(rect=[0, 0, 1.1, 1])
+            # plt.tight_layout(rect=[0, 0, 1.1, 1])
             plt.show()
 
         if return_grid:
@@ -1126,7 +1126,7 @@ class spatial_query:
                             ct: str,
                             motif: Union[str, List[str]],
                             max_dist: float = 100,
-                            fig_size: tuple = (10, 5),
+                            fig_size: tuple = (5, 5),
                             save_path: Optional[str] = None
                             ):
         """
@@ -1247,7 +1247,7 @@ class spatial_query:
         ax.set_yticklabels([])
         ax.set_xticks([])
         ax.set_yticks([])
-        plt.tight_layout(rect=[0, 0, 1.1, 1])
+        # plt.tight_layout(rect=[0, 0, 1.1, 1])
         if save_path is not None:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()

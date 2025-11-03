@@ -8,7 +8,7 @@ from anndata import AnnData
 from mlxtend.frequent_patterns import fpgrowth
 from sklearn.preprocessing import MultiLabelBinarizer
 from scipy.stats import hypergeom
-import time
+
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
@@ -310,6 +310,7 @@ class spatial_query_multi:
                              k: int = 30,
                              min_support: float = 0.5,
                              max_dist: float = 500.0,
+                             return_cellID: bool = False,
                              ) -> pd.DataFrame:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN) in multiple fields of view.
@@ -334,6 +335,9 @@ class spatial_query_multi:
             like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance for neighbors (default: 500).
+        return_cellID:
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cell type and center cells.
+            By defaults do not return cell ID.
 
         Return
         ------
@@ -1084,7 +1088,7 @@ class spatial_query_multi:
         if genes is None:
             genes = set.intersection(*[set(s.genes) for s in self.spatial_queries])
             genes = list(genes)
-            print('All genes are used.')
+            print(f"Testing {len(genes)} genes with Fisher's exact test ...\n")
 
         n_1 = np.sum([len(ids) for ids in ind_group1.values()])
         n_2 = np.sum([len(ids) for ids in ind_group2.values()])
@@ -1099,7 +1103,7 @@ class spatial_query_multi:
             raise ValueError("No valid datasets found in ind_group2.")
 
         group1_results = []
-        # start = time()
+        start = time()
         for ds, ids in ind_group1.items():
             print(f"Processing {ds} in group1...")
             if ds not in valid_ds1:
@@ -1110,7 +1114,6 @@ class spatial_query_multi:
             sp = self.spatial_queries[ds_i]
 
             # Get counts of cells expressing each gene in this dataset
-            from time import time
             start1 = time()
             genes_sp = sp.index._case_correct(genes, if_print=False)
             if not genes_sp:
@@ -1118,7 +1121,7 @@ class spatial_query_multi:
                 
             ds_counts = sp.index.index.cell_counts_in_indices_genes(ids, genes_sp)
             end1 = time()
-            print(f'Time for cell search in group1: {end1 - start1}')
+            print(f'Cell search in dataset {ds}: {end1 - start1:.2f} seconds')
 
             genes_list = [item['gene'] for item in ds_counts]
             counts_list = [item['expressed_cells'] for item in ds_counts]
@@ -1128,11 +1131,11 @@ class spatial_query_multi:
                 temp_df = pd.DataFrame({'gene': genes_list, 'count': counts_list})
                 group1_results.append(temp_df)
 
-        # end = time()
-        # print(f'Time for cell search in group1: {end - start}')
+        end = time()
+        print(f'Time for cell search in group1: {end - start}')
         # Count cells expressing each gene in group 2
         group2_results = []
-        # start = time()
+        start = time()
         for ds, ids in ind_group2.items():
             print(f"Processing {ds} in group2...")
             if ds not in valid_ds2:
@@ -1157,8 +1160,8 @@ class spatial_query_multi:
                 temp_df = pd.DataFrame({'gene': genes_list, 'count': counts_list})
                 group2_results.append(temp_df)
 
-        # end = time()
-        # print(f'Time for cell search in group2: {end - start}')
+        end = time()
+        print(f'Time for cell search in group2: {end - start:.2f} seconds')
 
         # Prepare data for statistical testing
         # Combine all results
@@ -1238,7 +1241,7 @@ class spatial_query_multi:
 
         # Multiple testing correction
         if len(filtered_df) > 1:
-            adjusted_pvals = multipletests(filtered_df['p_value'], method='holm')[1]
+            adjusted_pvals = multipletests(filtered_df['p_value'], method='fdr_bh')[1]
             filtered_df['adj_p_value'] = adjusted_pvals
         else:
             filtered_df['adj_p_value'] = filtered_df['p_value']
