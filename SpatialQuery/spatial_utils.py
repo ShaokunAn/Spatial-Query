@@ -596,4 +596,3 @@ def _auto_normalize_spatial_coords(spatial_coords: np.ndarray)->np.ndarray:
 
     return spatial_pos_norm
     
-    
