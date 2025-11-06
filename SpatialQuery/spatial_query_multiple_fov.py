@@ -341,8 +341,15 @@ class spatial_query_multi:
 
         Return
         ------
-        pd.Dataframe containing the cell type name, motifs, number of motifs nearby given cell type,
-        number of spots of cell type, number of motifs in single FOV, p value of hypergeometric distribution.
+        If return_cellID is False:
+            pd.DataFrame containing statistical measures for motif enrichment.
+        If return_cellID is True:
+            A tuple with three elements:
+            - The original DataFrame output
+            - Dictionary with cell IDs of motifs in center cell's neighborhood in each dataset for each motif:
+              {'motif_1': {'dataset_1': [ids]}}
+            - Dictionary with cell IDs of center cell type with given motif in their neighborhood:
+              {'motif_1': {'dataset_1': [ids]}}
         """
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
@@ -376,6 +383,10 @@ class spatial_query_multi:
                 raise ValueError(f"All cell types in motifs are missed in {self.label_key}.")
             motifs = [motifs]
 
+        # Initialize dictionaries to store cell IDs if requested
+        motif_cell_ids = {}
+        center_cell_ids = {}
+
         for motif in motifs:
             n_labels = 0
             n_ct = 0
@@ -384,6 +395,11 @@ class spatial_query_multi:
 
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
+
+            if return_cellID:
+                motif_str = str(sort_motif)
+                motif_cell_ids[motif_str] = {}
+                center_cell_ids[motif_str] = {}
 
             # Calculate statistics of each dataset
             for fov, s in enumerate(self.spatial_queries):
@@ -420,15 +436,36 @@ class spatial_query_multi:
                     neighbor_matrix[np.arange(len(neighbor_labels))[valid_mask], neighbor_labels[valid_mask]] = 1
                     neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
 
-                    n_motif_labels += np.sum(np.all(neighbor_counts[:, int_motifs] > 0, axis=1))
+                    # Check which cells have all motif types in their neighborhood
+                    motif_mask = np.all(neighbor_counts[:, int_motifs] > 0, axis=1)
+                    n_motif_labels += np.sum(motif_mask)
 
                     if ct in np.unique(labels):
                         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
                         mask = int_labels == int_ct
-                        n_motif_ct += np.sum(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))
+                        center_mask = mask & motif_mask
+                        n_motif_ct += np.sum(center_mask)
                         n_ct += np.sum(mask)
 
-                        # TODO: Retrieve cell IDs of motif and center cell
+                        if return_cellID:
+                            # Get IDs of center cells with motif in neighborhood
+                            center_indices = np.where(center_mask)[0]
+
+                            if len(center_indices) > 0:
+                                # Get all neighbors of center cells that have the motif
+                                center_neighbors_idxs = filtered_idxs[center_mask]
+
+                                # Flatten and get unique neighbors
+                                all_neighbors_center = center_neighbors_idxs.flatten()
+                                all_neighbors_center = all_neighbors_center[all_neighbors_center != -1]
+
+                                # Filter to only keep neighbors that are of motif cell types
+                                motif_mask_all = np.isin(np.array(s.labels), motif)
+                                valid_neighbors_center = all_neighbors_center[motif_mask_all[all_neighbors_center]]
+                                id_motif_celltype = set(valid_neighbors_center)
+
+                                motif_cell_ids[motif_str][s.dataset] = list(id_motif_celltype)
+                                center_cell_ids[motif_str][s.dataset] = list(center_indices)
 
             if ct in motif:
                 n_ct = round(n_ct / motif.count(ct))
@@ -442,7 +479,6 @@ class spatial_query_multi:
 
         if len(out_pd) == 1:
             out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
-            return out_pd
         else:
             p_values = out_pd['p-values'].tolist()
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
@@ -451,6 +487,10 @@ class spatial_query_multi:
             out_pd['adj_pvals'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
             out_pd = out_pd.sort_values(by='adj_pvals', ignore_index=True)
+
+        if return_cellID:
+            return out_pd, motif_cell_ids, center_cell_ids
+        else:
             return out_pd
 
     def motif_enrichment_dist(self,
