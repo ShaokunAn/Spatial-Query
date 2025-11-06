@@ -1837,14 +1837,12 @@ class spatial_query:
         # Add test2 results if available
         if corr_matrix_no_motif is not None:
             results_df['corr_center_no_motif'] = corr_matrix_no_motif.flatten()
-            results_df['corr_diff_neighbor_vs_no_motif'] = delta_corr_test2.flatten()
             results_df['p_value_test2'] = p_value_test2.flatten()
             results_df['delta_corr_test2'] = delta_corr_test2.flatten()
             results_df['combined_score'] = combined_score.flatten()
         else:
             print("Note: Test2 not available")
             results_df['corr_center_no_motif'] = np.nan
-            results_df['corr_diff_neighbor_vs_no_motif'] = np.nan
             results_df['p_value_test2'] = np.nan
             results_df['delta_corr_test2'] = np.nan
             results_df['combined_score'] = np.nan
@@ -1861,9 +1859,14 @@ class spatial_query:
             mask_test2 = results_df['p_value_test2'] < 0.05
             print(f"Gene pairs passing test2 (p < 0.05): {mask_test2.sum()}")
 
-            # Intersection
-            mask_both = mask_test1 & mask_test2
-            print(f"Gene pairs passing both tests: {mask_both.sum()}")
+            # Step 3: Check direction consistency
+            # Both delta_corr should have the same sign (both positive or both negative)
+            same_direction = np.sign(results_df['delta_corr_test1']) == np.sign(results_df['delta_corr_test2'])
+            
+
+            # Intersection: both tests significant AND same direction
+            mask_both = mask_test1 & mask_test2 & same_direction
+            print(f"Gene pairs passing both tests with consistent direction: {mask_both.sum()}")
 
             # FDR correction using Benjamini-Hochberg method for candidates passing both filters
             if mask_both.sum() > 0:
@@ -2092,12 +2095,12 @@ class spatial_query:
         adata = self.adata.copy()
         adata.obs['tmp'] = 'other'
         adata.obs.iloc[ids['center_with_motif'], adata.obs.columns.get_loc('tmp')] = f'center {center} with motif'
-        adata.obs.iloc[ids['center_without_motif'], adata.obs.columns.get_loc('tmp')] = f'center {center} without motif'
+        adata.obs.iloc[ids['center_without_motif'], adata.obs.columns.get_loc('tmp')] = f'non-motif center {center}'
 
         adata.obs.iloc[ids['neighbor_motif'], adata.obs.columns.get_loc('tmp')] = [f'neighbor motif: {self.labels[i]}' for i in ids['neighbor_motif']]
         adata.obs.iloc[ids['non_neighbor_motif'], adata.obs.columns.get_loc('tmp')] = [f'non-neighbor motif: {self.labels[i]}' for i in ids['non_neighbor_motif']]
 
-        adata.obs.iloc[ids['center_without_motif_neighbors'], adata.obs.columns.get_loc('tmp')] = 'neighbor of non-motif center'
+        adata.obs.iloc[ids['center_without_motif_neighbors'], adata.obs.columns.get_loc('tmp')] = 'non-motif-center neighbors'
 
         neighbor_motif_types = adata.obs.iloc[ids['neighbor_motif'], adata.obs.columns.get_loc(self.label_key)].unique()
         non_neighbor_motif_types = adata.obs.iloc[ids['non_neighbor_motif'], adata.obs.columns.get_loc(self.label_key)].unique()
@@ -2105,8 +2108,8 @@ class spatial_query:
         color_dict = {
             'other': '#D3D3D3',  # light gray for other cells
             f'center {center} with motif': "#9F0707",  # dark red 
-            f'center {center} without motif': "#075FB1",  # dark blue
-            'neighbor of non-motif center': "#6DE7E9"  # light blue
+            f'non-motif center {center}': "#075FB1",  # dark blue
+            'non-motif-center neighbors': "#6DE7E9"  # light blue
         }
 
         # Set red colors for neighbor motif and purple colors for non-neighbor motif
