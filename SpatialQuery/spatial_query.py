@@ -522,7 +522,7 @@ class spatial_query:
                            min_size: int = 0,
                            min_support: float = 0.5,
                            if_display: bool = True,
-                           fig_size: tuple = (10, 5),
+                           figsize: tuple = (10, 5),
                            return_cellID: bool = False,
                            return_grid: bool = False,
                            ):
@@ -539,7 +539,7 @@ class spatial_query:
             Additional parameters for pattern finding.
         if_display:
             Display the grid points with nearby frequent patterns if if_display=True.
-        fig_size:
+        figsize:
             Tuple of figure size.
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
@@ -614,7 +614,7 @@ class spatial_query:
 
             fp_spot_pos = self.spatial_pos[list(fp_spots_index), :]
             fp_spot_label = self.labels[list(fp_spots_index)]
-            fig, ax = plt.subplots(figsize=fig_size)
+            fig, ax = plt.subplots(figsize=figsize)
             # Plotting the grid lines
             for x in x_grid:
                 ax.axvline(x, color='lightgray', linestyle='--', lw=0.5)
@@ -648,7 +648,7 @@ class spatial_query:
                            min_support: float = 0.5,
                            min_size: int = 0,
                            if_display: bool = True,
-                           fig_size: tuple = (10, 5),
+                           figsize: tuple = (10, 5),
                            return_cellID: bool = False,
                            seed: int = 2023) -> DataFrame:
         """
@@ -670,7 +670,7 @@ class spatial_query:
             Additional parameters for pattern finding.
         if_display:
             Display the grid points with nearby frequent patterns if if_display=True.
-        fig_size:
+        figsize:
             Tuple of figure size.
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
@@ -741,7 +741,7 @@ class spatial_query:
 
             fp_spot_pos = self.spatial_pos[list(fp_spots_index), :]
             fp_spot_label = self.labels[list(fp_spots_index)]
-            fig, ax = plt.subplots(figsize=fig_size)
+            fig, ax = plt.subplots(figsize=figsize)
             for ct in fp_cts:
                 ct_ind = fp_spot_label == ct
                 ax.scatter(fp_spot_pos[ct_ind, 0], fp_spot_pos[ct_ind, 1],
@@ -834,7 +834,7 @@ class spatial_query:
     def plot_fov(self,
                  min_cells_label: int = 50,
                  title: str = 'Spatial distribution of cell types',
-                 fig_size: tuple = (10, 5),
+                 figsize: tuple = (10, 5),
                  save_path: Optional[str] = None,
                  ):
         """
@@ -846,7 +846,7 @@ class spatial_query:
             Minimum number of points in each cell type to display.
         title:
             Figure title.
-        fig_size:
+        figsize:
             Figure size parameter.
 
         save_path:
@@ -857,58 +857,12 @@ class spatial_query:
         ------
         A figure.
         """
-        # Ensure that 'spatial' and label_key are present in the Anndata object
-
-        cell_type_counts = self.labels.value_counts()
-        n_colors = sum(cell_type_counts >= min_cells_label)
-        colors = sns.color_palette('hsv', n_colors)
-
-        color_counter = 0
-        fig, ax = plt.subplots(figsize=fig_size)
-
-        # Iterate over each cell type
-        for cell_type in sorted(self.labels.unique()):
-            # Filter data for each cell type
-            index = self.labels == cell_type
-            index = np.where(index)[0]
-            # data = self.labels[self.labels == cell_type].index
-            # Check if the cell type count is above the threshold
-            if cell_type_counts[cell_type] >= min_cells_label:
-                ax.scatter(self.spatial_pos[index, 0], self.spatial_pos[index, 1],
-                           label=cell_type, color=colors[color_counter], s=1)
-                color_counter += 1
-            else:
-                ax.scatter(self.spatial_pos[index, 0], self.spatial_pos[index, 1],
-                           color='grey', s=1)
-
-        handles, labels = ax.get_legend_handles_labels()
-
-        # Modify labels to include count values
-        new_labels = [f'{label} ({cell_type_counts[label]})' for label in labels]
-
-        # Create new legend
-        ax.legend(handles, new_labels, loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
-        # ax.legend(handles, new_labels, loc='lower center', bbox_to_anchor=(1, 0.5), markerscale=4)
-
-        # ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
-
-        plt.xlabel('Spatial X')
-        plt.ylabel('Spatial Y')
-        plt.title(title)
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-        # Adjust layout to prevent clipping of ylabel and accommodate the legend
-        plt.tight_layout(rect=[0, 0, 1.1, 1])
-        if save_path is not None:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        from . import plotting
+        return plotting.plot_fov(sq_obj=self, min_cells_label=min_cells_label, title=title, figsize=figsize, save_path=save_path)
 
     def plot_motif_grid(self,
                         motif: Union[str, List[str]],
-                        fig_size: tuple = (10, 5),
+                        figsize: tuple = (10, 5),
                         max_dist: float = 100,
                         save_path: Optional[str] = None
                         ):
@@ -921,7 +875,7 @@ class spatial_query:
             Motif (names of cell types) to be colored
         max_dist:
             Spacing distance for building grid.
-        fig_size:
+        figsize:
             Figure size.
         save_path:
             Path to save the figure.
@@ -931,99 +885,14 @@ class spatial_query:
         ------
         A figure.
         """
-        if isinstance(motif, str):
-            motif = [motif]
-
-        max_dist = min(max_dist, self.max_radius)
-
-        labels_unique = self.labels.unique()
-        motif_exc = [m for m in motif if m not in labels_unique]
-        if len(motif_exc) != 0:
-            print(f"Found no {motif_exc} in {self.label_key}. Ignoring them.")
-        motif = [m for m in motif if m not in motif_exc]
-
-        # Build mesh
-        xmax, ymax = np.max(self.spatial_pos, axis=0)
-        xmin, ymin = np.min(self.spatial_pos, axis=0)
-        x_grid = np.arange(xmin - max_dist, xmax + max_dist, max_dist)
-        y_grid = np.arange(ymin - max_dist, ymax + max_dist, max_dist)
-        grid = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
-
-        # self.build_fptree_dist returns valid_idxs () instead of all the idxs,
-        # so recalculate the idxs directly using self.kd_tree.query_ball_point
-        idxs = self.kd_tree.query_ball_point(grid, r=max_dist, return_sorted=False, workers=-1)
-
-        # Locate the index of grid points acting as centers with motif nearby
-        id_center = []
-        for i, idx in enumerate(idxs):
-            ns = [self.labels[id] for id in idx]
-            if spatial_utils.has_motif(neighbors=motif, labels=ns):
-                id_center.append(i)
-
-        # Locate the index of cell types contained in motif in the
-        # neighborhood of above grid points with motif nearby
-        id_motif_celltype = set()
-        for i in id_center:
-            idx = idxs[i]
-            for cell_id in idx:
-                if self.labels[cell_id] in motif:
-                    id_motif_celltype.add(cell_id)
-
-        # Plot above spots and center grid points
-        # Set color map using motif cell types
-        motif_unique = sorted(set(motif))
-        n_colors = len(motif_unique)
-        colors = sns.color_palette('hsv', n_colors)
-        color_map = {ct: col for ct, col in zip(motif_unique, colors)}
-
-        motif_spot_pos = self.spatial_pos[list(id_motif_celltype), :]
-        motif_spot_label = self.labels[list(id_motif_celltype)]
-        fig, ax = plt.subplots(figsize=fig_size)
-        # Plotting the grid lines
-        for x in x_grid:
-            ax.axvline(x, color='lightgray', linestyle='--', lw=0.5)
-
-        for y in y_grid:
-            ax.axhline(y, color='lightgray', linestyle='--', lw=0.5)
-        ax.scatter(grid[id_center, 0], grid[id_center, 1], label='Grid Points',
-                   edgecolors='red', facecolors='none', s=8)
-
-        # Plotting other spots as background
-        bg_index = [i for i, _ in enumerate(self.labels) if
-                    i not in id_motif_celltype]  # the other spots are colored as background
-        # bg_adata = self.adata[bg_index, :]
-        bg_pos = self.spatial_pos[bg_index, :]
-        ax.scatter(bg_pos[:, 0],
-                   bg_pos[:, 1],
-                   color='darkgrey', s=1)
-
-        for ct in motif_unique:
-            ct_ind = motif_spot_label == ct
-            ax.scatter(motif_spot_pos[ct_ind, 0],
-                       motif_spot_pos[ct_ind, 1],
-                       label=ct, color=color_map[ct], s=1)
-
-        ax.set_xlim([xmin - max_dist, xmax + max_dist])
-        ax.set_ylim([ymin - max_dist, ymax + max_dist])
-        ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
-        # ax.legend(title='motif', loc='lower center', bbox_to_anchor=(0, 0.), markerscale=4)
-        plt.xlabel('Spatial X')
-        plt.ylabel('Spatial Y')
-        plt.title('Spatial distribution of frequent patterns')
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_xticks([])
-        ax.set_yticks([])
-        plt.tight_layout(rect=[0, 0, 1.1, 1])
-        if save_path is not None:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        from . import plotting
+        return plotting.plot_motif_grid(sq_obj=self, motif=motif, figsize=figsize, max_dist=max_dist, save_path=save_path)
 
     def plot_motif_rand(self,
                         motif: Union[str, List[str]],
                         max_dist: float = 100,
                         n_points: int = 1000,
-                        fig_size: tuple = (10, 5),
+                        figsize: tuple = (10, 5),
                         seed: int = 2023,
                         save_path: Optional[str] = None
                         ):
@@ -1039,7 +908,7 @@ class spatial_query:
             Radius for neighborhood search.
         n_points:
             Number of random points to generate.
-        fig_size:
+        figsize:
             Figure size.
         seed:
             Set random seed for reproducible.
@@ -1051,407 +920,8 @@ class spatial_query:
         ------
         A figure.
         """
-        if isinstance(motif, str):
-            motif = [motif]
-
-        max_dist = min(max_dist, self.max_radius)
-
-        labels_unique = self.labels.unique()
-        motif_exc = [m for m in motif if m not in labels_unique]
-        if len(motif_exc) != 0:
-            print(f"Found no {motif_exc} in {self.label_key}. Ignoring them.")
-        motif = [m for m in motif if m not in motif_exc]
-
-        # Random sample points
-        xmax, ymax = np.max(self.spatial_pos, axis=0)
-        xmin, ymin = np.min(self.spatial_pos, axis=0)
-        np.random.seed(seed)
-        pos = np.column_stack((np.random.rand(n_points) * (xmax - xmin) + xmin,
-                               np.random.rand(n_points) * (ymax - ymin) + ymin))
-
-        idxs = self.kd_tree.query_ball_point(pos, r=max_dist, return_sorted=False, workers=-1)
-
-        # Locate the index of random points acting as centers with motif nearby
-        id_center = []
-        for i, idx in enumerate(idxs):
-            ns = [self.labels[id] for id in idx]
-            if spatial_utils.has_motif(neighbors=motif, labels=ns):
-                id_center.append(i)
-
-        # Locate the index of cell types contained in motif in the
-        # neighborhood of above random points with motif nearby
-        id_motif_celltype = set()
-        for i in id_center:
-            idx = idxs[i]
-            for cell_id in idx:
-                if self.labels[cell_id] in motif:
-                    id_motif_celltype.add(cell_id)
-
-        # Plot above spots and center random points
-        # Set color map using motif cell types
-        motif_unique = sorted(set(motif))
-        n_colors = len(motif_unique)
-        colors = sns.color_palette('hsv', n_colors)
-        color_map = {ct: col for ct, col in zip(motif_unique, colors)}
-
-        motif_spot_pos = self.spatial_pos[list(id_motif_celltype), :]
-        motif_spot_label = self.labels[list(id_motif_celltype)]
-        fig, ax = plt.subplots(figsize=fig_size)
-        ax.scatter(pos[id_center, 0], pos[id_center, 1], label='Random Sampling Points',
-                   edgecolors='red', facecolors='none', s=8)
-
-        # Plotting other spots as background
-        bg_index = [i for i, _ in enumerate(self.labels) if
-                    i not in id_motif_celltype]  # the other spots are colored as background
-        bg_adata = self.spatial_pos[bg_index, :]
-        ax.scatter(bg_adata[:, 0],
-                   bg_adata[:, 1],
-                   color='darkgrey', s=1)
-        for ct in motif_unique:
-            ct_ind = motif_spot_label == ct
-            ax.scatter(motif_spot_pos[ct_ind, 0],
-                       motif_spot_pos[ct_ind, 1],
-                       label=ct, color=color_map[ct], s=1)
-
-        ax.set_xlim([xmin - max_dist, xmax + max_dist])
-        ax.set_ylim([ymin - max_dist, ymax + max_dist])
-        ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
-        plt.xlabel('Spatial X')
-        plt.ylabel('Spatial Y')
-        plt.title('Spatial distribution of frequent patterns')
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_xticks([])
-        ax.set_yticks([])
-        plt.tight_layout(rect=[0, 0, 1.1, 1])
-        if save_path is not None:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
-
-    def get_motif_neighbor_cells(self,
-                                 ct: str,
-                                 motif: Union[str, List[str]],
-                                 max_dist: Optional[float] = None,
-                                 k: Optional[int] = None,
-                                 min_size: int = 0,
-                                 ) -> dict:
-        """
-        Get cell IDs of motif cells that are neighbors of the center cell type.
-        Similar to motif_enrichment_* with return_cellID=True, but only returns cell IDs 
-        and move center type of motifs to center cells for gene-gene covarying analysis.
-
-        For kNN: filters out neighbors beyond min(max_dist, self.max_radius).
-        For dist: filters out center cells with fewer than min_size neighbors.
-
-        If center type (ct) is in motif, motif cells of center type are also included in center_id.
-
-        Parameter
-        ---------
-        ct:
-            Cell type as the center cells.
-        motif:
-            Motif (names of cell types) to be identified.
-        max_dist:
-            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k:
-            Number of nearest neighbors. Use either max_dist or k.
-        min_size:
-            Minimum neighborhood size for each center cell (only used when max_dist is specified).
-
-        Return
-        ------
-        dict with keys:
-            'center_neighbor_pairs': array of shape (n_pairs, 2) with (center_idx, neighbor_idx) pairs
-            'ct_in_motif': bool, whether center type is in motif list
-
-        Note: center_id and neighbor_id can be extracted from pairs:
-            center_id = np.unique(pairs[:, 0])
-            neighbor_id = np.unique(pairs[:, 1])
-        Special handling: if ct_in_motif is True, center cells of motif type that appear
-        as neighbors should be moved to center group. User should apply this logic after extraction.
-        """
-        if (max_dist is None and k is None) or (max_dist is not None and k is not None):
-            raise ValueError("Please specify either max_dist or k, but not both.")
-
-        if isinstance(motif, str):
-            motif = [motif]
-
-        motif_exc = [m for m in motif if m not in self.labels.unique()]
-        if len(motif_exc) != 0:
-            print(f"Found no {motif_exc} in {self.label_key}. Ignoring them.")
-        motif = [m for m in motif if m not in motif_exc]
-
-        if ct not in self.labels.unique():
-            raise ValueError(f"Found no {ct} in {self.label_key}!")
-
-        cinds = np.where(self.labels == ct)[0]
-
-        # Check if ct is in motif - if so, we'll add those motif cells to center_id later
-        ct_in_motif = ct in motif
-
-        motif_mask = np.isin(np.array(self.labels), motif)
-
-        if max_dist is not None:
-            # Distance-based neighbors - only query for center cells
-            max_dist = min(max_dist, self.max_radius)
-            idxs_centers = self.kd_tree.query_ball_point(
-                self.spatial_pos[cinds],
-                r=max_dist,
-                return_sorted=False,
-                workers=-1,
-            )
-
-            # Process all centers in one loop: remove self, filter by min_size, check motif, and build pairs
-            center_neighbor_pairs = []
-
-            for i, cind in enumerate(cinds):
-                # Remove self from neighbors
-                neighbors = np.array([n for n in idxs_centers[i] if n != cind])
-
-                # Apply min_size filter
-                if len(neighbors) >= min_size:
-
-                    # Check if all motif types are present in neighbors
-                    neighbor_labels = self.labels[neighbors]
-                    neighbors_unique = neighbor_labels.unique().tolist()
-                    has_all_motifs = all([m in neighbors_unique for m in motif])
-
-                    if has_all_motifs:
-                        # Get motif neighbors for this center
-                        motif_neighbors = neighbors[motif_mask[neighbors]]
-
-                        # Build pairs in the same loop (vectorized)
-                        if ct_in_motif:
-                            center_type_neighs = motif_neighbors[self.labels[motif_neighbors] == ct]
-                            non_center_type_neighs = motif_neighbors[self.labels[motif_neighbors] != ct]
-
-                            if len(non_center_type_neighs) > 0:
-                                # Pair original center with non-center type neighbors (vectorized)
-                                pairs_center = np.column_stack([
-                                    np.repeat(cind, len(non_center_type_neighs)),
-                                    non_center_type_neighs
-                                ])
-                                center_neighbor_pairs.extend(pairs_center)
-
-                                # For center type neighbors, pair them with other non-center type neighbors (vectorized)
-                                if len(center_type_neighs) > 0:
-                                    # Create all combinations: each center_type_neigh with each non_center_type_neigh
-                                    pairs_ct = np.column_stack([
-                                        np.repeat(center_type_neighs, len(non_center_type_neighs)),
-                                        np.tile(non_center_type_neighs, len(center_type_neighs))
-                                    ])
-                                    center_neighbor_pairs.extend(pairs_ct)
-                        else:
-                            # Pair center with all motif neighbors (vectorized)
-                            if len(motif_neighbors) > 0:
-                                pairs = np.column_stack([
-                                    np.repeat(cind, len(motif_neighbors)),
-                                    motif_neighbors
-                                ])
-                                center_neighbor_pairs.extend(pairs)
-        else:
-            # KNN-based neighbors - only query for center cells
-            dists, idxs = self.kd_tree.query(self.spatial_pos[cinds], k=k + 1, workers=-1)
-
-            # Apply distance cutoff
-            if max_dist is None:
-                max_dist = self.max_radius
-            max_dist = min(max_dist, self.max_radius)
-
-            valid_neighbors = dists[:, 1:] <= max_dist
-
-            # Process all centers in one loop and build pairs
-            center_neighbor_pairs = []
-
-            for i, cind in enumerate(cinds):
-                valid_neighs = idxs[i, 1:][valid_neighbors[i, :]]
-
-                # Check if all motif types are present in neighbors
-                neighbor_labels = self.labels[valid_neighs]
-                neighbors_unique = neighbor_labels.unique().tolist()
-                has_all_motifs = all([m in neighbors_unique for m in motif])
-
-                if has_all_motifs:
-                    # Get motif neighbors for this center
-                    motif_neighbors = valid_neighs[motif_mask[valid_neighs]]
-
-                    # Build pairs in the same loop (vectorized)
-                    if ct_in_motif:
-                        center_type_neighs = motif_neighbors[self.labels[motif_neighbors] == ct]
-                        non_center_type_neighs = motif_neighbors[self.labels[motif_neighbors] != ct]
-
-                        if len(non_center_type_neighs) > 0:
-                            # Pair original center with non-center type neighbors (vectorized)
-                            pairs_center = np.column_stack([
-                                np.repeat(cind, len(non_center_type_neighs)),
-                                non_center_type_neighs
-                            ])
-                            center_neighbor_pairs.extend(pairs_center)
-
-                            # For center type neighbors, pair them with other non-center type neighbors (vectorized)
-                            if len(center_type_neighs) > 0:
-                                # Create all combinations: each center_type_neigh with each non_center_type_neigh
-                                pairs_ct = np.column_stack([
-                                    np.repeat(center_type_neighs, len(non_center_type_neighs)),
-                                    np.tile(non_center_type_neighs, len(center_type_neighs))
-                                ])
-                                center_neighbor_pairs.extend(pairs_ct)
-                    else:
-                        # Pair center with all motif neighbors (vectorized)
-                        if len(motif_neighbors) > 0:
-                            pairs = np.column_stack([
-                                np.repeat(cind, len(motif_neighbors)),
-                                motif_neighbors
-                            ])
-                            center_neighbor_pairs.extend(pairs)
-
-        center_neighbor_pairs = np.array(center_neighbor_pairs) if len(center_neighbor_pairs) > 0 else np.array([]).reshape(0, 2)
-
-        # Remove duplicate pairs (can occur when center-type cells are neighbors of each other)
-        if len(center_neighbor_pairs) > 0:
-            n_pairs_before = len(center_neighbor_pairs)
-            center_neighbor_pairs = np.unique(center_neighbor_pairs, axis=0)
-            n_duplicates = n_pairs_before - len(center_neighbor_pairs)
-            if n_duplicates > 0:
-                print(f"Removed {n_duplicates} duplicate pairs ({n_duplicates/n_pairs_before*100:.1f}%)")
-        else:
-            raise ValueError("Error: No motif-neighbor pairs found! Please adjust neighborhood size.")
-
-
-        # Return only pairs and ct_in_motif flag
-        # User can extract center_id and neighbor_id from pairs as needed
-        return {
-            'center_neighbor_pairs': center_neighbor_pairs,
-            'ct_in_motif': ct_in_motif
-        }
-
-    def get_all_neighbor_cells(self,
-                               ct: str,
-                               max_dist: Optional[float] = None,
-                               k: Optional[int] = None,
-                               min_size: int = 0,
-                               exclude_centers: Optional[np.ndarray] = None,
-                               exclude_neighbors: Optional[np.ndarray] = None,
-                               ) -> dict:
-        """
-        Get all neighbor cells (not limited to motif) for given center cell type excluding center cells in exclude_centers.
-        Similar to get_motif_neighbor_cells but returns ALL neighbors regardless of cell type.
-        And only returns neighbors that are different from center cell type.
-
-        Parameter
-        ---------
-        ct:
-            Cell type as the center cells.
-        max_dist:
-            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k:
-            Number of nearest neighbors. Use either max_dist or k.
-        min_size:
-            Minimum neighborhood size for each center cell (only used when max_dist is specified).
-        exclude_centers:
-            Array of center cell IDs to exclude from the search. Only search neighbors for
-            centers NOT in this array.
-        exclude_neighbors:
-            Array of neighbor cell IDs to exclude from the results. Typically used to exclude
-            motif neighbors from get_motif_neighbor_cells.
-
-        Return
-        ------
-        dict with keys:
-            'center_neighbor_pairs': array of shape (n_pairs, 2) with (center_idx, neighbor_idx) pairs
-
-        Note: center_id and neighbor_id can be extracted from pairs:
-            center_id = np.unique(pairs[:, 0])
-            neighbor_id = np.unique(pairs[:, 1])
-        """
-        if (max_dist is None and k is None) or (max_dist is not None and k is not None):
-            raise ValueError("Please specify either max_dist or k, but not both.")
-
-        if ct not in self.labels.unique():
-            raise ValueError(f"Found no {ct} in {self.label_key}!")
-
-        cinds = np.where(self.labels == ct)[0]
-
-        # Exclude specified centers if provided
-        if exclude_centers is not None:
-            cinds = np.setdiff1d(cinds, exclude_centers)
-
-        # Build pairs directly
-        center_neighbor_pairs = []
-
-        if max_dist is not None:
-            # Distance-based neighbors - only query for center cells
-            max_dist = min(max_dist, self.max_radius)
-            idxs_centers = self.kd_tree.query_ball_point(
-                self.spatial_pos[cinds],
-                r=max_dist,
-                return_sorted=False,
-                workers=-1,
-            )
-
-            # Process all centers in one loop and build pairs
-            for i, cind in enumerate(cinds):
-                # Remove self from neighbors
-                neighbors = np.array([n for n in idxs_centers[i] if n != cind])
-
-                # Filter by min_size
-                if len(neighbors) >= min_size:
-                    # Exclude center type from neighbors
-                    valid_neighbors = neighbors[self.labels[neighbors] != ct]
-
-                    # Exclude specified neighbors (e.g., motif neighbors)
-                    if exclude_neighbors is not None and len(exclude_neighbors) > 0:
-                        valid_neighbors = np.setdiff1d(valid_neighbors, exclude_neighbors)
-
-                    if len(valid_neighbors) > 0:
-                        # Build pairs vectorized
-                        pairs = np.column_stack([
-                            np.repeat(cind, len(valid_neighbors)),
-                            valid_neighbors
-                        ])
-                        center_neighbor_pairs.extend(pairs)
-
-        else:
-            # KNN-based neighbors - only query for center cells
-            dists, idxs = self.kd_tree.query(self.spatial_pos[cinds], k=k + 1, workers=-1)
-
-            # Apply distance cutoff
-            if max_dist is None:
-                max_dist = self.max_radius
-            max_dist = min(max_dist, self.max_radius)
-
-            valid_neighbors = dists[:, 1:] <= max_dist
-
-            # Process all centers in one loop and build pairs
-            for i, cind in enumerate(cinds):
-                valid_neighs = idxs[i, 1:][valid_neighbors[i, :]]
-
-                # Exclude center type from neighbors
-                valid_neighs_filtered = valid_neighs[self.labels[valid_neighs] != ct]
-
-                # Exclude specified neighbors (e.g., motif neighbors)
-                if exclude_neighbors is not None and len(exclude_neighbors) > 0:
-                    valid_neighs_filtered = np.setdiff1d(valid_neighs_filtered, exclude_neighbors)
-
-                if len(valid_neighs_filtered) > 0:
-                    # Build pairs vectorized
-                    pairs = np.column_stack([
-                        np.repeat(cind, len(valid_neighs_filtered)),
-                        valid_neighs_filtered
-                    ])
-                    center_neighbor_pairs.extend(pairs)
-
-        center_neighbor_pairs = np.array(center_neighbor_pairs) if len(center_neighbor_pairs) > 0 else np.array([]).reshape(0, 2)
-
-        if len(center_neighbor_pairs) > 0:
-            center_neighbor_pairs = np.unique(center_neighbor_pairs, axis=0)
-        else:
-            print("Warning: No motif-neighbor pairs found!")
-
-        # Return only pairs - user can extract center_id and neighbor_id as needed
-        return {
-            'center_neighbor_pairs': center_neighbor_pairs
-        }
+        from . import plotting
+        return plotting.plot_motif_rand(sq_obj=self, motif=motif, max_dist=max_dist, n_points=n_points, figsize=figsize, seed=seed, save_path=save_path)
 
     def compute_gene_gene_correlation(self,
                                       ct: str,
@@ -1524,7 +994,7 @@ class spatial_query:
         motif = motif if isinstance(motif, list) else [motif]
 
         # Get neighbor and non-neighbor cell IDs plus paired mappings (using original motif)
-        neighbor_result = self.get_motif_neighbor_cells(ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size)
+        neighbor_result = spatial_utils.get_motif_neighbor_cells(sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size)
 
         # Extract paired data and derive cell IDs from pairs
         center_neighbor_pairs = neighbor_result['center_neighbor_pairs']
@@ -1621,134 +1091,29 @@ class spatial_query:
         pair_centers = center_neighbor_pairs[:, 0]
         pair_neighbors = center_neighbor_pairs[:, 1]
 
-        # Extract paired expression data
-        pair_center_expr = expr_genes[pair_centers, :]
-        pair_neighbor_expr = expr_genes[pair_neighbors, :]
-
         # Get cell types for each neighbor in pairs
         neighbor_cell_types = self.labels[pair_neighbors]
 
-        # Compute correlation keeping sparse matrices sparse
+        # Compute correlation using helper function
         n_genes = len(filtered_genes)
         n_pairs = len(pair_centers)
 
-        if is_sparse:
-            # Vectorized approach without for loops over cell types
-            # Formula derivation:
-            # Cov(X-μ_X, Y-μ^{ct_i}) = (1/n)Σ_i (x_i - μ_X)(y_i - μ^{ct_i})
-            # = (1/n)Σ_i x_i*y_i - (1/n)Σ_i x_i*μ^{ct_i} - (μ_X/n)Σ_i y_i + (μ_X/n)Σ_i μ^{ct_i}
-            # where: Σ_i x_i*μ^{ct_i} = Σ_ct [μ^ct * Σ_{i:ct_i=ct} x_i]
-            #        Σ_i μ^{ct_i} = Σ_ct [μ^ct * |{i:ct_i=ct}|]
-
-            # Get unique neighbor types and their counts directly
-            unique_neighbor_types, type_counts = np.unique(neighbor_cell_types, return_counts=True)
-            n_types = len(unique_neighbor_types)
-
-            # Build mapping for creating indicator matrix
-            type_to_idx = {ct: idx for idx, ct in enumerate(unique_neighbor_types)}
-            type_indices = np.array([type_to_idx[ct] for ct in neighbor_cell_types])
-
-            # Stack cell-type-specific means into a matrix (shape: n_genes x n_types)
-            neighbor_type_means_matrix = np.column_stack([cell_type_means[ct] for ct in unique_neighbor_types])
-
-            # ==================== Cross-covariance computation ====================
-            # Note: Center cells are all of type 'ct', so using center_mean (global mean of ct) is correct
-
-            # Term 1: (1/n) Σ_i x_i * y_i
-            cross_product = pair_center_expr.T @ pair_neighbor_expr
-            # Gene x Gene matrix is typically dense, convert once
-            if sparse.issparse(cross_product):
-                cross_product = np.asarray(cross_product.todense())
-            term1 = cross_product / n_pairs
-
-            # Term 2: -(1/n) Σ_i x_i * μ^{ct_i} = -(1/n) Σ_ct [μ^ct * Σ_{i:ct_i=ct} x_i]
-            # Group center expression by neighbor type using sparse indexing
-            # Create a sparse indicator matrix: (n_pairs x n_types), where [i, j] = 1 if pair i has neighbor type j
-            from scipy.sparse import csr_matrix
-            type_indicator = csr_matrix((np.ones(n_pairs), (np.arange(n_pairs), type_indices)),
-                                       shape=(n_pairs, n_types))
-
-            # Sum center expression grouped by neighbor type: (n_genes x n_types)
-            sum_center_by_type = pair_center_expr.T @ type_indicator
-            # Convert to dense for matrix multiplication with means (small matrix: n_genes x n_types)
-            if sparse.issparse(sum_center_by_type):
-                sum_center_by_type = np.asarray(sum_center_by_type.todense())
-
-            # Compute: Σ_ct [μ^ct_g2 * Σ_{i:ct_i=ct} x_i_g1] for all gene pairs (g1, g2)
-            # Result: (n_genes x n_genes)
-            term2 = (sum_center_by_type @ neighbor_type_means_matrix.T) / n_pairs
-
-            # Term 3: -(μ_X/n) Σ_i y_i
-            # Keep sparse until final sum
-            sum_neighbor = np.array(pair_neighbor_expr.sum(axis=0)).flatten()
-            term3 = np.outer(center_mean, sum_neighbor / n_pairs)
-
-            # Term 4: (μ_X/n) Σ_i μ^{ct_i} = (μ_X/n) Σ_ct [|ct| * μ^ct]
-            weighted_neighbor_mean = (neighbor_type_means_matrix @ type_counts) / n_pairs
-            term4 = np.outer(center_mean, weighted_neighbor_mean)
-
-            # Final cross-covariance (all terms are now dense n_genes x n_genes)
-            cross_cov_neighbor = term1 - term2 - term3 + term4
-
-            # ==================== Variance computation ====================
-            # Var(X - μ_X) = (1/n)Σ X² - 2μ_X*(1/n)ΣX + μ_X²
-            # Note: Center cells are all type 'ct', so using center_mean is correct
-            sum_sq_center = np.array(pair_center_expr.power(2).sum(axis=0)).flatten()
-            sum_center = np.array(pair_center_expr.sum(axis=0)).flatten()
-            var_center_paired = (sum_sq_center / n_pairs
-                                - 2 * center_mean * sum_center / n_pairs
-                                + center_mean**2)
-
-            # Var(Y - μ^{ct_i}) = (1/n)Σ_i y_i² - (2/n)Σ_i y_i*μ^{ct_i} + (1/n)Σ_i (μ^{ct_i})²
-            # Neighbor cells have heterogeneous types, use cell-type-specific means
-            sum_sq_neighbor = np.array(pair_neighbor_expr.power(2).sum(axis=0)).flatten()
-
-            # (1/n)Σ_i y_i*μ^{ct_i} = (1/n) Σ_ct [μ^ct * Σ_{i:ct_i=ct} y_i]
-            sum_neighbor_by_type = pair_neighbor_expr.T @ type_indicator
-            # Convert small matrix (n_genes x n_types) to dense
-            if sparse.issparse(sum_neighbor_by_type):
-                sum_neighbor_by_type = np.asarray(sum_neighbor_by_type.todense())
-            # Element-wise multiply with type means and sum over types
-            term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1) / n_pairs
-
-            # (1/n)Σ_i (μ^{ct_i})² = (1/n) Σ_ct [|ct| * (μ^ct)²]
-            term_mean_sq = ((neighbor_type_means_matrix**2) @ type_counts) / n_pairs
-
-            var_neighbor_paired = sum_sq_neighbor / n_pairs - 2 * term_y_mean + term_mean_sq
-
-            std_center_paired = np.sqrt(np.maximum(var_center_paired, 0))
-            std_neighbor_paired = np.sqrt(np.maximum(var_neighbor_paired, 0))
-        else:
-            # Dense matrix operations with cell-type-specific centering
-            # Create a matrix of neighbor-type-specific means for each pair
-            neighbor_type_means_matrix = np.array([cell_type_means[ct] for ct in neighbor_cell_types])
-
-            pair_center_shifted = pair_center_expr - center_mean[np.newaxis, :]
-            pair_neighbor_shifted = pair_neighbor_expr - neighbor_type_means_matrix
-
-            # Compute covariance matrix
-            cross_cov_neighbor = (pair_center_shifted.T @ pair_neighbor_shifted) / n_pairs
-
-            # Compute standard deviations
-            std_center_paired = np.sqrt(np.maximum((pair_center_shifted**2).sum(axis=0) / n_pairs, 0))
-            std_neighbor_paired = np.sqrt(np.maximum((pair_neighbor_shifted**2).sum(axis=0) / n_pairs, 0))
-
-        # Correlation matrix (common for both sparse and dense)
-        std_outer_neighbor = np.outer(std_center_paired, std_neighbor_paired)
-        std_outer_neighbor[std_outer_neighbor == 0] = 1e-10
-
-        corr_matrix_neighbor = cross_cov_neighbor / std_outer_neighbor
-
-        # Effective sample size for paired correlation
-        center_unique = len(np.unique(pair_centers))
-        neighbor_unique = len(np.unique(pair_neighbors))
-        n_eff_neighbor = min(center_unique, neighbor_unique)
+        corr_matrix_neighbor, n_eff_neighbor = spatial_utils.compute_cross_correlation_paired(
+            sq_obj=self,
+            expr_genes=expr_genes,
+            pair_centers=pair_centers,
+            pair_neighbors=pair_neighbors,
+            center_mean=center_mean,
+            cell_type_means=cell_type_means,
+            neighbor_cell_types=neighbor_cell_types,
+            is_sparse=is_sparse
+        )
 
         print(f"Number of pairs: {n_pairs}")
-        print(f"Unique center cells: {center_unique}")
-        print(f"Unique neighbor cells: {neighbor_unique}")
-        print(f"Neighbor cell types in pairs: {unique_neighbor_types if is_sparse else np.unique(neighbor_cell_types)}")
-        print(f"Set effective sample size as minimum of unique center cells and neighbor cells: {n_eff_neighbor}")
+        print(f"Unique center cells: {len(np.unique(pair_centers))}")
+        print(f"Unique neighbor cells: {len(np.unique(pair_neighbors))}")
+        print(f"Neighbor cell types in pairs: {np.unique(neighbor_cell_types)}")
+        print(f"Effective sample size: {n_eff_neighbor}")
 
         end_time = time()
         print(f"Time for computing correlation 1 matrix: {end_time - start_time:.4f} seconds")
@@ -1760,10 +1125,6 @@ class spatial_query:
         print("Using cell-type-specific references for non-neighbor cells")
         print("="*60)
         start_time = time()
-        # Use the same center cells as correlation 1
-        # Use distant motif cells (non-neighbor cells)
-        center_expr_corr2 = expr_genes[center_cells, :]
-        non_neighbor_expr = expr_genes[non_neighbor_cells, :]
 
         # Get cell types for non-neighbor cells
         non_neighbor_cell_types = self.labels[non_neighbor_cells]
@@ -1771,107 +1132,20 @@ class spatial_query:
         n_center = len(center_cells)
         n_non_neighbor = len(non_neighbor_cells)
 
-        if is_sparse and sparse.issparse(center_expr_corr2):
-            # Vectorized approach for all-to-all pairs without for loops
-            # For all-to-all: each center cell paired with each non-neighbor cell
-            # Cov(X-μ_X, Y-μ^{ct_j}) where j indexes non-neighbor cells
-            # = (1/(n_c*n_nn)) Σ_i Σ_j x_i*y_j - (1/(n_c*n_nn)) Σ_i Σ_j x_i*μ^{ct_j}
-            #   - (μ_X/(n_c*n_nn)) Σ_i Σ_j y_j + (μ_X/(n_c*n_nn)) Σ_i Σ_j μ^{ct_j}
-            # Simplify: Σ_i Σ_j x_i*μ^{ct_j} = (Σ_i x_i) * (Σ_j μ^{ct_j}) = (Σ_i x_i) * Σ_ct [|ct|*μ^ct]
-
-            # Get unique non-neighbor types and their counts directly
-            unique_non_neighbor_types, type_counts = np.unique(non_neighbor_cell_types, return_counts=True)
-            n_types = len(unique_non_neighbor_types)
-
-            # Build mapping for creating indicator matrix
-            type_to_idx = {ct: idx for idx, ct in enumerate(unique_non_neighbor_types)}
-            type_indices = np.array([type_to_idx[ct] for ct in non_neighbor_cell_types])
-
-            # Stack cell-type-specific means (n_genes x n_types)
-            non_neighbor_type_means_matrix = np.column_stack([cell_type_means[ct] for ct in unique_non_neighbor_types])
-
-            # Compute center statistics
-            sum_center_corr2 = np.array(center_expr_corr2.sum(axis=0)).flatten()
-            sum_sq_center_corr2 = np.array(center_expr_corr2.power(2).sum(axis=0)).flatten()
-
-            # ==================== Cross-covariance computation ====================
-            # Term 1: (1/(n_c*n_nn)) Σ_i Σ_j x_i*y_j = (1/(n_c*n_nn)) * (Σ_i x_i) * (Σ_j y_j)
-            sum_non_neighbor = np.array(non_neighbor_expr.sum(axis=0)).flatten()
-            term1 = np.outer(sum_center_corr2, sum_non_neighbor) / (n_center * n_non_neighbor)
-
-            # Term 2: -(1/(n_c*n_nn)) Σ_i Σ_j x_i*μ^{ct_j} = -(1/(n_c*n_nn)) * (Σ_i x_i) * (Σ_ct |ct|*μ^ct)
-            weighted_nn_mean = non_neighbor_type_means_matrix @ type_counts  # (n_genes,)
-            term2 = np.outer(sum_center_corr2, weighted_nn_mean) / (n_center * n_non_neighbor)
-
-            # Term 3: -(μ_X/(n_c*n_nn)) Σ_i Σ_j y_j = -(μ_X/(n_c*n_nn)) * n_c * (Σ_j y_j)
-            term3 = np.outer(center_mean, sum_non_neighbor) / n_non_neighbor
-
-            # Term 4: (μ_X/(n_c*n_nn)) Σ_i Σ_j μ^{ct_j} = (μ_X/(n_c*n_nn)) * n_c * (Σ_ct |ct|*μ^ct)
-            term4 = np.outer(center_mean, weighted_nn_mean) / n_non_neighbor
-
-            cross_cov_non_neighbor = term1 - term2 - term3 + term4
-
-            # ==================== Variance computation ====================
-            # Var(X - μ_X)
-            var_center_corr2 = (sum_sq_center_corr2 / n_center
-                        - 2 * center_mean * sum_center_corr2 / n_center
-                        + center_mean**2)
-
-            # Var(Y - μ^{ct_j}) = (1/n_nn) Σ_j y_j² - (2/n_nn) Σ_j y_j*μ^{ct_j} + (1/n_nn) Σ_j (μ^{ct_j})²
-            sum_sq_non_neighbor = np.array(non_neighbor_expr.power(2).sum(axis=0)).flatten()
-
-            # (1/n_nn) Σ_j y_j*μ^{ct_j} = (1/n_nn) Σ_ct [μ^ct * Σ_{j:ct_j=ct} y_j]
-            from scipy.sparse import csr_matrix
-            type_indicator = csr_matrix((np.ones(n_non_neighbor), (np.arange(n_non_neighbor), type_indices)),
-                                       shape=(n_non_neighbor, n_types))
-            sum_non_neighbor_by_type = non_neighbor_expr.T @ type_indicator
-            # Convert small matrix (n_genes x n_types) to dense
-            if sparse.issparse(sum_non_neighbor_by_type):
-                sum_non_neighbor_by_type = np.asarray(sum_non_neighbor_by_type.todense())
-
-            term_y_mean = (sum_non_neighbor_by_type * non_neighbor_type_means_matrix).sum(axis=1) / n_non_neighbor
-
-            # (1/n_nn) Σ_j (μ^{ct_j})² = (1/n_nn) Σ_ct [|ct| * (μ^ct)²]
-            term_mean_sq = ((non_neighbor_type_means_matrix**2) @ type_counts) / n_non_neighbor
-
-            var_non_neighbor = sum_sq_non_neighbor / n_non_neighbor - 2 * term_y_mean + term_mean_sq
-
-            std_center_corr2 = np.sqrt(np.maximum(var_center_corr2, 0))
-            std_non_neighbor = np.sqrt(np.maximum(var_non_neighbor, 0))
-        else:
-            # Dense matrix operations with cell-type-specific centering
-            # Create a matrix of cell-type-specific means for each non-neighbor cell
-            non_neighbor_type_means_matrix = np.array([cell_type_means[ct] for ct in non_neighbor_cell_types])
-
-            # Center the data
-            center_expr_shifted = center_expr_corr2 - center_mean[np.newaxis, :]
-            non_neighbor_expr_shifted = non_neighbor_expr - non_neighbor_type_means_matrix
-
-            # For all-to-all pairs: sum over all combinations
-            # Total cross-product = (sum of shifted center) × (sum of shifted non-neighbor)
-            sum_center_shifted = center_expr_shifted.sum(axis=0)
-            sum_non_neighbor_shifted = non_neighbor_expr_shifted.sum(axis=0)
-
-            cross_cov_non_neighbor = np.outer(sum_center_shifted, sum_non_neighbor_shifted) / (n_center * n_non_neighbor)
-
-            # Variances
-            var_center_corr2 = (center_expr_shifted**2).sum(axis=0) / n_center
-            var_non_neighbor = (non_neighbor_expr_shifted**2).sum(axis=0) / n_non_neighbor
-
-            std_center_corr2 = np.sqrt(np.maximum(var_center_corr2, 0))
-            std_non_neighbor = np.sqrt(np.maximum(var_non_neighbor, 0))
-
-        std_outer_non_neighbor = np.outer(std_center_corr2, std_non_neighbor)
-        std_outer_non_neighbor[std_outer_non_neighbor == 0] = 1e-10
-
-        corr_matrix_non_neighbor = cross_cov_non_neighbor / std_outer_non_neighbor
-
-        # Effective sample size
-        n_eff_non_neighbor = min(n_center, n_non_neighbor)
+        corr_matrix_non_neighbor, n_eff_non_neighbor = spatial_utils.compute_cross_correlation_all_to_all(
+            sq_obj=self,
+            expr_genes=expr_genes,
+            center_cells=center_cells,
+            non_neighbor_cells=non_neighbor_cells,
+            center_mean=center_mean,
+            cell_type_means=cell_type_means,
+            non_neighbor_cell_types=non_neighbor_cell_types,
+            is_sparse=is_sparse
+        )
 
         print(f"Center cells: {n_center}")
         print(f"Distant motif cells: {n_non_neighbor}")
-        print(f"Distant motif cell types: {unique_non_neighbor_types if is_sparse else np.unique(non_neighbor_cell_types)}")
+        print(f"Distant motif cell types: {np.unique(non_neighbor_cell_types)}")
         print(f"Effective sample size: {n_eff_non_neighbor}")
 
         end_time = time()
@@ -1886,7 +1160,7 @@ class spatial_query:
 
         # Get neighbors for centers WITHOUT motif by excluding centers with motif
         start_time = time()
-        no_motif_result = self.get_all_neighbor_cells(
+        no_motif_result = spatial_utils.get_all_neighbor_cells(sq_obj=self,
             ct=ct,
             max_dist=max_dist,
             k=k,
@@ -1916,112 +1190,25 @@ class spatial_query:
             pair_centers_no_motif = center_no_motif_pairs[:, 0]
             pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
 
-            # Extract paired expression data
-            pair_center_no_motif_expr = expr_genes[pair_centers_no_motif, :]
-            pair_neighbor_no_motif_expr = expr_genes[pair_neighbors_no_motif, :]
-
             # Get cell types for each neighbor in pairs
             neighbor_no_motif_cell_types = self.labels[pair_neighbors_no_motif]
 
-            # Compute correlation keeping sparse matrices sparse
-            n_pairs_no_motif = len(pair_centers_no_motif)
+            print(f"Found {len(center_no_motif_pairs)} center-neighbor pairs")
 
-            if is_sparse and sparse.issparse(pair_center_no_motif_expr):
-                # Vectorized approach without for loops - same as Correlation 1
-                # Get unique neighbor types and their counts directly
-                unique_neighbor_no_motif_types, type_counts = np.unique(neighbor_no_motif_cell_types, return_counts=True)
-                n_types = len(unique_neighbor_no_motif_types)
+            corr_matrix_no_motif, n_eff_no_motif = spatial_utils.compute_cross_correlation_paired(
+                sq_obj=self,
+                expr_genes=expr_genes,
+                pair_centers=pair_centers_no_motif,
+                pair_neighbors=pair_neighbors_no_motif,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                neighbor_cell_types=neighbor_no_motif_cell_types,
+                is_sparse=is_sparse
+            )
 
-                # Build mapping for creating indicator matrix
-                type_to_idx = {ct: idx for idx, ct in enumerate(unique_neighbor_no_motif_types)}
-                type_indices = np.array([type_to_idx[ct] for ct in neighbor_no_motif_cell_types])
-
-                # Stack cell-type-specific means (n_genes x n_types)
-                neighbor_type_means_matrix = np.column_stack([cell_type_means[ct] for ct in unique_neighbor_no_motif_types])
-
-                # ==================== Cross-covariance computation ====================
-                # Note: Center cells are all type 'ct', so using center_mean is correct
-
-                # Term 1: (1/n) Σ_i x_i * y_i
-                cross_product = pair_center_no_motif_expr.T @ pair_neighbor_no_motif_expr
-                # Gene x Gene matrix is typically dense, convert once
-                if sparse.issparse(cross_product):
-                    cross_product = np.asarray(cross_product.todense())
-                term1 = cross_product / n_pairs_no_motif
-
-                # Term 2: -(1/n) Σ_i x_i * μ^{ct_i} = -(1/n) Σ_ct [μ^ct * Σ_{i:ct_i=ct} x_i]
-                from scipy.sparse import csr_matrix
-                type_indicator = csr_matrix((np.ones(n_pairs_no_motif), (np.arange(n_pairs_no_motif), type_indices)),
-                                           shape=(n_pairs_no_motif, n_types))
-
-                sum_center_by_type = pair_center_no_motif_expr.T @ type_indicator
-                # Convert small matrix (n_genes x n_types) to dense
-                if sparse.issparse(sum_center_by_type):
-                    sum_center_by_type = np.asarray(sum_center_by_type.todense())
-
-                term2 = (sum_center_by_type @ neighbor_type_means_matrix.T) / n_pairs_no_motif
-
-                # Term 3: -(μ_X/n) Σ_i y_i
-                sum_neighbor = np.array(pair_neighbor_no_motif_expr.sum(axis=0)).flatten()
-                term3 = np.outer(center_mean, sum_neighbor / n_pairs_no_motif)
-
-                # Term 4: (μ_X/n) Σ_i μ^{ct_i} = (μ_X/n) Σ_ct [|ct| * μ^ct]
-                weighted_neighbor_mean = (neighbor_type_means_matrix @ type_counts) / n_pairs_no_motif
-                term4 = np.outer(center_mean, weighted_neighbor_mean)
-
-                cross_cov_no_motif = term1 - term2 - term3 + term4
-
-                # ==================== Variance computation ====================
-                # Var(X - μ_X): Center cells are all type 'ct'
-                sum_sq_center = np.array(pair_center_no_motif_expr.power(2).sum(axis=0)).flatten()
-                sum_center = np.array(pair_center_no_motif_expr.sum(axis=0)).flatten()
-                var_center_no_motif = (sum_sq_center / n_pairs_no_motif
-                                    - 2 * center_mean * sum_center / n_pairs_no_motif
-                                    + center_mean**2)
-
-                # Var(Y - μ^{ct_i}): Neighbor cells have heterogeneous types
-                sum_sq_neighbor = np.array(pair_neighbor_no_motif_expr.power(2).sum(axis=0)).flatten()
-
-                sum_neighbor_by_type = pair_neighbor_no_motif_expr.T @ type_indicator
-                # Convert small matrix (n_genes x n_types) to dense
-                if sparse.issparse(sum_neighbor_by_type):
-                    sum_neighbor_by_type = np.asarray(sum_neighbor_by_type.todense())
-
-                term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1) / n_pairs_no_motif
-                term_mean_sq = ((neighbor_type_means_matrix**2) @ type_counts) / n_pairs_no_motif
-
-                var_neighbor_no_motif = sum_sq_neighbor / n_pairs_no_motif - 2 * term_y_mean + term_mean_sq
-
-                std_center_no_motif = np.sqrt(np.maximum(var_center_no_motif, 0))
-                std_neighbor_no_motif = np.sqrt(np.maximum(var_neighbor_no_motif, 0))
-            else:
-                # Dense matrix operations with cell-type-specific centering
-                # Create a matrix of neighbor-type-specific means for each pair
-                neighbor_type_means_matrix = np.array([cell_type_means[ct] for ct in neighbor_no_motif_cell_types])
-
-                pair_center_no_motif_shifted = pair_center_no_motif_expr - center_mean[np.newaxis, :]
-                pair_neighbor_no_motif_shifted = pair_neighbor_no_motif_expr - neighbor_type_means_matrix
-
-                # Compute correlation
-                cross_cov_no_motif = (pair_center_no_motif_shifted.T @ pair_neighbor_no_motif_shifted) / n_pairs_no_motif
-
-                # Standard deviations
-                std_center_no_motif = np.sqrt(np.maximum((pair_center_no_motif_shifted**2).sum(axis=0) / n_pairs_no_motif, 0))
-                std_neighbor_no_motif = np.sqrt(np.maximum((pair_neighbor_no_motif_shifted**2).sum(axis=0) / n_pairs_no_motif, 0))
-
-            std_outer_no_motif = np.outer(std_center_no_motif, std_neighbor_no_motif)
-            std_outer_no_motif[std_outer_no_motif == 0] = 1e-10
-
-            corr_matrix_no_motif = cross_cov_no_motif / std_outer_no_motif
-
-            # Effective sample size
-            center_no_motif_unique = len(np.unique(pair_centers_no_motif))
-            neighbor_no_motif_unique = len(np.unique(pair_neighbors_no_motif))
-            n_eff_no_motif = min(center_no_motif_unique, neighbor_no_motif_unique)
-
-            print(f"Unique center cells: {center_no_motif_unique}")
-            print(f"Unique neighbor cells: {neighbor_no_motif_unique}")
-            print(f"Neighbor cell types in pairs: {unique_neighbor_no_motif_types if is_sparse else np.unique(neighbor_no_motif_cell_types)}")
+            print(f"Unique center cells: {len(np.unique(pair_centers_no_motif))}")
+            print(f"Unique neighbor cells: {len(np.unique(pair_neighbors_no_motif))}")
+            print(f"Neighbor cell types in pairs: {np.unique(neighbor_no_motif_cell_types)}")
             print(f"Effective sample size: {n_eff_no_motif}")
 
         end_time = time()
@@ -2215,11 +1402,525 @@ class spatial_query:
 
         return results_df, cell_groups
 
+    def compute_gene_gene_correlation_by_type(self,
+                                             ct: str,
+                                             motif: Union[str, List[str]],
+                                             genes: Optional[Union[str, List[str]]] = None,
+                                             max_dist: Optional[float] = None,
+                                             k: Optional[int] = None,
+                                             min_size: int = 0,
+                                             min_nonzero: int = 10,
+                                             ) -> pd.DataFrame:
+        """
+        Compute gene-gene cross correlation separately for each cell type in the motif.
+        For each non-center cell type in the motif, compute:
+        - Correlation 1: Center cells with motif vs neighboring motif cells of THIS TYPE
+        - Correlation 2: Center cells with motif vs distant motif cells of THIS TYPE
+        - Correlation 3: Center cells without motif vs neighbors (same for all types)
+
+        Only analyzes motifs with >= 2 cell types besides the center type.
+
+        Parameter
+        ---------
+        ct:
+            Cell type as the center cells.
+        motif:
+            Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
+        genes:
+            List of genes to analyze. If None, all genes will be used.
+        max_dist:
+            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
+        k:
+            Number of nearest neighbors. Use either max_dist or k.
+        min_size:
+            Minimum neighborhood size for each center cell (only used when max_dist is specified).
+        min_nonzero:
+            Minimum number of non-zero expression values required for a gene to be included.
+
+        Return
+        ------
+        results_df : DataFrame
+            DataFrame with correlation results for each cell type and gene pair.
+            Columns include:
+                - cell_type: the non-center cell type in motif
+                - gene_center, gene_motif: gene pairs
+                - corr_neighbor: correlation with neighboring cells of this type
+                - corr_non_neighbor: correlation with distant cells of this type
+                - corr_center_no_motif: correlation with neighbors when no motif present
+                - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
+                - p_value_test2: p-value for test2 (neighbor vs no_motif)
+                - q_value_test1: FDR-corrected q-value for test1
+                - q_value_test2: FDR-corrected q-value for test2
+                - delta_corr_test1: difference in correlation (neighbor - non_neighbor)
+                - delta_corr_test2: difference in correlation (neighbor - no_motif)
+                - reject_test1_fdr: whether test1 passes FDR threshold
+                - reject_test2_fdr: whether test2 passes FDR threshold
+                - combined_score: combined significance score
+        """
+        if self.adata is None:
+            raise ValueError("Expression data (adata) is not available. Please set build_gene_index=False when initializing spatial_query.")
+
+        motif = motif if isinstance(motif, list) else [motif]
+
+        # Get non-center cell types in motif
+        non_center_types = [m for m in motif if m != ct]
+
+        if len(non_center_types) < 2:
+            raise ValueError(f"Motif must contain at least 2 cell types besides the center type. Found only {len(non_center_types)} non-center types: {non_center_types}")
+
+        print(f"Analyzing {len(non_center_types)} non-center cell types in motif: {non_center_types}")
+        print("="*80)
+
+        # Get neighbor and non-neighbor cell IDs using original motif
+        neighbor_result = spatial_utils.get_motif_neighbor_cells(sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size)
+
+        # Extract paired data
+        center_neighbor_pairs = neighbor_result['center_neighbor_pairs']
+        ct_in_motif = neighbor_result['ct_in_motif']
+
+        # Extract unique center and neighbor cells from pairs
+        center_cells = np.unique(center_neighbor_pairs[:, 0])
+        neighbor_cells = np.unique(center_neighbor_pairs[:, 1])
+
+        # Get all motif cells
+        motif_mask = np.isin(np.array(self.labels), motif)
+        all_motif_cells = np.where(motif_mask)[0]
+        non_neighbor_cells = np.setdiff1d(all_motif_cells, neighbor_cells)
+
+        # Remove center type cells from non-neighbor cells
+        if ct_in_motif:
+            center_cell_mask_non = self.labels[non_neighbor_cells] == ct
+            non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
+            print(f'Removed {center_cell_mask_non.sum()} center type cells from non-neighbor group.')
+
+        print(f"Found {len(center_cells)} center cells with motif nearby.")
+        print(f"Found {len(neighbor_cells)} total motif neighbor cells.")
+        print(f"Found {len(non_neighbor_cells)} total non-neighbor motif cells.")
+        print(f"Found {len(center_neighbor_pairs)} center-neighbor pairs.")
+
+        # Get gene list
+        if genes is None:
+            genes = self.genes
+        elif isinstance(genes, str):
+            genes = [genes]
+
+        # Filter genes that exist
+        valid_genes = [g for g in genes if g in self.genes]
+        if len(valid_genes) == 0:
+            raise ValueError("No valid genes found in the dataset.")
+        expr_genes = self.adata[:, valid_genes].X
+
+        # Check if sparse
+        is_sparse = sparse.issparse(expr_genes)
+
+        # Filter genes by non-zero expression
+        if is_sparse:
+            nonzero_all = np.array((expr_genes > 0).sum(axis=0)).flatten()
+        else:
+            nonzero_all = (expr_genes > 0).sum(axis=0)
+
+        valid_gene_mask = nonzero_all >= min_nonzero
+
+        if valid_gene_mask.sum() == 0:
+            raise ValueError(f"No genes passed the min_nonzero={min_nonzero} filter.")
+
+        # Apply gene filter
+        filtered_genes = [valid_genes[i] for i in range(len(valid_genes)) if valid_gene_mask[i]]
+        expr_genes = expr_genes[:, valid_gene_mask]
+
+        print(f"After filtering (min_nonzero={min_nonzero}): {len(filtered_genes)} genes")
+
+        # Compute cell type means for ALL cell types
+        all_cell_types = np.unique(self.labels)
+        cell_type_means = {}
+
+        print("\nComputing cell-type-specific global means...")
+        for cell_type in all_cell_types:
+            ct_mask = self.labels == cell_type
+            ct_cells = np.where(ct_mask)[0]
+            if len(ct_cells) > 0:
+                ct_expr = expr_genes[ct_cells, :]
+                if is_sparse:
+                    cell_type_means[cell_type] = np.array(ct_expr.mean(axis=0)).flatten()
+                else:
+                    cell_type_means[cell_type] = ct_expr.mean(axis=0)
+
+        center_mean = cell_type_means[ct]
+        n_genes = len(filtered_genes)
+
+        # ==================================================================================
+        # Correlation 3: Center without motif vs Neighbors (SAME FOR ALL TYPES)
+        # ==================================================================================
+        print("\n" + "="*80)
+        print("Computing Correlation 3: Center without motif vs Neighbors (shared)")
+        print("="*80)
+
+        start_time = time()
+        no_motif_result = spatial_utils.get_all_neighbor_cells(sq_obj=self,
+            ct=ct,
+            max_dist=max_dist,
+            k=k,
+            min_size=min_size,
+            exclude_centers=center_cells,
+            exclude_neighbors=neighbor_cells,
+        )
+
+        center_no_motif_pairs = no_motif_result['center_neighbor_pairs']
+
+        if len(center_no_motif_pairs) < 10:
+            print(f"Not enough pairs ({len(center_no_motif_pairs)}) for centers without motif. Skipping Correlation 3.")
+            corr_matrix_no_motif = None
+            n_eff_no_motif = 0
+        else:
+            print(f"Found {len(center_no_motif_pairs)} center-neighbor pairs without motif")
+
+            # Compute correlation 3 (same logic as original function)
+            pair_centers_no_motif = center_no_motif_pairs[:, 0]
+            pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
+
+            pair_center_no_motif_expr = expr_genes[pair_centers_no_motif, :]
+            pair_neighbor_no_motif_expr = expr_genes[pair_neighbors_no_motif, :]
+
+            neighbor_no_motif_cell_types = self.labels[pair_neighbors_no_motif]
+            n_pairs_no_motif = len(pair_centers_no_motif)
+
+            if is_sparse:
+                unique_neighbor_no_motif_types, type_counts = np.unique(neighbor_no_motif_cell_types, return_counts=True)
+                n_types = len(unique_neighbor_no_motif_types)
+
+                type_to_idx = {ct_temp: idx for idx, ct_temp in enumerate(unique_neighbor_no_motif_types)}
+                type_indices = np.array([type_to_idx[ct_temp] for ct_temp in neighbor_no_motif_cell_types])
+
+                neighbor_type_means_matrix = np.column_stack([cell_type_means[ct_temp] for ct_temp in unique_neighbor_no_motif_types])
+
+                # Cross-covariance computation
+                cross_product = pair_center_no_motif_expr.T @ pair_neighbor_no_motif_expr
+                if sparse.issparse(cross_product):
+                    cross_product = np.asarray(cross_product.todense())
+                term1 = cross_product / n_pairs_no_motif
+
+                from scipy.sparse import csr_matrix
+                type_indicator = csr_matrix((np.ones(n_pairs_no_motif), (np.arange(n_pairs_no_motif), type_indices)),
+                                           shape=(n_pairs_no_motif, n_types))
+
+                sum_center_by_type = pair_center_no_motif_expr.T @ type_indicator
+                if sparse.issparse(sum_center_by_type):
+                    sum_center_by_type = np.asarray(sum_center_by_type.todense())
+
+                term2 = (sum_center_by_type @ neighbor_type_means_matrix.T) / n_pairs_no_motif
+
+                sum_neighbor = np.array(pair_neighbor_no_motif_expr.sum(axis=0)).flatten()
+                term3 = np.outer(center_mean, sum_neighbor / n_pairs_no_motif)
+
+                weighted_neighbor_mean = (neighbor_type_means_matrix @ type_counts) / n_pairs_no_motif
+                term4 = np.outer(center_mean, weighted_neighbor_mean)
+
+                cross_cov_no_motif = term1 - term2 - term3 + term4
+
+                # Variance computation
+                sum_sq_center = np.array(pair_center_no_motif_expr.power(2).sum(axis=0)).flatten()
+                sum_center = np.array(pair_center_no_motif_expr.sum(axis=0)).flatten()
+                var_center_no_motif = (sum_sq_center / n_pairs_no_motif
+                                    - 2 * center_mean * sum_center / n_pairs_no_motif
+                                    + center_mean**2)
+
+                sum_sq_neighbor = np.array(pair_neighbor_no_motif_expr.power(2).sum(axis=0)).flatten()
+
+                sum_neighbor_by_type = pair_neighbor_no_motif_expr.T @ type_indicator
+                if sparse.issparse(sum_neighbor_by_type):
+                    sum_neighbor_by_type = np.asarray(sum_neighbor_by_type.todense())
+
+                term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1) / n_pairs_no_motif
+                term_mean_sq = ((neighbor_type_means_matrix**2) @ type_counts) / n_pairs_no_motif
+
+                var_neighbor_no_motif = sum_sq_neighbor / n_pairs_no_motif - 2 * term_y_mean + term_mean_sq
+
+                std_center_no_motif = np.sqrt(np.maximum(var_center_no_motif, 0))
+                std_neighbor_no_motif = np.sqrt(np.maximum(var_neighbor_no_motif, 0))
+            else:
+                neighbor_type_means_matrix = np.array([cell_type_means[ct_temp] for ct_temp in neighbor_no_motif_cell_types])
+
+                pair_center_no_motif_shifted = pair_center_no_motif_expr - center_mean[np.newaxis, :]
+                pair_neighbor_no_motif_shifted = pair_neighbor_no_motif_expr - neighbor_type_means_matrix
+
+                cross_cov_no_motif = (pair_center_no_motif_shifted.T @ pair_neighbor_no_motif_shifted) / n_pairs_no_motif
+
+                std_center_no_motif = np.sqrt(np.maximum((pair_center_no_motif_shifted**2).sum(axis=0) / n_pairs_no_motif, 0))
+                std_neighbor_no_motif = np.sqrt(np.maximum((pair_neighbor_no_motif_shifted**2).sum(axis=0) / n_pairs_no_motif, 0))
+
+            std_outer_no_motif = np.outer(std_center_no_motif, std_neighbor_no_motif)
+            std_outer_no_motif[std_outer_no_motif == 0] = 1e-10
+
+            corr_matrix_no_motif = cross_cov_no_motif / std_outer_no_motif
+
+            center_no_motif_unique = len(np.unique(pair_centers_no_motif))
+            neighbor_no_motif_unique = len(np.unique(pair_neighbors_no_motif))
+            n_eff_no_motif = min(center_no_motif_unique, neighbor_no_motif_unique)
+
+            print(f"Effective sample size: {n_eff_no_motif}")
+
+        end_time = time()
+        print(f"Time for computing Correlation 3: {end_time - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Compute correlations for each cell type separately
+        # ==================================================================================
+        all_results = []
+
+        for cell_type in non_center_types:
+            print("\n" + "="*80)
+            print(f"Processing cell type: {cell_type}")
+            print("="*80)
+
+            # Filter pairs and cells for this specific cell type
+            pair_neighbors = center_neighbor_pairs[:, 1]
+            neighbor_types = self.labels[pair_neighbors]
+            type_mask = neighbor_types == cell_type
+
+            if type_mask.sum() == 0:
+                raise ValueError(f"Error: No neighbor pairs found for cell type {cell_type}. Shouldn't happen.")
+
+            type_specific_pairs = center_neighbor_pairs[type_mask]
+            type_specific_neighbor_cells = np.unique(type_specific_pairs[:, 1])
+            type_specific_center_cells = np.unique(type_specific_pairs[:, 0])
+
+            # Filter non-neighbor cells for this type
+            type_non_neighbor_mask = self.labels[non_neighbor_cells] == cell_type
+            type_non_neighbor_cells = non_neighbor_cells[type_non_neighbor_mask]
+
+            if len(type_non_neighbor_cells) < 10:
+                print(f"Not enough non-neighbor cells ({len(type_non_neighbor_cells)}) for {cell_type}. Skipping.")
+                continue
+
+            print(f"  - {len(type_specific_center_cells)} center cells paired with {cell_type}")
+            print(f"  - {len(type_specific_neighbor_cells)} neighboring {cell_type} cells")
+            print(f"  - {len(type_non_neighbor_cells)} distant {cell_type} cells")
+            print(f"  - {len(type_specific_pairs)} center-neighbor pairs")
+
+            # ==================================================================================
+            # Correlation 1: Center with motif vs Neighboring cells of THIS TYPE (PAIRED)
+            # ==================================================================================
+            print(f"\nComputing Correlation 1 for {cell_type}...")
+            start_time = time()
+
+            pair_centers = type_specific_pairs[:, 0]
+            pair_neighbors_idx = type_specific_pairs[:, 1]
+
+            # All neighbors are of the same type, create uniform type array
+            neighbor_types_uniform = np.full(len(pair_neighbors_idx), cell_type)
+
+            corr_matrix_neighbor, n_eff_neighbor = spatial_utils.compute_cross_correlation_paired(
+                sq_obj=self,
+                expr_genes=expr_genes,
+                pair_centers=pair_centers,
+                pair_neighbors=pair_neighbors_idx,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                neighbor_cell_types=neighbor_types_uniform,
+                is_sparse=is_sparse
+            )
+
+            print(f"  Effective sample size: {n_eff_neighbor}")
+            print(f"  Time: {time() - start_time:.2f} seconds")
+
+            # ==================================================================================
+            # Correlation 2: Center with motif vs Distant cells of THIS TYPE (ALL PAIRS)
+            # ==================================================================================
+            print(f"\nComputing Correlation 2 for {cell_type}...")
+            start_time = time()
+
+            n_center = len(type_specific_center_cells)
+            n_non_neighbor = len(type_non_neighbor_cells)
+
+            # All non-neighbors are of the same type, create uniform type array
+            non_neighbor_types_uniform = np.full(n_non_neighbor, cell_type)
+
+            corr_matrix_non_neighbor, n_eff_non_neighbor = spatial_utils.compute_cross_correlation_all_to_all(
+                sq_obj=self,
+                expr_genes=expr_genes,
+                center_cells=type_specific_center_cells,
+                non_neighbor_cells=type_non_neighbor_cells,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                non_neighbor_cell_types=non_neighbor_types_uniform,
+                is_sparse=is_sparse
+            )
+
+            print(f"  Effective sample size: {n_eff_non_neighbor}")
+            print(f"  Time: {time() - start_time:.2f} seconds")
+
+            # ==================================================================================
+            # Statistical testing
+            # ==================================================================================
+            print(f"\nPerforming statistical tests for {cell_type}...")
+            start_time = time()
+
+            def fisher_z_transform(r):
+                r_clipped = np.clip(r, -0.9999, 0.9999)
+                return 0.5 * np.log((1 + r_clipped) / (1 - r_clipped))
+
+            def fisher_z_test_vectorized(r1, n1, r2, n2):
+                z1 = fisher_z_transform(r1)
+                z2 = fisher_z_transform(r2)
+                se_diff = np.sqrt(1/(n1-3) + 1/(n2-3))
+                z_stat = (z1 - z2) / se_diff
+                p_value = 2 * (1 - scipy_stats.norm.cdf(np.abs(z_stat)))
+                return z_stat, p_value
+
+            # Test 1: Corr1 vs Corr2
+            _, p_value_test1 = fisher_z_test_vectorized(
+                corr_matrix_neighbor, n_eff_neighbor,
+                corr_matrix_non_neighbor, n_eff_non_neighbor
+            )
+            delta_corr_test1 = corr_matrix_neighbor - corr_matrix_non_neighbor
+
+            # Test 2: Corr1 vs Corr3
+            if corr_matrix_no_motif is not None:
+                _, p_value_test2 = fisher_z_test_vectorized(
+                    corr_matrix_neighbor, n_eff_neighbor,
+                    corr_matrix_no_motif, n_eff_no_motif
+                )
+                delta_corr_test2 = corr_matrix_neighbor - corr_matrix_no_motif
+                combined_score = (0.3 * delta_corr_test1 * (-np.log10(p_value_test1 + 1e-300)) +
+                                0.7 * delta_corr_test2 * (-np.log10(p_value_test2 + 1e-300)))
+            else:
+                p_value_test2 = None
+                delta_corr_test2 = None
+                combined_score = None
+
+            # Create results for this cell type
+            gene_center_idx, gene_motif_idx = np.meshgrid(np.arange(n_genes), np.arange(n_genes), indexing='ij')
+
+            type_results_df = pd.DataFrame({
+                'cell_type': cell_type,
+                'gene_center': np.array(filtered_genes)[gene_center_idx.flatten()],
+                'gene_motif': np.array(filtered_genes)[gene_motif_idx.flatten()],
+                'corr_neighbor': corr_matrix_neighbor.flatten(),
+                'corr_non_neighbor': corr_matrix_non_neighbor.flatten(),
+                'p_value_test1': p_value_test1.flatten(),
+                'delta_corr_test1': delta_corr_test1.flatten(),
+            })
+
+            if corr_matrix_no_motif is not None:
+                type_results_df['corr_center_no_motif'] = corr_matrix_no_motif.flatten()
+                type_results_df['p_value_test2'] = p_value_test2.flatten()
+                type_results_df['delta_corr_test2'] = delta_corr_test2.flatten()
+                type_results_df['combined_score'] = combined_score.flatten()
+            else:
+                type_results_df['corr_center_no_motif'] = np.nan
+                type_results_df['p_value_test2'] = np.nan
+                type_results_df['delta_corr_test2'] = np.nan
+                type_results_df['combined_score'] = np.nan
+
+            all_results.append(type_results_df)
+
+            print(f"  Time: {time() - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Combine results from all cell types and apply FDR correction
+        # ==================================================================================
+        print("\n" + "="*80)
+        print("Combining results and applying FDR correction")
+        print("="*80)
+
+        if len(all_results) == 0:
+            raise ValueError("No results generated for any cell type. Check input parameters.")
+
+        combined_results = pd.concat(all_results, ignore_index=True)
+
+        print(f"Total gene pairs across all cell types: {len(combined_results)}")
+
+        if corr_matrix_no_motif is not None:
+            # Filter by direction consistency
+            same_direction = np.sign(combined_results['delta_corr_test1']) == np.sign(combined_results['delta_corr_test2'])
+            print(f"Gene pairs with consistent covarying direction: {same_direction.sum()}")
+
+            if same_direction.sum() > 0:
+                # Pool all p-values for FDR correction
+                p_values_test1 = combined_results.loc[same_direction, 'p_value_test1'].values
+                p_values_test2 = combined_results.loc[same_direction, 'p_value_test2'].values
+
+                all_p_values = np.concatenate([p_values_test1, p_values_test2])
+                n_consistent = same_direction.sum()
+
+                print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
+                alpha = 0.05
+                reject_all, q_values_all, _, _ = multipletests(
+                    all_p_values,
+                    alpha=alpha,
+                    method='fdr_bh'
+                )
+
+                q_values_test1 = q_values_all[:n_consistent]
+                q_values_test2 = q_values_all[n_consistent:]
+                reject_test1 = reject_all[:n_consistent]
+                reject_test2 = reject_all[n_consistent:]
+
+                combined_results.loc[same_direction, 'q_value_test1'] = q_values_test1
+                combined_results.loc[same_direction, 'q_value_test2'] = q_values_test2
+                combined_results.loc[same_direction, 'reject_test1_fdr'] = reject_test1
+                combined_results.loc[same_direction, 'reject_test2_fdr'] = reject_test2
+
+                # Keep only consistent direction pairs
+                combined_results = combined_results[same_direction]
+
+                mask_both_fdr = reject_test1 & reject_test2
+                n_both_fdr = mask_both_fdr.sum()
+
+                print(f"\nFDR correction results:")
+                print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+                print(f"  - Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
+                print(f"  - Both tests FDR significant: {n_both_fdr}")
+
+                # Summary by cell type
+                print(f"\nSignificant gene pairs by cell type:")
+                for cell_type in non_center_types:
+                    type_mask = combined_results['cell_type'] == cell_type
+                    if type_mask.sum() > 0:
+                        type_sig = (combined_results.loc[type_mask, 'reject_test1_fdr'] &
+                                   combined_results.loc[type_mask, 'reject_test2_fdr']).sum()
+                        print(f"  - {cell_type}: {type_sig} significant pairs")
+            else:
+                combined_results['q_value_test1'] = np.nan
+                combined_results['q_value_test2'] = np.nan
+                combined_results['reject_test1_fdr'] = False
+                combined_results['reject_test2_fdr'] = False
+                print("No gene pairs with consistent direction found.")
+        else:
+            # Only test1 available
+            print("Note: Test2 not available (no centers without motif)")
+            p_values_test1_all = combined_results['p_value_test1'].values
+            reject_test1, q_values_test1, _, _ = multipletests(
+                p_values_test1_all,
+                alpha=alpha,
+                method='fdr_bh'
+            )
+            combined_results['q_value_test1'] = q_values_test1
+            combined_results['reject_test1_fdr'] = reject_test1
+            combined_results['q_value_test2'] = np.nan
+            combined_results['reject_test2_fdr'] = False
+
+            print(f"FDR correction applied to {len(combined_results)} gene pairs:")
+            print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+
+        # Sort by absolute value of combined score
+        if corr_matrix_no_motif is not None:
+            combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
+            combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+        else:
+            combined_results['test1_score'] = combined_results['delta_corr_test1'] * (-np.log10(combined_results['p_value_test1'] + 1e-300))
+            combined_results['abs_test1_score'] = np.abs(combined_results['test1_score'])
+            combined_results = combined_results.sort_values('abs_test1_score', ascending=False, na_position='last').reset_index(drop=True)
+
+        print(f"\nResults prepared and sorted")
+
+        return combined_results
+
     def plot_motif_celltype(self,
                             ct: str,
                             motif: Union[str, List[str]],
                             max_dist: float = 100,
-                            fig_size: tuple = (5, 5),
+                            figsize: tuple = (5, 5),
                             save_path: Optional[str] = None
                             ):
         """
@@ -2235,7 +1936,7 @@ class spatial_query:
             Motif (names of cell types) to be colored.
         max_dist:
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
-        fig_size:
+        figsize:
             Figure size.
         save_path:
             Path to save the figure.
@@ -2245,105 +1946,8 @@ class spatial_query:
         ------
         A figure.
         """
-        if isinstance(motif, str):
-            motif = [motif]
-
-        max_dist = min(max_dist, self.max_radius)
-
-        motif_exc = [m for m in motif if m not in self.labels.unique()]
-        if len(motif_exc) != 0:
-            print(f"Found no {motif_exc} in {self.label_key}. Ignoring them.")
-        motif = [m for m in motif if m not in motif_exc]
-
-        if ct not in self.labels.unique():
-            raise ValueError(f"Found no {ct} in {self.label_key}!")
-
-        cinds = [i for i, label in enumerate(self.labels) if label == ct]  # id of center cell type
-        # ct_pos = self.spatial_pos[cinds]
-        idxs = self.kd_tree.query_ball_point(self.spatial_pos, r=max_dist, return_sorted=False, workers=-1)
-
-        # find the index of cell type spots whose neighborhoods contain given motif
-        # cind_with_motif = []
-        # sort_motif = sorted(motif)
-        label_encoder = LabelEncoder()
-        int_labels = label_encoder.fit_transform(np.array(self.labels))
-        int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
-        int_motifs = label_encoder.transform(np.array(motif))
-
-        num_cells = len(idxs)
-        num_types = len(label_encoder.classes_)
-        idxs_filter = [np.array(ids)[np.array(ids) != i] for i, ids in enumerate(idxs)]
-
-        flat_neighbors = np.concatenate(idxs_filter)
-        row_indices = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_filter])
-        neighbor_labels = int_labels[flat_neighbors]
-
-        neighbor_matrix = np.zeros((num_cells, num_types), dtype=int)
-        np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
-
-        mask = int_labels == int_ct
-        inds = np.where(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))[0]
-        cind_with_motif = [cinds[i] for i in inds]
-
-        # for id in cinds:
-        #
-        #     if self.has_motif(sort_motif, [self.labels[idx] for idx in idxs[id] if idx != id]):
-        #         cind_with_motif.append(id)
-
-        # Locate the index of motifs in the neighborhood of center cell type.
-
-        motif_mask = np.isin(np.array(self.labels), motif)
-        all_neighbors = np.concatenate(idxs[cind_with_motif])
-        exclude_self_mask = ~np.isin(all_neighbors, cind_with_motif)
-        valid_neighbors = all_neighbors[motif_mask[all_neighbors] & exclude_self_mask]
-        id_motif_celltype = set(valid_neighbors)
-
-        # id_motif_celltype = set()
-        # for id in cind_with_motif:
-        #     id_neighbor = [i for i in idxs[id] if self.labels[i] in motif and i != id]
-        #     id_motif_celltype.update(id_neighbor)
-
-        # Plot figures
-        motif_unique = set(motif)
-        n_colors = len(motif_unique)
-        colors = sns.color_palette('hsv', n_colors)
-        color_map = {ct: col for ct, col in zip(motif_unique, colors)}
-        motif_spot_pos = self.spatial_pos[list(id_motif_celltype), :]
-        motif_spot_label = self.labels[list(id_motif_celltype)]
-        fig, ax = plt.subplots(figsize=fig_size)
-        # Plotting other spots as background
-        labels_length = len(self.labels)
-        id_motif_celltype_set = set(id_motif_celltype)
-        cind_with_motif_set = set(cind_with_motif)
-        bg_index = [i for i in range(labels_length) if i not in id_motif_celltype_set and i not in cind_with_motif_set]
-        bg_adata = self.spatial_pos[bg_index, :]
-        ax.scatter(bg_adata[:, 0],
-                   bg_adata[:, 1],
-                   color='darkgrey', s=1)
-        # Plot center the cell type whose neighborhood contains motif
-        ax.scatter(self.spatial_pos[cind_with_motif, 0],
-                   self.spatial_pos[cind_with_motif, 1],
-                   label=ct, edgecolors='red', facecolors='none', s=3,
-                   )
-        for ct_m in motif_unique:
-            ct_ind = motif_spot_label == ct_m
-            ax.scatter(motif_spot_pos[ct_ind, 0],
-                       motif_spot_pos[ct_ind, 1],
-                       label=ct_m, color=color_map[ct_m], s=1)
-
-        ax.legend(title='motif', loc='center left', bbox_to_anchor=(1, 0.5), markerscale=4)
-        # ax.legend(title='motif', loc='lower center', bbox_to_anchor=(1, 0.5), markerscale=4)
-        plt.xlabel('Spatial X')
-        plt.ylabel('Spatial Y')
-        plt.title(f"Spatial distribution of motif around {ct}")
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_xticks([])
-        ax.set_yticks([])
-        # plt.tight_layout(rect=[0, 0, 1.1, 1])
-        if save_path is not None:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        from . import plotting
+        return plotting.plot_motif_celltype(sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, figsize=figsize, save_path=save_path)
 
     def plot_all_center_motif(
             self,
@@ -2372,7 +1976,7 @@ class spatial_query:
                   center-neighbor pairs for Correlation 3 (center without motif vs neighbors).
                   Each row is [center_cell_idx, neighbor_cell_idx]. Empty if insufficient pairs.
         figsize: tuple
-            Figure size.    
+            Figure size.
 
         save_path:
             Path to save the figure.
@@ -2382,54 +1986,5 @@ class spatial_query:
         ------
         A figure.
         """
-
-        # Set labels for each group
-        adata = self.adata.copy()
-        adata.obs['tmp'] = 'other'
-
-        center_with_motif = np.unique(ids['center_neighbor_motif_pair'][:, 0])
-        center_without_motif = np.unique(ids['non_motif_center_neighbor_pair'][:, 0])
-        neighbor_motif = np.unique(ids['center_neighbor_motif_pair'][:, 1]) 
-        non_neighbor_motif = np.unique(ids['non-neighbor_motif_cells'])
-        center_without_motif_neighbors = np.unique(ids['non_motif_center_neighbor_pair'][:, 1])
-
-
-        adata.obs.iloc[center_with_motif, adata.obs.columns.get_loc('tmp')] = f'center {center} with motif'
-        adata.obs.iloc[center_without_motif, adata.obs.columns.get_loc('tmp')] = f'non-motif center {center}'
-
-        adata.obs.iloc[neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'neighbor motif: {self.labels[i]}' for i in neighbor_motif]
-        adata.obs.iloc[non_neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'non-neighbor motif: {self.labels[i]}' for i in non_neighbor_motif]
-
-        adata.obs.iloc[center_without_motif_neighbors, adata.obs.columns.get_loc('tmp')] = 'non-motif-center neighbors'
-
-        neighbor_motif_types = adata.obs.iloc[neighbor_motif, adata.obs.columns.get_loc(self.label_key)].unique()
-        non_neighbor_motif_types = adata.obs.iloc[non_neighbor_motif, adata.obs.columns.get_loc(self.label_key)].unique()
-
-        color_dict = {
-            'other': '#D3D3D3',  # light gray for other cells
-            f'center {center} with motif': "#9F0707",  # dark red 
-            f'non-motif center {center}': "#075FB1",  # dark blue
-            'non-motif-center neighbors': "#6DE7E9"  # light blue
-        }
-
-        # Set red colors for neighbor motif and purple colors for non-neighbor motif
-        n_neighbor_types = len(neighbor_motif_types)
-        if n_neighbor_types > 0:
-            red_colors = cm.Reds(np.linspace(0.3, 0.6, n_neighbor_types))
-            for i, cell_type in enumerate(neighbor_motif_types):
-                color_dict[f'neighbor motif: {cell_type}'] = red_colors[i]
-
-        # Set purple colors for non-neighbor motif
-        n_non_neighbor_types = len(non_neighbor_motif_types)
-        if n_non_neighbor_types > 0:
-            purple_colors = cm.Greens(np.linspace(0.4, 0.8, n_non_neighbor_types))
-            for i, cell_type in enumerate(non_neighbor_motif_types):
-                color_dict[f'non-neighbor motif: {cell_type}'] = purple_colors[i]
-
-        # Plot figure
-        fig, ax = plt.subplots(figsize=figsize)
-        sc.pl.embedding(adata, basis='X_spatial', color='tmp', palette=color_dict, size=10, ax=ax, show=False)
-        ax.set_title(f'Cell types around {center} with motif', fontsize=10)
-        if save_path is not None:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        from . import plotting
+        return plotting.plot_all_center_motif(sq_obj=self, center=center, ids=ids, figsize=figsize, save_path=save_path)
