@@ -1,4 +1,5 @@
 from collections import Counter
+from multiprocessing import Value
 from typing import List, Union, Optional, Literal
 
 import matplotlib.pyplot as plt
@@ -17,10 +18,12 @@ from matplotlib.colors import LinearSegmentedColormap
 from scipy import stats as scipy_stats
 import matplotlib.cm as cm
 from time import time
+from scipy.stats import percentileofscore
 
 from .scfind4sp import SCFind
 import scanpy as sc
 from . import spatial_utils
+from . import plotting
 
 
 
@@ -784,9 +787,9 @@ class spatial_query:
             # Use scfind index for DE analysis with Fisher's exact test.
             if genes is None:
                 genes = self.index.scfindGenes
-
-            print(f'Using scfind index for DE analysis with {method} test.')
-
+                
+            print(f'Indexed data by scfind. Only support for Fisher\'s exact test.')
+            
             out = self.index.de_genes_with_indices(genes, ind_group1, ind_group2, min_fraction)
             out_df = pd.DataFrame(out)
 
@@ -829,99 +832,6 @@ class spatial_query:
                 raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
 
         return results_df
-
-
-    def plot_fov(self,
-                 min_cells_label: int = 50,
-                 title: str = 'Spatial distribution of cell types',
-                 figsize: tuple = (10, 5),
-                 save_path: Optional[str] = None,
-                 ):
-        """
-        Plot the cell type distribution of single fov.
-
-        Parameter
-        --------
-        min_cells_label:
-            Minimum number of points in each cell type to display.
-        title:
-            Figure title.
-        figsize:
-            Figure size parameter.
-
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
-
-        Return
-        ------
-        A figure.
-        """
-        from . import plotting
-        return plotting.plot_fov(sq_obj=self, min_cells_label=min_cells_label, title=title, figsize=figsize, save_path=save_path)
-
-    def plot_motif_grid(self,
-                        motif: Union[str, List[str]],
-                        figsize: tuple = (10, 5),
-                        max_dist: float = 100,
-                        save_path: Optional[str] = None
-                        ):
-        """
-        Display the distribution of each motif around grid points.
-
-        Parameter
-        ---------
-        motif:
-            Motif (names of cell types) to be colored
-        max_dist:
-            Spacing distance for building grid.
-        figsize:
-            Figure size.
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
-
-        Return
-        ------
-        A figure.
-        """
-        from . import plotting
-        return plotting.plot_motif_grid(sq_obj=self, motif=motif, figsize=figsize, max_dist=max_dist, save_path=save_path)
-
-    def plot_motif_rand(self,
-                        motif: Union[str, List[str]],
-                        max_dist: float = 100,
-                        n_points: int = 1000,
-                        figsize: tuple = (10, 5),
-                        seed: int = 2023,
-                        save_path: Optional[str] = None
-                        ):
-        """
-        Display the random sampled points with motif in radius-based neighborhood,
-        and cell types of motif in the neighborhood of these random points.
-
-        Parameter
-        ---------
-        motif:
-            Motif (names of cell types) to be colored
-        max_dist:
-            Radius for neighborhood search.
-        n_points:
-            Number of random points to generate.
-        figsize:
-            Figure size.
-        seed:
-            Set random seed for reproducible.
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
-
-        Return
-        ------
-        A figure.
-        """
-        from . import plotting
-        return plotting.plot_motif_rand(sq_obj=self, motif=motif, max_dist=max_dist, n_points=n_points, figsize=figsize, seed=seed, save_path=save_path)
 
     def compute_gene_gene_correlation(self,
                                       ct: str,
@@ -1014,15 +924,10 @@ class spatial_query:
         if ct_in_motif:
             center_cell_mask_non = self.labels[non_neighbor_cells] == ct
             non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
-            print(f'Focus on inter-cell-type interactions: Remove {center_cell_mask_non.sum()} center type cells from non-neighbor groups.')
+            print(f'Focus on inter-cell-type interactions: Remove center type cells from non-neighbor groups.')
 
         if len(non_neighbor_cells) < 10:
             raise ValueError(f"Not enough non-neighbor cells ({len(non_neighbor_cells)}) for correlation analysis. Need at least 5 cells.")
-
-        print(f"Found {len(center_cells)} center cells with motif nearby.")
-        print(f"Found {len(neighbor_cells)} motif neighbor cells.")
-        print(f"Found {len(non_neighbor_cells)} non-neighbor motif cells.")
-        print(f"Found {len(center_neighbor_pairs)} center-neighbor pairs.")
         
 
         # Get gene list
@@ -1065,7 +970,6 @@ class spatial_query:
         all_cell_types = np.unique(self.labels)
         cell_type_means = {}  # Dictionary to store mean expression for each cell type
 
-        print("Computing cell-type-specific global means...")
         for cell_type in all_cell_types:
             ct_mask = self.labels == cell_type
             ct_cells = np.where(ct_mask)[0]
@@ -1084,7 +988,6 @@ class spatial_query:
         # ==================================================================================
         print("\n" + "="*60)
         print("Computing Correlation 1: Center with motif vs Neighboring motif (paired)")
-        print("Using cell-type-specific references for each pair")
         print("="*60)
 
         # Convert pairs to arrays
@@ -1112,17 +1015,15 @@ class spatial_query:
         print(f"Number of pairs: {n_pairs}")
         print(f"Unique center cells: {len(np.unique(pair_centers))}")
         print(f"Unique neighbor cells: {len(np.unique(pair_neighbors))}")
-        print(f"Neighbor cell types in pairs: {np.unique(neighbor_cell_types)}")
         print(f"Effective sample size: {n_eff_neighbor}")
 
         end_time = time()
-        print(f"Time for computing correlation 1 matrix: {end_time - start_time:.4f} seconds")
+        print(f"Time for computing correlation-1 matrix: {end_time - start_time:.4f} seconds")
         # ==================================================================================
         # Correlation 2: Center with motif vs Distant motif (ALL PAIRS)
         # ==================================================================================
         print("\n" + "="*60)
         print("Computing Correlation 2: Center with motif vs Distant motif (all pairs)")
-        print("Using cell-type-specific references for non-neighbor cells")
         print("="*60)
         start_time = time()
 
@@ -1143,13 +1044,12 @@ class spatial_query:
             is_sparse=is_sparse
         )
 
-        print(f"Center cells: {n_center}")
-        print(f"Distant motif cells: {n_non_neighbor}")
-        print(f"Distant motif cell types: {np.unique(non_neighbor_cell_types)}")
+        print(f"Unique center cells: {n_center}")
+        print(f"Unique distant cells: {n_non_neighbor}")
         print(f"Effective sample size: {n_eff_non_neighbor}")
 
         end_time = time()
-        print(f'\nTime for computing correlations 2: {end_time-start_time:.2f} seconds')
+        print(f'Time for computing correlations-2 matrix: {end_time-start_time:.2f} seconds')
 
         # ==================================================================================
         # Correlation 3: Center without motif vs Neighbors (PAIRED DATA)
@@ -1175,25 +1075,13 @@ class spatial_query:
             print(f"Not enough pairs ({len(center_no_motif_pairs)}) for centers without motif. Skipping.")
             corr_matrix_no_motif = None
             n_eff_no_motif = 0
-            centers_without_motif = np.array([])
-            centers_without_motif_neighbors = np.array([])
         else:
-            # Extract unique center and neighbor cells from pairs
-            centers_without_motif = np.unique(center_no_motif_pairs[:, 0])
-            centers_without_motif_neighbors = np.unique(center_no_motif_pairs[:, 1])
-
-            print(f"Found {len(centers_without_motif)} center cells without motif nearby")
-            print(f"Found {len(centers_without_motif_neighbors)} neighbor cells for centers without motif")
-            print(f"Found {len(center_no_motif_pairs)} center-neighbor pairs")
-
             # Extract paired data
             pair_centers_no_motif = center_no_motif_pairs[:, 0]
             pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
 
             # Get cell types for each neighbor in pairs
             neighbor_no_motif_cell_types = self.labels[pair_neighbors_no_motif]
-
-            print(f"Found {len(center_no_motif_pairs)} center-neighbor pairs")
 
             corr_matrix_no_motif, n_eff_no_motif = spatial_utils.compute_cross_correlation_paired(
                 sq_obj=self,
@@ -1205,10 +1093,10 @@ class spatial_query:
                 neighbor_cell_types=neighbor_no_motif_cell_types,
                 is_sparse=is_sparse
             )
-
+            
+            print(f"Number of pairs: {len(center_no_motif_pairs)}")
             print(f"Unique center cells: {len(np.unique(pair_centers_no_motif))}")
             print(f"Unique neighbor cells: {len(np.unique(pair_neighbors_no_motif))}")
-            print(f"Neighbor cell types in pairs: {np.unique(neighbor_no_motif_cell_types)}")
             print(f"Effective sample size: {n_eff_no_motif}")
 
         end_time = time()
@@ -1221,39 +1109,8 @@ class spatial_query:
 
         start_time = time()
 
-        # Fisher Z transformation (vectorized)
-        def fisher_z_transform(r):
-            """Fisher Z transformation for correlation coefficient"""
-            r_clipped = np.clip(r, -0.9999, 0.9999)
-            return 0.5 * np.log((1 + r_clipped) / (1 - r_clipped))
-
-        def fisher_z_test_vectorized(r1, n1, r2, n2):
-            """
-            Vectorized Fisher Z-test for comparing correlation matrices.
-            Two-tailed test: H0: r1 = r2, H1: r1 != r2
-
-            Parameters:
-            r1, r2: correlation matrices (can be 2D arrays)
-            n1, n2: effective sample sizes (scalars)
-
-            Returns:
-            z_stat: Z statistic matrix
-            p_value: two-tailed p-value matrix
-            """
-            z1 = fisher_z_transform(r1)
-            z2 = fisher_z_transform(r2)
-
-            se_diff = np.sqrt(1/(n1-3) + 1/(n2-3))
-            z_stat = (z1 - z2) / se_diff
-
-            # Two-tailed p-value: P(|Z| > |z_stat|)
-            # This detects significant differences in both directions
-            p_value = 2 * (1 - scipy_stats.norm.cdf(np.abs(z_stat)))
-
-            return z_stat, p_value
-
         # Test 1: Corr1 vs Corr2 (neighbor vs non-neighbor) - vectorized
-        _, p_value_test1 = fisher_z_test_vectorized(
+        _, p_value_test1 = spatial_utils.fisher_z_test(
             corr_matrix_neighbor, n_eff_neighbor,
             corr_matrix_non_neighbor, n_eff_non_neighbor
         )
@@ -1261,7 +1118,7 @@ class spatial_query:
 
         # Test 2: Corr1 vs Corr3 (neighbor vs no_motif) - vectorized if available
         if corr_matrix_no_motif is not None:
-            _, p_value_test2 = fisher_z_test_vectorized(
+            _, p_value_test2 = spatial_utils.fisher_z_test(
                 corr_matrix_neighbor, n_eff_neighbor,
                 corr_matrix_no_motif, n_eff_no_motif
             )
@@ -1304,7 +1161,7 @@ class spatial_query:
 
         # Apply FDR correction accounting for ALL tests performed
         # Strategy: Pool all p-values from both tests, apply FDR jointly
-        print(f"\nTotal gene pairs: {len(results_df)}")
+        print(f"Total gene pairs: {len(results_df)}")
 
         if corr_matrix_no_motif is not None:
             # Step 1: Filter by direction consistency first
@@ -1383,15 +1240,18 @@ class spatial_query:
         if corr_matrix_no_motif is not None:
             results_df['abs_combined_score'] = np.abs(results_df['combined_score'])
             results_df = results_df.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            results_df['if_significant'] = results_df['reject_test1_fdr'] & results_df['reject_test2_fdr']
         else:
             # Sort by absolute value of test1 score if test2 not available
             results_df['test1_score'] = results_df['delta_corr_test1'] * (-np.log10(results_df['p_value_test1'] + 1e-300))
+            results_df['combined_score'] = results_df['test1_score']
             results_df['abs_test1_score'] = np.abs(results_df['test1_score'])
             results_df = results_df.sort_values('abs_test1_score', ascending=False, na_position='last')
+            results_df['if_significant'] = results_df['reject_test1_fdr'] & results_df['reject_test2_fdr']
 
-        print(f"\nResults prepared and sorted by {'absolute value of combined_score' if corr_matrix_no_motif is not None else 'absolute value of test1_score'}")
+
         end_time = time()
-        print(f"Time for testing results: {end_time - start_time:.2f} seconds")
+        print(f"Time for testing results: {end_time - start_time:.2f} seconds\n")
 
         # Prepare cell groups dictionary with cell pairs for each correlation
         cell_groups = {
@@ -1465,8 +1325,20 @@ class spatial_query:
         # Get non-center cell types in motif
         non_center_types = [m for m in motif if m != ct]
 
-        if len(non_center_types) < 2:
-            raise ValueError(f"Motif must contain at least 2 cell types besides the center type. Found only {len(non_center_types)} non-center types: {non_center_types}")
+        if len(non_center_types) == 1:
+            print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation method.")
+            result, _ = self.compute_gene_gene_correlation(
+                ct=ct,
+                motif=motif,
+                genes=genes,
+                max_dist=max_dist,
+                k=k,
+                min_size=min_size,
+                min_nonzero=min_nonzero
+            )
+            return result
+        elif len(non_center_types) == 0:
+            raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
 
         print(f"Analyzing {len(non_center_types)} non-center cell types in motif: {non_center_types}")
         print("="*80)
@@ -1493,10 +1365,6 @@ class spatial_query:
             non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
             print(f'Removed {center_cell_mask_non.sum()} center type cells from non-neighbor group.')
 
-        print(f"Found {len(center_cells)} center cells with motif nearby.")
-        print(f"Found {len(neighbor_cells)} total motif neighbor cells.")
-        print(f"Found {len(non_neighbor_cells)} total non-neighbor motif cells.")
-        print(f"Found {len(center_neighbor_pairs)} center-neighbor pairs.")
 
         # Get gene list
         if genes is None:
@@ -1534,7 +1402,6 @@ class spatial_query:
         all_cell_types = np.unique(self.labels)
         cell_type_means = {}
 
-        print("\nComputing cell-type-specific global means...")
         for cell_type in all_cell_types:
             ct_mask = self.labels == cell_type
             ct_cells = np.where(ct_mask)[0]
@@ -1552,7 +1419,7 @@ class spatial_query:
         # Correlation 3: Center without motif vs Neighbors (SAME FOR ALL TYPES)
         # ==================================================================================
         print("\n" + "="*80)
-        print("Computing Correlation 3: Center without motif vs Neighbors (shared)")
+        print("Computing Correlation-3: Center without motif vs Neighbors")
         print("="*80)
 
         start_time = time()
@@ -1572,91 +1439,27 @@ class spatial_query:
             corr_matrix_no_motif = None
             n_eff_no_motif = 0
         else:
-            print(f"Found {len(center_no_motif_pairs)} center-neighbor pairs without motif")
 
             # Compute correlation 3 (same logic as original function)
             pair_centers_no_motif = center_no_motif_pairs[:, 0]
             pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
 
-            pair_center_no_motif_expr = expr_genes[pair_centers_no_motif, :]
-            pair_neighbor_no_motif_expr = expr_genes[pair_neighbors_no_motif, :]
-
             neighbor_no_motif_cell_types = self.labels[pair_neighbors_no_motif]
-            n_pairs_no_motif = len(pair_centers_no_motif)
-
-            if is_sparse:
-                unique_neighbor_no_motif_types, type_counts = np.unique(neighbor_no_motif_cell_types, return_counts=True)
-                n_types = len(unique_neighbor_no_motif_types)
-
-                type_to_idx = {ct_temp: idx for idx, ct_temp in enumerate(unique_neighbor_no_motif_types)}
-                type_indices = np.array([type_to_idx[ct_temp] for ct_temp in neighbor_no_motif_cell_types])
-
-                neighbor_type_means_matrix = np.column_stack([cell_type_means[ct_temp] for ct_temp in unique_neighbor_no_motif_types])
-
-                # Cross-covariance computation
-                cross_product = pair_center_no_motif_expr.T @ pair_neighbor_no_motif_expr
-                if sparse.issparse(cross_product):
-                    cross_product = np.asarray(cross_product.todense())
-                term1 = cross_product / n_pairs_no_motif
-
-                from scipy.sparse import csr_matrix
-                type_indicator = csr_matrix((np.ones(n_pairs_no_motif), (np.arange(n_pairs_no_motif), type_indices)),
-                                           shape=(n_pairs_no_motif, n_types))
-
-                sum_center_by_type = pair_center_no_motif_expr.T @ type_indicator
-                if sparse.issparse(sum_center_by_type):
-                    sum_center_by_type = np.asarray(sum_center_by_type.todense())
-
-                term2 = (sum_center_by_type @ neighbor_type_means_matrix.T) / n_pairs_no_motif
-
-                sum_neighbor = np.array(pair_neighbor_no_motif_expr.sum(axis=0)).flatten()
-                term3 = np.outer(center_mean, sum_neighbor / n_pairs_no_motif)
-
-                weighted_neighbor_mean = (neighbor_type_means_matrix @ type_counts) / n_pairs_no_motif
-                term4 = np.outer(center_mean, weighted_neighbor_mean)
-
-                cross_cov_no_motif = term1 - term2 - term3 + term4
-
-                # Variance computation
-                sum_sq_center = np.array(pair_center_no_motif_expr.power(2).sum(axis=0)).flatten()
-                sum_center = np.array(pair_center_no_motif_expr.sum(axis=0)).flatten()
-                var_center_no_motif = (sum_sq_center / n_pairs_no_motif
-                                    - 2 * center_mean * sum_center / n_pairs_no_motif
-                                    + center_mean**2)
-
-                sum_sq_neighbor = np.array(pair_neighbor_no_motif_expr.power(2).sum(axis=0)).flatten()
-
-                sum_neighbor_by_type = pair_neighbor_no_motif_expr.T @ type_indicator
-                if sparse.issparse(sum_neighbor_by_type):
-                    sum_neighbor_by_type = np.asarray(sum_neighbor_by_type.todense())
-
-                term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1) / n_pairs_no_motif
-                term_mean_sq = ((neighbor_type_means_matrix**2) @ type_counts) / n_pairs_no_motif
-
-                var_neighbor_no_motif = sum_sq_neighbor / n_pairs_no_motif - 2 * term_y_mean + term_mean_sq
-
-                std_center_no_motif = np.sqrt(np.maximum(var_center_no_motif, 0))
-                std_neighbor_no_motif = np.sqrt(np.maximum(var_neighbor_no_motif, 0))
-            else:
-                neighbor_type_means_matrix = np.array([cell_type_means[ct_temp] for ct_temp in neighbor_no_motif_cell_types])
-
-                pair_center_no_motif_shifted = pair_center_no_motif_expr - center_mean[np.newaxis, :]
-                pair_neighbor_no_motif_shifted = pair_neighbor_no_motif_expr - neighbor_type_means_matrix
-
-                cross_cov_no_motif = (pair_center_no_motif_shifted.T @ pair_neighbor_no_motif_shifted) / n_pairs_no_motif
-
-                std_center_no_motif = np.sqrt(np.maximum((pair_center_no_motif_shifted**2).sum(axis=0) / n_pairs_no_motif, 0))
-                std_neighbor_no_motif = np.sqrt(np.maximum((pair_neighbor_no_motif_shifted**2).sum(axis=0) / n_pairs_no_motif, 0))
-
-            std_outer_no_motif = np.outer(std_center_no_motif, std_neighbor_no_motif)
-            std_outer_no_motif[std_outer_no_motif == 0] = 1e-10
-
-            corr_matrix_no_motif = cross_cov_no_motif / std_outer_no_motif
-
-            center_no_motif_unique = len(np.unique(pair_centers_no_motif))
-            neighbor_no_motif_unique = len(np.unique(pair_neighbors_no_motif))
-            n_eff_no_motif = min(center_no_motif_unique, neighbor_no_motif_unique)
-
+            
+            # Use helper function for correlation computation (paired data)
+            corr_matrix_no_motif, n_eff_no_motif = spatial_utils.compute_cross_correlation_paired(
+                sq_obj=self,
+                expr_genes=expr_genes,
+                pair_centers=pair_centers_no_motif,
+                pair_neighbors=pair_neighbors_no_motif,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                neighbor_cell_types=neighbor_no_motif_cell_types,
+                is_sparse=is_sparse
+            )
+            print(f"Unique center cells: {len(np.unique(pair_centers_no_motif))}")
+            print(f"Unique neighbor cells: {len(np.unique(pair_neighbors_no_motif))}")
+            print(f"Number of pairs: {len(pair_centers_no_motif)}")
             print(f"Effective sample size: {n_eff_no_motif}")
 
         end_time = time()
@@ -1691,16 +1494,16 @@ class spatial_query:
             if len(type_non_neighbor_cells) < 10:
                 print(f"Not enough non-neighbor cells ({len(type_non_neighbor_cells)}) for {cell_type}. Skipping.")
                 continue
-
-            print(f"  - {len(type_specific_center_cells)} center cells paired with {cell_type}")
-            print(f"  - {len(type_specific_neighbor_cells)} neighboring {cell_type} cells")
-            print(f"  - {len(type_non_neighbor_cells)} distant {cell_type} cells")
-            print(f"  - {len(type_specific_pairs)} center-neighbor pairs")
+            
+            print(f"{len(type_specific_center_cells)} center cells paired with {cell_type}")
+            print(f"{len(type_specific_neighbor_cells)} neighboring cells of {cell_type}")
+            print(f"{len(type_non_neighbor_cells)} distant cells of {cell_type}")
+            print(f"{len(type_specific_pairs)} center-neighboring {cell_type} pairs")
 
             # ==================================================================================
             # Correlation 1: Center with motif vs Neighboring cells of THIS TYPE (PAIRED)
             # ==================================================================================
-            print(f"\nComputing Correlation 1 for {cell_type}...")
+            print(f"\nComputing Correlation-1...")
             start_time = time()
 
             pair_centers = type_specific_pairs[:, 0]
@@ -1726,10 +1529,9 @@ class spatial_query:
             # ==================================================================================
             # Correlation 2: Center with motif vs Distant cells of THIS TYPE (ALL PAIRS)
             # ==================================================================================
-            print(f"\nComputing Correlation 2 for {cell_type}...")
+            print(f"\nComputing Correlation-2 ...")
             start_time = time()
 
-            n_center = len(type_specific_center_cells)
             n_non_neighbor = len(type_non_neighbor_cells)
 
             # All non-neighbors are of the same type, create uniform type array
@@ -1755,20 +1557,8 @@ class spatial_query:
             print(f"\nPerforming statistical tests for {cell_type}...")
             start_time = time()
 
-            def fisher_z_transform(r):
-                r_clipped = np.clip(r, -0.9999, 0.9999)
-                return 0.5 * np.log((1 + r_clipped) / (1 - r_clipped))
-
-            def fisher_z_test_vectorized(r1, n1, r2, n2):
-                z1 = fisher_z_transform(r1)
-                z2 = fisher_z_transform(r2)
-                se_diff = np.sqrt(1/(n1-3) + 1/(n2-3))
-                z_stat = (z1 - z2) / se_diff
-                p_value = 2 * (1 - scipy_stats.norm.cdf(np.abs(z_stat)))
-                return z_stat, p_value
-
             # Test 1: Corr1 vs Corr2
-            _, p_value_test1 = fisher_z_test_vectorized(
+            _, p_value_test1 = spatial_utils.fisher_z_test(
                 corr_matrix_neighbor, n_eff_neighbor,
                 corr_matrix_non_neighbor, n_eff_non_neighbor
             )
@@ -1776,7 +1566,7 @@ class spatial_query:
 
             # Test 2: Corr1 vs Corr3
             if corr_matrix_no_motif is not None:
-                _, p_value_test2 = fisher_z_test_vectorized(
+                _, p_value_test2 = spatial_utils.fisher_z_test(
                     corr_matrix_neighbor, n_eff_neighbor,
                     corr_matrix_no_motif, n_eff_no_motif
                 )
@@ -1837,8 +1627,9 @@ class spatial_query:
 
             if same_direction.sum() > 0:
                 # Pool all p-values for FDR correction
-                p_values_test1 = combined_results.loc[same_direction, 'p_value_test1'].values
-                p_values_test2 = combined_results.loc[same_direction, 'p_value_test2'].values
+                combined_results = combined_results[same_direction]
+                p_values_test1 = combined_results['p_value_test1'].values
+                p_values_test2 = combined_results['p_value_test2'].values
 
                 all_p_values = np.concatenate([p_values_test1, p_values_test2])
                 n_consistent = same_direction.sum()
@@ -1856,21 +1647,17 @@ class spatial_query:
                 reject_test1 = reject_all[:n_consistent]
                 reject_test2 = reject_all[n_consistent:]
 
-                combined_results.loc[same_direction, 'q_value_test1'] = q_values_test1
-                combined_results.loc[same_direction, 'q_value_test2'] = q_values_test2
-                combined_results.loc[same_direction, 'reject_test1_fdr'] = reject_test1
-                combined_results.loc[same_direction, 'reject_test2_fdr'] = reject_test2
-
-                # Keep only consistent direction pairs
-                combined_results = combined_results[same_direction]
+                combined_results['q_value_test1'] = q_values_test1
+                combined_results['q_value_test2'] = q_values_test2
+                combined_results['reject_test1_fdr'] = reject_test1
+                combined_results['reject_test2_fdr'] = reject_test2
 
                 mask_both_fdr = reject_test1 & reject_test2
                 n_both_fdr = mask_both_fdr.sum()
 
-                print(f"\nFDR correction results:")
-                print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
-                print(f"  - Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
-                print(f"  - Both tests FDR significant: {n_both_fdr}")
+                print(f"Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+                print(f"Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
+                print(f"Both tests FDR significant: {n_both_fdr}")
 
                 # Summary by cell type
                 print(f"\nSignificant gene pairs by cell type:")
@@ -1888,6 +1675,7 @@ class spatial_query:
                 print("No gene pairs with consistent direction found.")
         else:
             # Only test1 available
+            alpha = 0.05
             print("Note: Test2 not available (no centers without motif)")
             p_values_test1_all = combined_results['p_value_test1'].values
             reject_test1, q_values_test1, _, _ = multipletests(
@@ -1901,20 +1689,284 @@ class spatial_query:
             combined_results['reject_test2_fdr'] = False
 
             print(f"FDR correction applied to {len(combined_results)} gene pairs:")
-            print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+            print(f"Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
 
         # Sort by absolute value of combined score
         if corr_matrix_no_motif is not None:
             combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
             combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            combined_results['if_significant'] = combined_results['reject_test1_fdr'] & combined_results['reject_test2_fdr']
         else:
             combined_results['test1_score'] = combined_results['delta_corr_test1'] * (-np.log10(combined_results['p_value_test1'] + 1e-300))
+            combined_results['combined_score'] = combined_results['test1_score']
             combined_results['abs_test1_score'] = np.abs(combined_results['test1_score'])
             combined_results = combined_results.sort_values('abs_test1_score', ascending=False, na_position='last').reset_index(drop=True)
-
+            combined_results['if_significant'] = combined_results['reject_test1_fdr']
+            
         print(f"\nResults prepared and sorted")
 
         return combined_results
+    
+
+    @staticmethod
+    def test_score_difference(
+            result_A: pd.DataFrame,
+            result_B: pd.DataFrame,
+            score_col: str = 'combined_score',
+            significance_col: str = 'if_significant',
+            gene_center_col: str = 'gene_center',
+            gene_motif_col: str = 'gene_motif',
+            percentile_threshold: float = 95.0,
+            background: Literal ['Overlapping', 'Significant'] = 'Significant'
+            ) -> pd.DataFrame:
+        """
+        Test whether gene-pairs have significantly different correlation scores between two groups.
+
+        Parameters
+        ----------
+        result_A : pd.DataFrame
+            Results from compute_gene_gene_correlation/_by_type for condition A
+            Must contain columns: gene_center, gene_motif, combined_score, if_significant
+        result_B : pd.DataFrame
+            Results from compute_gene_gene_correlation/_by_type for condition B
+            Must contain the same columns as result_A
+        score_col : str, default='combined_score'
+            Name of the column containing correlation scores to compare
+        significance_col : str, default='if_significant'
+            Name of the column indicating whether a pair is significant
+        gene_center_col : str, default='gene_center'
+            Name of the column containing center gene names
+        gene_motif_col : str, default='gene_motif'
+            Name of the column containing motif gene names
+        percentile_threshold : float, default=95.0
+            Percentile threshold for identifying outliers (e.g., 95 means top/bottom 5%)
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns:
+            - gene_center: center gene name
+            - gene_motif: motif gene name
+            - score_A: score in condition A
+            - score_B: score in condition B
+            - score_diff: score_A - score_B
+            - percentile: percentile rank of score_diff in the distribution
+            - is_outlier: whether this pair is an outlier (percentile > 95 or < 5)
+            - significant_in_A: whether pair is significant in condition A
+            - significant_in_B: whether pair is significant in condition B
+            - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
+
+        """
+
+        # Validate inputs
+        required_cols = [gene_center_col, gene_motif_col, score_col, significance_col]
+        for col in required_cols:
+            if col not in result_A.columns:
+                raise ValueError(f"Column '{col}' not found in result_A")
+            if col not in result_B.columns:
+                raise ValueError(f"Column '{col}' not found in result_B")
+
+        # Create pair identifiers
+        result_A = result_A.copy()
+        result_B = result_B.copy()
+        result_A['pair_id'] = result_A[gene_center_col] + '|' + result_A[gene_motif_col]
+        result_B['pair_id'] = result_B[gene_center_col] + '|' + result_B[gene_motif_col]
+
+        # Find pairs that are significant in at least one group
+        sig_pairs_A = set(result_A[result_A[significance_col]]['pair_id'])
+        sig_pairs_B = set(result_B[result_B[significance_col]]['pair_id'])
+        at_least_one_sig = sig_pairs_A | sig_pairs_B
+
+        print(f"Significant pairs in A: {len(sig_pairs_A)}")
+        print(f"Significant pairs in B: {len(sig_pairs_B)}")
+        print(f"Pairs that are significant in at least one group: {len(at_least_one_sig)}")
+
+        # Find overlapping pairs (present in both groups)
+        pairs_A = set(result_A['pair_id'])
+        pairs_B = set(result_B['pair_id'])
+        overlapping_pairs = pairs_A & pairs_B
+
+        # Filter for overlapping pairs that are significant in at least one group
+
+        pairs_to_test = overlapping_pairs & at_least_one_sig if background == 'Significant' else overlapping_pairs
+        # pairs_to_test = overlapping_pairs  # TODO: 先试试如果把所有overlapping的pairs作为null distribution有什么影响. 返回的结果肯定更多
+
+
+        if len(pairs_to_test) == 0:
+            raise ValueError("No overlapping gene-pairs found that are significant in at least one group")
+
+        # Extract scores for these pairs
+        result_A_filtered = result_A[result_A['pair_id'].isin(pairs_to_test)].copy()
+        result_B_filtered = result_B[result_B['pair_id'].isin(pairs_to_test)].copy()
+
+        # Merge to ensure alignment
+        merged = result_A_filtered.merge(
+            result_B_filtered,
+            on='pair_id',
+            suffixes=('_A', '_B')
+        )
+
+        # Calculate score differences
+        score_col_A = score_col + '_A'
+        score_col_B = score_col + '_B'
+        merged['score_diff'] = merged[score_col_A] - merged[score_col_B]
+
+        # Compute percentile for each pair
+        diff_all = merged['score_diff'].values
+        merged['percentile'] = merged['score_diff'].apply(
+            lambda x: percentileofscore(diff_all, x, kind='rank')
+        )
+
+        # Identify outliers
+        lower_threshold = 100 - percentile_threshold
+        merged['is_outlier'] = (merged['percentile'] > percentile_threshold) | \
+                            (merged['percentile'] < lower_threshold)
+
+        # Classify outlier direction
+        merged['outlier_direction'] = 'not_outlier'
+        merged.loc[merged['percentile'] > percentile_threshold, 'outlier_direction'] = 'higher_in_A'
+        merged.loc[merged['percentile'] < lower_threshold, 'outlier_direction'] = 'lower_in_A'
+
+        # Prepare output columns
+        output_cols = [
+            gene_center_col + '_A',
+            gene_motif_col + '_A',
+            score_col_A,
+            score_col_B,
+            'score_diff',
+            'percentile',
+            'is_outlier',
+            significance_col + '_A',
+            significance_col + '_B',
+            'outlier_direction'
+        ]
+
+        result = merged[output_cols].copy()
+        result.columns = [
+            'gene_center',
+            'gene_motif',
+            'score_A',
+            'score_B',
+            'score_diff',
+            'percentile',
+            'is_outlier',
+            'significant_in_A',
+            'significant_in_B',
+            'outlier_direction'
+        ]
+
+        # Sort by absolute score difference (descending)
+        result['abs_score_diff'] = np.abs(result['score_diff'])
+        result = result.sort_values('abs_score_diff', ascending=False).reset_index(drop=True)
+        result = result.drop('abs_score_diff', axis=1)
+
+        # Print summary
+        n_outliers = result['is_outlier'].sum()
+        n_higher_A = (result['outlier_direction'] == 'higher_in_A').sum()
+        n_lower_A = (result['outlier_direction'] == 'lower_in_A').sum()
+
+        print(f"\n{'='*60}")
+        print(f"Score Difference Test Results")
+        print(f"{'='*60}")
+        print(f"Total pairs tested: {len(result)}")
+        print(f"Outlier pairs (percentile > {percentile_threshold} or < {100-percentile_threshold}): {n_outliers}")
+        print(f"  Higher in group A: {n_higher_A}")
+        print(f"  Lower in group A: {n_lower_A}")
+        print(f"\nScore difference range: [{result['score_diff'].min():.3f}, {result['score_diff'].max():.3f}]")
+        print(f"Mean score difference: {result['score_diff'].mean():.3f}")
+        print(f"Std score difference: {result['score_diff'].std():.3f}")
+
+        return result
+    
+    def plot_fov(self,
+                 min_cells_label: int = 50,
+                 title: str = 'Spatial distribution of cell types',
+                 figsize: tuple = (10, 5),
+                 save_path: Optional[str] = None,
+                 ):
+        """
+        Plot the cell type distribution of single fov.
+
+        Parameter
+        --------
+        min_cells_label:
+            Minimum number of points in each cell type to display.
+        title:
+            Figure title.
+        figsize:
+            Figure size parameter.
+
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
+        """
+        return plotting.plot_fov(sq_obj=self, min_cells_label=min_cells_label, title=title, figsize=figsize, save_path=save_path)
+
+    def plot_motif_grid(self,
+                        motif: Union[str, List[str]],
+                        figsize: tuple = (10, 5),
+                        max_dist: float = 100,
+                        save_path: Optional[str] = None
+                        ):
+        """
+        Display the distribution of each motif around grid points.
+
+        Parameter
+        ---------
+        motif:
+            Motif (names of cell types) to be colored
+        max_dist:
+            Spacing distance for building grid.
+        figsize:
+            Figure size.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
+        """
+        return plotting.plot_motif_grid(sq_obj=self, motif=motif, figsize=figsize, max_dist=max_dist, save_path=save_path)
+
+    def plot_motif_rand(self,
+                        motif: Union[str, List[str]],
+                        max_dist: float = 100,
+                        n_points: int = 1000,
+                        figsize: tuple = (10, 5),
+                        seed: int = 2023,
+                        save_path: Optional[str] = None
+                        ):
+        """
+        Display the random sampled points with motif in radius-based neighborhood,
+        and cell types of motif in the neighborhood of these random points.
+
+        Parameter
+        ---------
+        motif:
+            Motif (names of cell types) to be colored
+        max_dist:
+            Radius for neighborhood search.
+        n_points:
+            Number of random points to generate.
+        figsize:
+            Figure size.
+        seed:
+            Set random seed for reproducible.
+        save_path:
+            Path to save the figure.
+            If None, the figure will not be saved.
+
+        Return
+        ------
+        A figure.
+        """
+        return plotting.plot_motif_rand(sq_obj=self, motif=motif, max_dist=max_dist, n_points=n_points, figsize=figsize, seed=seed, save_path=save_path)
+
 
     def plot_motif_celltype(self,
                             ct: str,
@@ -1946,12 +1998,11 @@ class spatial_query:
         ------
         A figure.
         """
-        from . import plotting
         return plotting.plot_motif_celltype(sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, figsize=figsize, save_path=save_path)
 
     def plot_all_center_motif(
             self,
-            center: str,
+            ct: str,
             ids: dict,
             figsize: tuple = (6, 6),
             save_path: Optional[str] = None,
@@ -1986,5 +2037,4 @@ class spatial_query:
         ------
         A figure.
         """
-        from . import plotting
-        return plotting.plot_all_center_motif(sq_obj=self, center=center, ids=ids, figsize=figsize, save_path=save_path)
+        return plotting.plot_all_center_motif(sq_obj=self, ct=ct, ids=ids, figsize=figsize, save_path=save_path)

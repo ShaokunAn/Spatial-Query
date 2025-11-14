@@ -16,6 +16,7 @@ from statsmodels.stats.multitest import multipletests
 from scipy.sparse import csr_matrix
 import scanpy as sc
 from scipy.spatial import KDTree
+from scipy import stats as scipy_stats
 
 def initialize_grids(spatial_pos, labels, n_split, overlap_radius):
     """
@@ -1195,3 +1196,242 @@ def get_all_neighbor_cells(sq_obj,
         'center_neighbor_pairs': center_neighbor_pairs
     }
 
+
+def fisher_z_transform(r):
+    """Fisher Z transformation for correlation coefficient"""
+    r_clipped = np.clip(r, -0.9999, 0.9999)
+    return 0.5 * np.log((1 + r_clipped) / (1 - r_clipped))
+
+def fisher_z_test(r1, n1, r2, n2):
+    """
+    Vectorized Fisher Z-test for comparing correlation matrices.
+    Two-tailed test: H0: r1 = r2, H1: r1 != r2
+
+    Parameters:
+    r1, r2: correlation matrices (can be 2D arrays)
+    n1, n2: effective sample sizes (scalars)
+
+    Returns:
+    z_stat: Z statistic matrix
+    p_value: two-tailed p-value matrix
+    """
+    z1 = fisher_z_transform(r1)
+    z2 = fisher_z_transform(r2)
+
+    se_diff = np.sqrt(1/(n1-3) + 1/(n2-3))
+    z_stat = (z1 - z2) / se_diff
+
+    # Two-tailed p-value: P(|Z| > |z_stat|)
+    # This detects significant differences in both directions
+    p_value = 2 * (1 - scipy_stats.norm.cdf(np.abs(z_stat)))
+
+    return z_stat, p_value
+
+
+def test_score_difference(result_A: pd.DataFrame,
+                         result_B: pd.DataFrame,
+                         score_col: str = 'combined_score',
+                         significance_col: str = 'if_significant',
+                         gene_center_col: str = 'gene_center',
+                         gene_motif_col: str = 'gene_motif',
+                         percentile_threshold: float = 95.0) -> pd.DataFrame:
+    """
+    Test whether gene-pairs have significantly different correlation scores between two conditions.
+
+    This function compares the combined_score (or another score column) between two groups of
+    gene-pairs (e.g., from different motifs or conditions). It:
+    1. Identifies overlapping gene-pairs present in both groups
+    2. Filters for pairs that are significant in at least one group
+    3. Computes score differences (scores_A - scores_B) for all overlapping pairs
+    4. For each pair, computes its percentile rank in the score difference distribution
+    5. Identifies outlier pairs (percentile > 95 or < 5) as significantly different
+
+    Algorithm:
+    ----------
+    For overlapping gene-pairs X:
+        diff_X = score_X_A - score_X_B
+
+    For the distribution of all differences diff_all:
+        percentile_X = percentileofscore(diff_all, diff_X)
+
+    If percentile_X > 95 or < 5:
+        → pair X is an outlier (significantly higher/lower in group A)
+
+    Parameters
+    ----------
+    result_A : pd.DataFrame
+        Results from compute_gene_gene_correlation/_by_type for condition A
+        Must contain columns: gene_center, gene_motif, combined_score, if_significant
+    result_B : pd.DataFrame
+        Results from compute_gene_gene_correlation/_by_type for condition B
+        Must contain the same columns as result_A
+    score_col : str, default='combined_score'
+        Name of the column containing correlation scores to compare
+    significance_col : str, default='if_significant'
+        Name of the column indicating whether a pair is significant
+    gene_center_col : str, default='gene_center'
+        Name of the column containing center gene names
+    gene_motif_col : str, default='gene_motif'
+        Name of the column containing motif gene names
+    percentile_threshold : float, default=95.0
+        Percentile threshold for identifying outliers (e.g., 95 means top/bottom 5%)
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns:
+        - gene_center: center gene name
+        - gene_motif: motif gene name
+        - score_A: score in condition A
+        - score_B: score in condition B
+        - score_diff: score_A - score_B
+        - percentile: percentile rank of score_diff in the distribution
+        - is_outlier: whether this pair is an outlier (percentile > 95 or < 5)
+        - significant_in_A: whether pair is significant in condition A
+        - significant_in_B: whether pair is significant in condition B
+        - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
+
+    Examples
+    --------
+    >>> # Compare gene-pairs between two motifs
+    >>> result_motif1, _ = sq.compute_gene_gene_correlation_by_type(
+    ...     ct='Gut tube', motif=['Endothelium', 'Haematoendothelial progenitors'],
+    ...     max_dist=5)
+    >>> result_motif2, _ = sq.compute_gene_gene_correlation_by_type(
+    ...     ct='Gut tube', motif=['Splanchnic mesoderm'],
+    ...     max_dist=5)
+    >>>
+    >>> # Test score differences
+    >>> diff_results = test_score_difference(result_motif1, result_motif2)
+    >>>
+    >>> # Get significantly different pairs
+    >>> significant_diff = diff_results[diff_results['is_outlier']]
+    >>> print(f"Found {len(significant_diff)} significantly different pairs")
+    >>>
+    >>> # Get pairs higher in motif1
+    >>> higher_in_A = diff_results[diff_results['outlier_direction'] == 'higher_in_A']
+    """
+    from scipy.stats import percentileofscore
+
+    # Validate inputs
+    required_cols = [gene_center_col, gene_motif_col, score_col, significance_col]
+    for col in required_cols:
+        if col not in result_A.columns:
+            raise ValueError(f"Column '{col}' not found in result_A")
+        if col not in result_B.columns:
+            raise ValueError(f"Column '{col}' not found in result_B")
+
+    # Create pair identifiers
+    result_A = result_A.copy()
+    result_B = result_B.copy()
+    result_A['pair_id'] = result_A[gene_center_col] + '|' + result_A[gene_motif_col]
+    result_B['pair_id'] = result_B[gene_center_col] + '|' + result_B[gene_motif_col]
+
+    # Find pairs that are significant in at least one group
+    sig_pairs_A = set(result_A[result_A[significance_col]]['pair_id'])
+    sig_pairs_B = set(result_B[result_B[significance_col]]['pair_id'])
+    at_least_one_sig = sig_pairs_A | sig_pairs_B
+
+    print(f"Total pairs in group A: {len(result_A)}")
+    print(f"Total pairs in group B: {len(result_B)}")
+    print(f"Significant pairs in A: {len(sig_pairs_A)}")
+    print(f"Significant pairs in B: {len(sig_pairs_B)}")
+    print(f"Pairs significant in at least one group: {len(at_least_one_sig)}")
+
+    # Find overlapping pairs (present in both groups)
+    pairs_A = set(result_A['pair_id'])
+    pairs_B = set(result_B['pair_id'])
+    overlapping_pairs = pairs_A & pairs_B
+
+    print(f"Overlapping pairs: {len(overlapping_pairs)}")
+
+    # Filter for overlapping pairs that are significant in at least one group
+    pairs_to_test = overlapping_pairs & at_least_one_sig
+
+    if len(pairs_to_test) == 0:
+        raise ValueError("No overlapping gene-pairs found that are significant in at least one group")
+
+    print(f"Pairs to test (overlapping AND significant in at least one): {len(pairs_to_test)}")
+
+    # Extract scores for these pairs
+    result_A_filtered = result_A[result_A['pair_id'].isin(pairs_to_test)].copy()
+    result_B_filtered = result_B[result_B['pair_id'].isin(pairs_to_test)].copy()
+
+    # Merge to ensure alignment
+    merged = result_A_filtered.merge(
+        result_B_filtered,
+        on='pair_id',
+        suffixes=('_A', '_B')
+    )
+
+    # Calculate score differences
+    score_col_A = score_col + '_A'
+    score_col_B = score_col + '_B'
+    merged['score_diff'] = merged[score_col_A] - merged[score_col_B]
+
+    # Compute percentile for each pair
+    diff_all = merged['score_diff'].values
+    merged['percentile'] = merged['score_diff'].apply(
+        lambda x: percentileofscore(diff_all, x, kind='rank')
+    )
+
+    # Identify outliers
+    lower_threshold = 100 - percentile_threshold
+    merged['is_outlier'] = (merged['percentile'] > percentile_threshold) | \
+                          (merged['percentile'] < lower_threshold)
+
+    # Classify outlier direction
+    merged['outlier_direction'] = 'not_outlier'
+    merged.loc[merged['percentile'] > percentile_threshold, 'outlier_direction'] = 'higher_in_A'
+    merged.loc[merged['percentile'] < lower_threshold, 'outlier_direction'] = 'lower_in_A'
+
+    # Prepare output columns
+    output_cols = [
+        gene_center_col + '_A',
+        gene_motif_col + '_A',
+        score_col_A,
+        score_col_B,
+        'score_diff',
+        'percentile',
+        'is_outlier',
+        significance_col + '_A',
+        significance_col + '_B',
+        'outlier_direction'
+    ]
+
+    result = merged[output_cols].copy()
+    result.columns = [
+        'gene_center',
+        'gene_motif',
+        'score_A',
+        'score_B',
+        'score_diff',
+        'percentile',
+        'is_outlier',
+        'significant_in_A',
+        'significant_in_B',
+        'outlier_direction'
+    ]
+
+    # Sort by absolute score difference (descending)
+    result['abs_score_diff'] = np.abs(result['score_diff'])
+    result = result.sort_values('abs_score_diff', ascending=False).reset_index(drop=True)
+    result = result.drop('abs_score_diff', axis=1)
+
+    # Print summary
+    n_outliers = result['is_outlier'].sum()
+    n_higher_A = (result['outlier_direction'] == 'higher_in_A').sum()
+    n_lower_A = (result['outlier_direction'] == 'lower_in_A').sum()
+
+    print(f"\n{'='*60}")
+    print(f"Score Difference Test Results")
+    print(f"{'='*60}")
+    print(f"Total pairs tested: {len(result)}")
+    print(f"Outlier pairs (percentile > {percentile_threshold} or < {100-percentile_threshold}): {n_outliers}")
+    print(f"  - Higher in A: {n_higher_A}")
+    print(f"  - Lower in A: {n_lower_A}")
+    print(f"\nScore difference range: [{result['score_diff'].min():.3f}, {result['score_diff'].max():.3f}]")
+    print(f"Mean score difference: {result['score_diff'].mean():.3f}")
+    print(f"Std score difference: {result['score_diff'].std():.3f}")
+
+    return result

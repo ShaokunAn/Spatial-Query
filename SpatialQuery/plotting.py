@@ -419,7 +419,7 @@ def plot_motif_celltype(sq_obj,
 
 
 def plot_all_center_motif(sq_obj,
-                          center: str,
+                          ct: str,
                           ids: dict,
                           figsize: tuple = (6, 6),
                           save_path: Optional[str] = None):
@@ -430,7 +430,7 @@ def plot_all_center_motif(sq_obj,
     --------
     sq_obj : spatial_query object
         The spatial_query object
-    center:
+    ct:
         Center cell type.
     ids : dict
         Dictionary containing cell pairing information for correlations:
@@ -463,8 +463,8 @@ def plot_all_center_motif(sq_obj,
     non_neighbor_motif = np.unique(ids['non-neighbor_motif_cells'])
     center_without_motif_neighbors = np.unique(ids['non_motif_center_neighbor_pair'][:, 1])
 
-    adata.obs.iloc[center_with_motif, adata.obs.columns.get_loc('tmp')] = f'center {center} with motif'
-    adata.obs.iloc[center_without_motif, adata.obs.columns.get_loc('tmp')] = f'non-motif center {center}'
+    adata.obs.iloc[center_with_motif, adata.obs.columns.get_loc('tmp')] = f'center {ct} with motif'
+    adata.obs.iloc[center_without_motif, adata.obs.columns.get_loc('tmp')] = f'non-motif center {ct}'
 
     adata.obs.iloc[neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'neighbor motif: {sq_obj.labels[i]}' for i in neighbor_motif]
     adata.obs.iloc[non_neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'non-neighbor motif: {sq_obj.labels[i]}' for i in non_neighbor_motif]
@@ -476,8 +476,8 @@ def plot_all_center_motif(sq_obj,
 
     color_dict = {
         'other': '#D3D3D3',  # light gray for other cells
-        f'center {center} with motif': "#9F0707",  # dark red
-        f'non-motif center {center}': "#075FB1",  # dark blue
+        f'center {ct} with motif': "#9F0707",  # dark red
+        f'non-motif center {ct}': "#075FB1",  # dark blue
         'non-motif-center neighbors': "#6DE7E9"  # light blue
     }
 
@@ -498,7 +498,7 @@ def plot_all_center_motif(sq_obj,
     # Plot figure
     fig, ax = plt.subplots(figsize=figsize)
     sc.pl.embedding(adata, basis='X_spatial', color='tmp', palette=color_dict, size=10, ax=ax, show=False)
-    ax.set_title(f'Cell types around {center} with motif', fontsize=10)
+    ax.set_title(f'Cell types around {ct} with motif', fontsize=10)
     if save_path is not None:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.show()
