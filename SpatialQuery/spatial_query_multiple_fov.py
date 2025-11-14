@@ -2125,8 +2125,8 @@ class spatial_query_multi:
                 - reject_test1_fdr: whether test1 passes FDR threshold
                 - reject_test2_fdr: whether test2 passes FDR threshold
                 - combined_score: combined significance score
+                - abs_combined_score: absolute value of combined score
         """
-        from time import time
 
         motif = motif if isinstance(motif, list) else [motif]
 
@@ -2152,30 +2152,48 @@ class spatial_query_multi:
         print(f"Analyzing {len(non_center_types)} non-center cell types in motif: {non_center_types}")
         print("="*80)
 
-        # Select FOVs
+        # Select FOVs (handle dataset names with and without suffix)
         if dataset is None:
-            selected_queries = self.queries
-        elif isinstance(dataset, str):
-            selected_queries = [q for q in self.queries if q.dataset == dataset]
-        else:
-            selected_queries = [q for q in self.queries if q.dataset in dataset]
+            dataset = [s.dataset.split('_')[0] for s in self.queries]
+            print(f"No dataset specified. Using all datasets.")
+        if isinstance(dataset, str):
+            dataset = [dataset]
+
+        valid_ds_names = [s.dataset.split('_')[0] for s in self.queries]
+        for ds in dataset:
+            if ds not in valid_ds_names:
+                raise ValueError(f"Invalid input dataset name: {ds}.\n "
+                               f"Valid dataset names are: {set(valid_ds_names)}")
+
+        # Filter queries to include only selected datasets
+        selected_queries = [s for s in self.queries if s.dataset.split('_')[0] in dataset]
 
         if len(selected_queries) == 0:
             raise ValueError(f"No FOVs found for dataset: {dataset}")
 
         print(f"Selected {len(selected_queries)} FOVs for analysis")
 
-        # Get common genes across FOVs
+        # Check if ct and motif exist in at least one FOV
+        ct_exists = any(ct in s.labels.unique() for s in selected_queries)
+        if not ct_exists:
+            raise ValueError(f"Center type '{ct}' not found in any selected datasets!")
+
+        motif_exists = all(any(m in s.labels.unique() for s in selected_queries) for m in motif)
+        if not motif_exists:
+            missing = [m for m in motif if not any(m in s.labels.unique() for s in selected_queries)]
+            raise ValueError(f"Motif types {missing} not found in any selected datasets!")
+
+        # Get intersection of genes across all FOVs
+        genes_sets = [set(sq.genes) for sq in selected_queries]
+        all_genes = list(set.intersection(*genes_sets))
         if genes is None:
-            genes_sets = [set(sq.genes) for sq in selected_queries]
-            genes = list(set.intersection(*genes_sets))
-            print(f"Using {len(genes)} genes common across all {len(selected_queries)} FOVs")
+            print(f"No genes specified. Using all common genes across all selected FOVs ...")
+            valid_genes = all_genes
         elif isinstance(genes, str):
             genes = [genes]
-
-        # Validate genes exist in all FOVs
-        genes_sets = [set(sq.genes) for sq in selected_queries]
-        valid_genes = [gene for gene in genes if gene in set.intersection(*genes_sets)]
+            valid_genes = [g for g in genes if g in all_genes]
+        else:
+            valid_genes = [g for g in genes if g in all_genes]
 
         if len(valid_genes) == 0:
             raise ValueError("No valid genes found across all FOVs.")
@@ -2260,12 +2278,12 @@ class spatial_query_multi:
                 neighbor_cells = np.unique(center_neighbor_pairs[:, 1])
 
                 # Get non-neighbor cells
-                motif_mask = np.isin(sq.labels.values, motif)
+                motif_mask = np.isin(sq.labels, motif)
                 all_motif_cells = np.where(motif_mask)[0]
                 non_neighbor_cells = np.setdiff1d(all_motif_cells, neighbor_cells)
 
                 if ct_in_motif:
-                    non_neighbor_cells = non_neighbor_cells[sq.labels.iloc[non_neighbor_cells] != ct]
+                    non_neighbor_cells = non_neighbor_cells[sq.labels[non_neighbor_cells] != ct]
 
                 # Store pair data for this FOV (for Step 2)
                 fov_pair_data.append({
@@ -2297,7 +2315,7 @@ class spatial_query_multi:
 
                     pair_centers_no_motif = center_no_motif_pairs[:, 0]
                     pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
-                    neighbor_no_motif_types = sq.labels.iloc[pair_neighbors_no_motif].values
+                    neighbor_no_motif_types = sq.labels[pair_neighbors_no_motif]
 
                     cov_sum, center_ss, neighbor_ss, n_pairs, n_eff = spatial_utils.compute_covariance_statistics_paired(
                         expr_genes=expr_genes,
@@ -2376,7 +2394,7 @@ class spatial_query_multi:
 
                 # Filter pairs for this cell type
                 pair_neighbors = center_neighbor_pairs[:, 1]
-                neighbor_types = sq.labels.iloc[pair_neighbors].values
+                neighbor_types = sq.labels[pair_neighbors]
                 type_mask = neighbor_types == cell_type
 
                 if type_mask.sum() == 0:
@@ -2386,7 +2404,7 @@ class spatial_query_multi:
                 type_specific_center_cells = np.unique(type_specific_pairs[:, 0])
 
                 # Filter non-neighbor cells for this type
-                type_non_neighbor_mask = sq.labels.iloc[non_neighbor_cells].values == cell_type
+                type_non_neighbor_mask = sq.labels[non_neighbor_cells] == cell_type
                 type_non_neighbor_cells = non_neighbor_cells[type_non_neighbor_mask]
 
                 if len(type_non_neighbor_cells) < 10:
@@ -2557,42 +2575,103 @@ class spatial_query_multi:
                 print(f"Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
                 print(f"Both tests FDR significant: {n_both_fdr}")
 
-                # Sort by combined score
-                combined_results = combined_results.sort_values('combined_score', ascending=False, ignore_index=True)
+                # Summary by cell type
+                print(f"\nSignificant gene pairs by cell type:")
+                for cell_type in non_center_types:
+                    type_mask = combined_results['cell_type'] == cell_type
+                    if type_mask.sum() > 0:
+                        type_sig = (combined_results.loc[type_mask, 'reject_test1_fdr'] &
+                                   combined_results.loc[type_mask, 'reject_test2_fdr']).sum()
+                        print(f"  - {cell_type}: {type_sig} significant pairs")
             else:
-                print("Warning: No gene pairs with consistent covarying direction.")
                 combined_results['q_value_test1'] = np.nan
                 combined_results['q_value_test2'] = np.nan
                 combined_results['reject_test1_fdr'] = False
                 combined_results['reject_test2_fdr'] = False
+                print("No gene pairs with consistent direction found.")
         else:
-            # Only Test 1, apply FDR correction
-            p_values_test1 = combined_results['p_value_test1'].values
+            # Only test1 available
+            alpha = 0.05
+            print("Note: Test2 not available (no centers without motif)")
+            p_values_test1_all = combined_results['p_value_test1'].values
             reject_test1, q_values_test1, _, _ = multipletests(
-                p_values_test1,
-                alpha=0.05,
+                p_values_test1_all,
+                alpha=alpha,
                 method='fdr_bh'
             )
-
             combined_results['q_value_test1'] = q_values_test1
             combined_results['reject_test1_fdr'] = reject_test1
+            combined_results['q_value_test2'] = np.nan
+            combined_results['reject_test2_fdr'] = False
 
-            print(f"Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
+            print(f"FDR correction applied to {len(combined_results)} gene pairs:")
+            print(f"Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
 
-            # Sort by p-value
-            combined_results = combined_results.sort_values('q_value_test1', ignore_index=True)
+        # Sort by absolute value of combined score
+        if corr_matrix_no_motif is not None:
+            combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
+            combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            combined_results['if_significant'] = combined_results['reject_test1_fdr'] & combined_results['reject_test2_fdr']
+        else:
+            combined_results['test1_score'] = combined_results['delta_corr_test1'] * (-np.log10(combined_results['p_value_test1'] + 1e-300))
+            combined_results['combined_score'] = combined_results['test1_score']
+            combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
+            combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            combined_results['if_significant'] = combined_results['reject_test1_fdr']
 
-        print("\n" + "="*80)
-        print("Analysis completed!")
-        print("="*80)
-        print(f"Total gene pairs analyzed: {len(combined_results)}")
-        if 'reject_test1_fdr' in combined_results.columns:
-            print(f"Significant pairs (Test1): {combined_results['reject_test1_fdr'].sum()}")
-        if 'reject_test2_fdr' in combined_results.columns:
-            print(f"Significant pairs (Test2): {combined_results['reject_test2_fdr'].sum()}")
-            print(f"Significant pairs (Both tests): {(combined_results['reject_test1_fdr'] & combined_results['reject_test2_fdr']).sum()}")
+        print(f"\nResults prepared and sorted")
 
         return combined_results
 
+    @staticmethod
+    def test_score_difference(
+        result_A: pd.DataFrame,
+        result_B: pd.DataFrame,
+        score_col: str = 'combined_score',
+        significance_col: str = 'if_significant',
+        gene_center_col: str = 'gene_center',
+        gene_motif_col: str = 'gene_motif',
+        percentile_threshold: float = 95.0,
+        background: Literal['Overlapping', 'Significant'] = 'Significant'
+        ) -> pd.DataFrame:
+        """
+        Test whether gene-pairs have significantly different correlation scores between two groups.
 
+        Parameters
+        ----------
+        result_A : pd.DataFrame
+            Results from compute_gene_gene_correlation/_by_type for condition A
+            Must contain columns: gene_center, gene_motif, combined_score, if_significant
+        result_B : pd.DataFrame
+            Results from compute_gene_gene_correlation/_by_type for condition B
+            Must contain the same columns as result_A
+        score_col : str, default='combined_score'
+            Name of the column containing correlation scores to compare
+        significance_col : str, default='if_significant'
+            Name of the column indicating whether a pair is significant
+        gene_center_col : str, default='gene_center'
+            Name of the column containing center gene names
+        gene_motif_col : str, default='gene_motif'
+            Name of the column containing motif gene names
+        percentile_threshold : float, default=95.0
+            Percentile threshold for identifying outliers (e.g., 95 means top/bottom 5%)
 
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns:
+            - gene_center: center gene name
+            - gene_motif: motif gene name
+            - score_A: score in condition A
+            - score_B: score in condition B
+            - score_diff: score_A - score_B
+            - percentile: percentile rank of score_diff in the distribution
+            - is_outlier: whether this pair is an outlier (percentile > 95 or < 5)
+            - significant_in_A: whether pair is significant in condition A
+            - significant_in_B: whether pair is significant in condition B
+            - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
+
+        """
+        from .spatial_utils import test_score_difference
+        return test_score_difference(result_A, result_B, score_col, significance_col, gene_center_col, gene_motif_col, percentile_threshold, background)
+    

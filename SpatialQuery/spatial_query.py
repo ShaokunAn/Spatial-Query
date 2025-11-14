@@ -1,5 +1,4 @@
-from collections import Counter
-from multiprocessing import Value
+
 from typing import List, Union, Optional, Literal
 
 import matplotlib.pyplot as plt
@@ -14,11 +13,8 @@ from scipy import sparse
 from scipy.stats import hypergeom, fisher_exact
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
-from matplotlib.colors import LinearSegmentedColormap
-from scipy import stats as scipy_stats
-import matplotlib.cm as cm
+
 from time import time
-from scipy.stats import percentileofscore
 
 from .scfind4sp import SCFind
 import scanpy as sc
@@ -882,6 +878,9 @@ class spatial_query:
                 - corr_diff: difference in correlation (neighbor - non_neighbor)
                 - n_neighbor: number of cells in neighbor group (after removing center type)
                 - n_non_neighbor: number of cells in non-neighbor group (after removing center type)
+                - combined_score: combined significance score
+                - abs_combined_score: absolute value of combined score
+                - if_significant: whether both tests pass FDR threshold
 
         cell_groups : dict
             Dictionary containing cell pairing information for correlations:
@@ -1246,8 +1245,8 @@ class spatial_query:
             # Sort by absolute value of test1 score if test2 not available
             results_df['test1_score'] = results_df['delta_corr_test1'] * (-np.log10(results_df['p_value_test1'] + 1e-300))
             results_df['combined_score'] = results_df['test1_score']
-            results_df['abs_test1_score'] = np.abs(results_df['test1_score'])
-            results_df = results_df.sort_values('abs_test1_score', ascending=False, na_position='last')
+            results_df['abs_combined_score'] = np.abs(results_df['combined_score'])
+            results_df = results_df.sort_values('abs_combined_score', ascending=False, na_position='last')
             results_df['if_significant'] = results_df['reject_test1_fdr'] & results_df['reject_test2_fdr']
 
 
@@ -1317,6 +1316,8 @@ class spatial_query:
                 - reject_test1_fdr: whether test1 passes FDR threshold
                 - reject_test2_fdr: whether test2 passes FDR threshold
                 - combined_score: combined significance score
+                - abs_combined_score: absolute value of combined score
+                - if_significant: whether both tests pass FDR threshold
         """
         if self.adata is None:
             raise ValueError("Expression data (adata) is not available. Please set build_gene_index=False when initializing spatial_query.")
@@ -1700,26 +1701,25 @@ class spatial_query:
         else:
             combined_results['test1_score'] = combined_results['delta_corr_test1'] * (-np.log10(combined_results['p_value_test1'] + 1e-300))
             combined_results['combined_score'] = combined_results['test1_score']
-            combined_results['abs_test1_score'] = np.abs(combined_results['test1_score'])
-            combined_results = combined_results.sort_values('abs_test1_score', ascending=False, na_position='last').reset_index(drop=True)
+            combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
+            combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
             combined_results['if_significant'] = combined_results['reject_test1_fdr']
             
         print(f"\nResults prepared and sorted")
 
         return combined_results
     
-
     @staticmethod
     def test_score_difference(
-            result_A: pd.DataFrame,
-            result_B: pd.DataFrame,
-            score_col: str = 'combined_score',
-            significance_col: str = 'if_significant',
-            gene_center_col: str = 'gene_center',
-            gene_motif_col: str = 'gene_motif',
-            percentile_threshold: float = 95.0,
-            background: Literal ['Overlapping', 'Significant'] = 'Significant'
-            ) -> pd.DataFrame:
+        result_A: pd.DataFrame,
+        result_B: pd.DataFrame,
+        score_col: str = 'combined_score',
+        significance_col: str = 'if_significant',
+        gene_center_col: str = 'gene_center',
+        gene_motif_col: str = 'gene_motif',
+        percentile_threshold: float = 95.0,
+        background: Literal['Overlapping', 'Significant'] = 'Significant'
+        ) -> pd.DataFrame:
         """
         Test whether gene-pairs have significantly different correlation scores between two groups.
 
@@ -1758,126 +1758,8 @@ class spatial_query:
             - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
 
         """
-
-        # Validate inputs
-        required_cols = [gene_center_col, gene_motif_col, score_col, significance_col]
-        for col in required_cols:
-            if col not in result_A.columns:
-                raise ValueError(f"Column '{col}' not found in result_A")
-            if col not in result_B.columns:
-                raise ValueError(f"Column '{col}' not found in result_B")
-
-        # Create pair identifiers
-        result_A = result_A.copy()
-        result_B = result_B.copy()
-        result_A['pair_id'] = result_A[gene_center_col] + '|' + result_A[gene_motif_col]
-        result_B['pair_id'] = result_B[gene_center_col] + '|' + result_B[gene_motif_col]
-
-        # Find pairs that are significant in at least one group
-        sig_pairs_A = set(result_A[result_A[significance_col]]['pair_id'])
-        sig_pairs_B = set(result_B[result_B[significance_col]]['pair_id'])
-        at_least_one_sig = sig_pairs_A | sig_pairs_B
-
-        print(f"Significant pairs in A: {len(sig_pairs_A)}")
-        print(f"Significant pairs in B: {len(sig_pairs_B)}")
-        print(f"Pairs that are significant in at least one group: {len(at_least_one_sig)}")
-
-        # Find overlapping pairs (present in both groups)
-        pairs_A = set(result_A['pair_id'])
-        pairs_B = set(result_B['pair_id'])
-        overlapping_pairs = pairs_A & pairs_B
-
-        # Filter for overlapping pairs that are significant in at least one group
-
-        pairs_to_test = overlapping_pairs & at_least_one_sig if background == 'Significant' else overlapping_pairs
-        # pairs_to_test = overlapping_pairs  # TODO: 先试试如果把所有overlapping的pairs作为null distribution有什么影响. 返回的结果肯定更多
-
-
-        if len(pairs_to_test) == 0:
-            raise ValueError("No overlapping gene-pairs found that are significant in at least one group")
-
-        # Extract scores for these pairs
-        result_A_filtered = result_A[result_A['pair_id'].isin(pairs_to_test)].copy()
-        result_B_filtered = result_B[result_B['pair_id'].isin(pairs_to_test)].copy()
-
-        # Merge to ensure alignment
-        merged = result_A_filtered.merge(
-            result_B_filtered,
-            on='pair_id',
-            suffixes=('_A', '_B')
-        )
-
-        # Calculate score differences
-        score_col_A = score_col + '_A'
-        score_col_B = score_col + '_B'
-        merged['score_diff'] = merged[score_col_A] - merged[score_col_B]
-
-        # Compute percentile for each pair
-        diff_all = merged['score_diff'].values
-        merged['percentile'] = merged['score_diff'].apply(
-            lambda x: percentileofscore(diff_all, x, kind='rank')
-        )
-
-        # Identify outliers
-        lower_threshold = 100 - percentile_threshold
-        merged['is_outlier'] = (merged['percentile'] > percentile_threshold) | \
-                            (merged['percentile'] < lower_threshold)
-
-        # Classify outlier direction
-        merged['outlier_direction'] = 'not_outlier'
-        merged.loc[merged['percentile'] > percentile_threshold, 'outlier_direction'] = 'higher_in_A'
-        merged.loc[merged['percentile'] < lower_threshold, 'outlier_direction'] = 'lower_in_A'
-
-        # Prepare output columns
-        output_cols = [
-            gene_center_col + '_A',
-            gene_motif_col + '_A',
-            score_col_A,
-            score_col_B,
-            'score_diff',
-            'percentile',
-            'is_outlier',
-            significance_col + '_A',
-            significance_col + '_B',
-            'outlier_direction'
-        ]
-
-        result = merged[output_cols].copy()
-        result.columns = [
-            'gene_center',
-            'gene_motif',
-            'score_A',
-            'score_B',
-            'score_diff',
-            'percentile',
-            'is_outlier',
-            'significant_in_A',
-            'significant_in_B',
-            'outlier_direction'
-        ]
-
-        # Sort by absolute score difference (descending)
-        result['abs_score_diff'] = np.abs(result['score_diff'])
-        result = result.sort_values('abs_score_diff', ascending=False).reset_index(drop=True)
-        result = result.drop('abs_score_diff', axis=1)
-
-        # Print summary
-        n_outliers = result['is_outlier'].sum()
-        n_higher_A = (result['outlier_direction'] == 'higher_in_A').sum()
-        n_lower_A = (result['outlier_direction'] == 'lower_in_A').sum()
-
-        print(f"\n{'='*60}")
-        print(f"Score Difference Test Results")
-        print(f"{'='*60}")
-        print(f"Total pairs tested: {len(result)}")
-        print(f"Outlier pairs (percentile > {percentile_threshold} or < {100-percentile_threshold}): {n_outliers}")
-        print(f"  Higher in group A: {n_higher_A}")
-        print(f"  Lower in group A: {n_lower_A}")
-        print(f"\nScore difference range: [{result['score_diff'].min():.3f}, {result['score_diff'].max():.3f}]")
-        print(f"Mean score difference: {result['score_diff'].mean():.3f}")
-        print(f"Std score difference: {result['score_diff'].std():.3f}")
-
-        return result
+        from .spatial_utils import test_score_difference
+        return test_score_difference(result_A, result_B, score_col, significance_col, gene_center_col, gene_motif_col, percentile_threshold, background)
     
     def plot_fov(self,
                  min_cells_label: int = 50,
