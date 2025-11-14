@@ -14,6 +14,7 @@ from mlxtend.frequent_patterns import fpgrowth
 from scipy.stats import fisher_exact
 from statsmodels.stats.multitest import multipletests
 from scipy.sparse import csr_matrix
+from scipy import sparse
 import scanpy as sc
 from scipy.spatial import KDTree
 from scipy import stats as scipy_stats
@@ -596,6 +597,245 @@ def _auto_normalize_spatial_coords(spatial_coords: np.ndarray)->np.ndarray:
     print(f"Scale factor: {scale_factor:.4f}")
 
     return spatial_pos_norm
+
+
+def compute_covariance_statistics_paired(expr_genes,
+                                         pair_centers,
+                                         pair_neighbors,
+                                         center_mean,
+                                         cell_type_means,
+                                         neighbor_cell_types,
+                                         is_sparse):
+    """
+    Compute raw covariance statistics (cov_sum, center_ss, neighbor_ss) for paired data.
+    This version is optimized for sparse matrices and designed for aggregating across FOVs.
+
+    Parameters
+    ----------
+    expr_genes : sparse or dense matrix
+        Gene expression matrix (n_cells × n_genes)
+    pair_centers : array
+        Indices of center cells in each pair
+    pair_neighbors : array
+        Indices of neighbor cells in each pair
+    center_mean : array
+        Mean expression for center cell type (n_genes,)
+    cell_type_means : dict
+        Dictionary mapping cell types to their mean expression (n_genes,)
+    neighbor_cell_types : array
+        Cell type labels for each neighbor in pair_neighbors
+    is_sparse : bool
+        Whether expr_genes is sparse
+
+    Returns
+    -------
+    cov_sum : ndarray
+        Sum of centered cross products (n_genes × n_genes)
+    center_ss : ndarray
+        Sum of squared centered center expression (n_genes,)
+    neighbor_ss : ndarray
+        Sum of squared centered neighbor expression (n_genes,)
+    n_pairs : int
+        Number of pairs
+    n_eff : int
+        Effective sample size (min of unique centers and unique neighbors)
+    """
+    pair_center_expr = expr_genes[pair_centers, :]
+    pair_neighbor_expr = expr_genes[pair_neighbors, :]
+
+    n_pairs = len(pair_centers)
+    n_eff = min(len(np.unique(pair_centers)), len(np.unique(pair_neighbors)))
+
+    if is_sparse:
+        # Get unique neighbor types and their counts
+        unique_neighbor_types, type_counts = np.unique(neighbor_cell_types, return_counts=True)
+        n_types = len(unique_neighbor_types)
+
+        # Build mapping for creating indicator matrix
+        type_to_idx = {ct: idx for idx, ct in enumerate(unique_neighbor_types)}
+        type_indices = np.array([type_to_idx[ct] for ct in neighbor_cell_types])
+
+        # Stack cell-type-specific means into a matrix (n_genes × n_types)
+        neighbor_type_means_matrix = np.column_stack([cell_type_means[ct] for ct in unique_neighbor_types])
+
+        # ==================== Covariance sum computation ====================
+        # Term 1: Σ_i x_i * y_i
+        cross_product = pair_center_expr.T @ pair_neighbor_expr
+        if sparse.issparse(cross_product):
+            cross_product = np.asarray(cross_product.todense())
+
+        # Term 2: -Σ_i x_i * μ^{ct_i}
+        type_indicator = csr_matrix((np.ones(n_pairs), (np.arange(n_pairs), type_indices)),
+                                   shape=(n_pairs, n_types))
+
+        sum_center_by_type = pair_center_expr.T @ type_indicator
+        if sparse.issparse(sum_center_by_type):
+            sum_center_by_type = np.asarray(sum_center_by_type.todense())
+
+        term2 = sum_center_by_type @ neighbor_type_means_matrix.T
+
+        # Term 3: -μ_X * Σ_i y_i
+        sum_neighbor = np.array(pair_neighbor_expr.sum(axis=0)).flatten()
+        term3 = np.outer(center_mean, sum_neighbor)
+
+        # Term 4: μ_X * Σ_i μ^{ct_i}
+        weighted_neighbor_mean = neighbor_type_means_matrix @ type_counts
+        term4 = np.outer(center_mean, weighted_neighbor_mean)
+
+        cov_sum = cross_product - term2 - term3 + term4
+
+        # ==================== Sum of squares computation ====================
+        # Center: Σ_i (x_i - μ_X)^2 = Σ_i x_i^2 - 2*μ_X*Σ_i x_i + n*μ_X^2
+        sum_sq_center = np.array(pair_center_expr.power(2).sum(axis=0)).flatten()
+        sum_center = np.array(pair_center_expr.sum(axis=0)).flatten()
+        center_ss = sum_sq_center - 2 * center_mean * sum_center + n_pairs * center_mean**2
+
+        # Neighbor: Σ_i (y_i - μ^{ct_i})^2
+        sum_sq_neighbor = np.array(pair_neighbor_expr.power(2).sum(axis=0)).flatten()
+
+        sum_neighbor_by_type = pair_neighbor_expr.T @ type_indicator
+        if sparse.issparse(sum_neighbor_by_type):
+            sum_neighbor_by_type = np.asarray(sum_neighbor_by_type.todense())
+
+        term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1)
+        term_mean_sq = (neighbor_type_means_matrix**2) @ type_counts
+
+        neighbor_ss = sum_sq_neighbor - 2 * term_y_mean + term_mean_sq
+
+    else:
+        # Dense matrix operations
+        neighbor_type_means_matrix = np.array([cell_type_means[ct] for ct in neighbor_cell_types])
+
+        pair_center_shifted = pair_center_expr - center_mean[np.newaxis, :]
+        pair_neighbor_shifted = pair_neighbor_expr - neighbor_type_means_matrix
+
+        # Compute covariance sum
+        cov_sum = pair_center_shifted.T @ pair_neighbor_shifted
+
+        # Compute sum of squares
+        center_ss = (pair_center_shifted**2).sum(axis=0)
+        neighbor_ss = (pair_neighbor_shifted**2).sum(axis=0)
+
+    return cov_sum, center_ss, neighbor_ss, n_pairs, n_eff
+
+
+def compute_covariance_statistics_all_to_all(expr_genes,
+                                               center_cells,
+                                               neighbor_cells,
+                                               center_mean,
+                                               cell_type_means,
+                                               neighbor_cell_types,
+                                               is_sparse):
+    """
+    Compute raw covariance statistics (cov_sum, center_ss, neighbor_ss) for all-to-all pairs.
+    This version is optimized for sparse matrices and designed for aggregating across FOVs.
+
+    Parameters
+    ----------
+    expr_genes : sparse or dense matrix
+        Gene expression matrix (n_cells × n_genes)
+    center_cells : array
+        Indices of center cells
+    neighbor_cells : array
+        Indices of neighbor cells
+    center_mean : array
+        Mean expression for center cell type (n_genes,)
+    cell_type_means : dict
+        Dictionary mapping cell types to their mean expression (n_genes,)
+    neighbor_cell_types : array
+        Cell type labels for each cell in neighbor_cells
+    is_sparse : bool
+        Whether expr_genes is sparse
+
+    Returns
+    -------
+    cov_sum : ndarray
+        Sum of centered cross products (n_genes × n_genes)
+    center_ss : ndarray
+        Sum of squared centered center expression (n_genes,)
+    neighbor_ss : ndarray
+        Sum of squared centered neighbor expression (n_genes,)
+    n_pairs : int
+        Number of pairs (len(center_cells) * len(neighbor_cells))
+    n_eff : int
+        Effective sample size (min of n_centers and n_neighbors)
+    """
+    center_expr = expr_genes[center_cells, :]
+    neighbor_expr = expr_genes[neighbor_cells, :]
+
+    n_centers = len(center_cells)
+    n_neighbors = len(neighbor_cells)
+    n_pairs = n_centers * n_neighbors
+    n_eff = min(n_centers, n_neighbors)
+    n_genes = expr_genes.shape[1]
+
+    if is_sparse:
+        # Get unique neighbor types and their counts
+        unique_neighbor_types, type_counts = np.unique(neighbor_cell_types, return_counts=True)
+        n_types = len(unique_neighbor_types)
+
+        # Build mapping for neighbor types
+        type_to_idx = {ct: idx for idx, ct in enumerate(unique_neighbor_types)}
+        type_indices = np.array([type_to_idx[ct] for ct in neighbor_cell_types])
+
+        # Stack cell-type-specific means into a matrix (n_genes × n_types)
+        neighbor_type_means_matrix = np.column_stack([cell_type_means[ct] for ct in unique_neighbor_types])
+
+        # ==================== Covariance sum computation ====================
+        # Term 1: Σ_i Σ_j x_i * y_j = (Σ_i x_i) * (Σ_j y_j)
+        sum_center = np.array(center_expr.sum(axis=0)).flatten()
+        sum_neighbor = np.array(neighbor_expr.sum(axis=0)).flatten()
+        term1 = np.outer(sum_center, sum_neighbor)
+
+        # Term 2: -Σ_i Σ_j x_i * μ^{ct_j} = (Σ_i x_i) * (Σ_j μ^{ct_j})
+        weighted_neighbor_mean = neighbor_type_means_matrix @ type_counts
+        term2 = np.outer(sum_center, weighted_neighbor_mean)
+
+        # Term 3: -Σ_i Σ_j μ_X * y_j = n_centers * μ_X * (Σ_j y_j)
+        term3 = n_centers * np.outer(center_mean, sum_neighbor)
+
+        # Term 4: Σ_i Σ_j μ_X * μ^{ct_j} = n_centers * μ_X * (Σ_j μ^{ct_j})
+        term4 = n_centers * np.outer(center_mean, weighted_neighbor_mean)
+
+        cov_sum = term1 - term2 - term3 + term4
+
+        # ==================== Sum of squares computation ====================
+        # Center: Σ_i Σ_j (x_i - μ_X)^2 = n_neighbors * Σ_i (x_i - μ_X)^2
+        sum_sq_center = np.array(center_expr.power(2).sum(axis=0)).flatten()
+        center_ss = n_neighbors * (sum_sq_center - 2 * center_mean * sum_center + n_centers * center_mean**2)
+
+        # Neighbor: Σ_i Σ_j (y_j - μ^{ct_j})^2 = n_centers * Σ_j (y_j - μ^{ct_j})^2
+        sum_sq_neighbor = np.array(neighbor_expr.power(2).sum(axis=0)).flatten()
+
+        type_indicator = csr_matrix((np.ones(n_neighbors), (np.arange(n_neighbors), type_indices)),
+                                   shape=(n_neighbors, n_types))
+
+        sum_neighbor_by_type = neighbor_expr.T @ type_indicator
+        if sparse.issparse(sum_neighbor_by_type):
+            sum_neighbor_by_type = np.asarray(sum_neighbor_by_type.todense())
+
+        term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1)
+        term_mean_sq = (neighbor_type_means_matrix**2) @ type_counts
+
+        neighbor_ss = n_centers * (sum_sq_neighbor - 2 * term_y_mean + term_mean_sq)
+
+    else:
+        # Dense matrix operations
+        center_shifted = center_expr - center_mean[np.newaxis, :]
+
+        neighbor_type_means_matrix = np.array([cell_type_means[ct] for ct in neighbor_cell_types])
+        neighbor_shifted = neighbor_expr - neighbor_type_means_matrix
+
+        # Compute covariance sum: Σ_i Σ_j x'_i * y'_j = (Σ_i x'_i) @ (Σ_j y'_j).T
+        sum_center_shifted = center_shifted.sum(axis=0)
+        sum_neighbor_shifted = neighbor_shifted.sum(axis=0)
+        cov_sum = np.outer(sum_center_shifted, sum_neighbor_shifted)
+
+        # Compute sum of squares
+        center_ss = n_neighbors * (center_shifted**2).sum(axis=0)
+        neighbor_ss = n_centers * (neighbor_shifted**2).sum(axis=0)
+
+    return cov_sum, center_ss, neighbor_ss, n_pairs, n_eff
 
 
 def compute_cross_correlation_paired(sq_obj,

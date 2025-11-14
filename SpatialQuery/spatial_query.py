@@ -788,7 +788,8 @@ class spatial_query:
             if genes is None:
                 genes = self.index.scfindGenes
                 
-            print(f'Indexed data by scfind. Only support for Fisher\'s exact test.')
+            if method != 'fisher':
+                print(f"Warning: When build_gene_index=True, only Fisher's exact test is supported. Ignoring method='{method}'.")
             
             out = self.index.de_genes_with_indices(genes, ind_group1, ind_group2, min_fraction)
             out_df = pd.DataFrame(out)

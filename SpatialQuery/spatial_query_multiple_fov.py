@@ -14,7 +14,8 @@ from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
 
-from joblib import Parallel, delayed
+from scipy import sparse
+from . import spatial_utils
 
 from .spatial_query import spatial_query
 from .spatial_utils import (
@@ -26,7 +27,6 @@ from .spatial_utils import (
     de_genes_fisher,
     )
 import anndata as ad
-import scanpy as sc
 
 from time import time
 
@@ -65,11 +65,9 @@ class spatial_query_multi:
         n_split:
             The number of splits in each axis for spatial grid to speed up query, default is 10
         build_gene_index:
-            Whether to build scfind index of expression data, default is False. If expression data is required for query,
-            set this parameter to True
+            Whether to build scfind index or use adata.X directly. If set True, build scfind index otherwise use adata.X directly.
         feature_name:
-            The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
-            only used if build_gene_index is True
+            The label or key in the AnnData object's variables (var) that corresponds to the feature names. 
         if_lognorm:
             Whether to log normalize the expression data, default is True
         """
@@ -1544,21 +1542,21 @@ class spatial_query_multi:
         plt.tight_layout()
         plt.show()
 
-    def compute_motif_center_covarying_multi_fov(self,
-                                                  ct: str,
-                                                  motif: Union[str, List[str]],
-                                                  dataset: Union[str, List[str]] = None,
-                                                  genes: Optional[Union[str, List[str]]] = None,
-                                                  max_dist: Optional[float] = None,
-                                                  k: Optional[int] = None,
-                                                  min_size: int = 0,
-                                                  min_nonzero: int = 10,
-                                                  ) -> Tuple[pd.DataFrame, Dict]:
+    def compute_gene_gene_correlation(self,
+                                       ct: str,
+                                       motif: Union[str, List[str]],
+                                       dataset: Union[str, List[str]] = None,
+                                       genes: Optional[Union[str, List[str]]] = None,
+                                       max_dist: Optional[float] = None,
+                                       k: Optional[int] = None,
+                                       min_size: int = 0,
+                                       min_nonzero: int = 10,
+                                       ) -> Tuple[pd.DataFrame, Dict]:
         """
         Compute gene-gene co-varying patterns between motif and center cells across multiple FOVs.
 
         Similar to compute_gene_gene_correlation in single FOV, but:
-        - Aggregates center-neighbor pairs across all FOVs
+        - Aggregates center-neighbor pairs across all FOVs in specified dataset
         - Uses FOV-specific cell type means for centering (NOT global means)
         - Computes correlations by accumulating statistics across FOVs
 
@@ -1609,22 +1607,10 @@ class spatial_query_multi:
                 - 'total_pairs_no_motif': total number of no-motif pairs
                 - 'n_fovs_analyzed': number of FOVs included
         """
-        from scipy import sparse
-        from time import time
-        from . import spatial_utils
 
         # Validate parameters
         if (max_dist is None and k is None) or (max_dist is not None and k is not None):
             raise ValueError("Please specify either max_dist or k, but not both.")
-
-        if not self.build_gene_index:
-            # Check if all spatial_queries have adata
-            if not all(sq.adata is not None for sq in self.spatial_queries):
-                raise ValueError("Expression data (adata) is not available for all FOVs. "
-                               "Please initialize with build_gene_index=False and provide adata.")
-        else:
-            raise ValueError("This function requires adata.X for expression data. "
-                           "Please set build_gene_index=False when initializing spatial_query_multi.")
 
         # Convert motif to list
         motif = motif if isinstance(motif, list) else [motif]
@@ -1632,6 +1618,7 @@ class spatial_query_multi:
         # Validate and prepare dataset list
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
+            print(f"No dataset specified. Using all datasets.")
         if isinstance(dataset, str):
             dataset = [dataset]
 
@@ -1655,19 +1642,17 @@ class spatial_query_multi:
             raise ValueError(f"Motif types {missing} not found in any selected datasets!")
 
         # Get intersection of genes across all FOVs
-        if genes is None:
-            genes_sets = [set(sq.genes) for sq in selected_queries]
-            genes = list(set.intersection(*genes_sets))
-            print(f"Using {len(genes)} genes common across all {len(selected_queries)} FOVs")
+        genes_sets = [set(sq.genes) for sq in selected_queries]
+        all_genes = list(set.intersection(*genes_sets))
+        if genes is None:    
+            print(f"No genes specified. Using all common genes across all selected FOVs ...")
+            valid_genes = all_genes
         elif isinstance(genes, str):
             genes = [genes]
-
-        # Validate genes exist in all FOVs
-        valid_genes = []
-        for gene in genes:
-            if all(gene in sq.genes for sq in selected_queries):
-                valid_genes.append(gene)
-
+            valid_genes = [g for g in genes if g in all_genes]
+        else:
+            valid_genes = [g for g in genes if g in all_genes]
+        
         if len(valid_genes) == 0:
             raise ValueError("No valid genes found across all FOVs.")
 
@@ -1679,17 +1664,36 @@ class spatial_query_multi:
         # Step 1: FOV-level computation - collect statistics from each FOV
         # ====================================================================================
         print("\n" + "="*80)
-        print("Step 1: Computing FOV-level statistics")
+        print("Step 1: Computing and accumulating statistics across FOVs")
         print("="*80)
 
-        fov_statistics = {
-            'neighbor': [],
-            'non_neighbor': [],
-            'no_motif': []
-        }
+        # Initialize accumulators for aggregated statistics
+        # Neighbor (Correlation 1)
+        total_cov_sum_neighbor = np.zeros((n_genes, n_genes))
+        total_center_ss_neighbor = np.zeros(n_genes)
+        total_neighbor_ss_neighbor = np.zeros(n_genes)
+        total_n_pairs_neighbor = 0
+        total_n_eff_neighbor = 0
+        n_fovs_neighbor = 0
+
+        # Non-neighbor (Correlation 2)
+        total_cov_sum_non = np.zeros((n_genes, n_genes))
+        total_center_ss_non = np.zeros(n_genes)
+        total_non_neighbor_ss = np.zeros(n_genes)
+        total_n_pairs_non = 0
+        total_n_eff_non = 0
+        n_fovs_non = 0
+
+        # No-motif (Correlation 3)
+        total_cov_sum_no_motif = np.zeros((n_genes, n_genes))
+        total_center_ss_no_motif = np.zeros(n_genes)
+        total_neighbor_ss_no_motif = np.zeros(n_genes)
+        total_n_pairs_no_motif = 0
+        total_n_eff_no_motif = 0
+        n_fovs_no_motif = 0
 
         for fov_idx, sq in enumerate(selected_queries):
-            print(f"\n--- Processing FOV {fov_idx+1}/{len(selected_queries)}: {sq.dataset} ---")
+            print(f"\n--- Processing FOV {fov_idx + 1}/{len(selected_queries)}: {sq.dataset} ---")
 
             # Check if ct and all motif types exist in this FOV
             if ct not in sq.labels.unique():
@@ -1752,39 +1756,27 @@ class spatial_query_multi:
                     pair_centers = center_neighbor_pairs[:, 0]
                     pair_neighbors = center_neighbor_pairs[:, 1]
 
-                    # Get expression data
-                    if is_sparse:
-                        center_expr = expr_genes[pair_centers, :].toarray()
-                        neighbor_expr = expr_genes[pair_neighbors, :].toarray()
-                    else:
-                        center_expr = expr_genes[pair_centers, :]
-                        neighbor_expr = expr_genes[pair_neighbors, :]
-
                     # Get neighbor cell types
-                    neighbor_types = sq.labels.iloc[pair_neighbors].values
+                    neighbor_types = sq.labels[pair_neighbors]
 
-                    # Build neighbor means matrix
-                    neighbor_means_matrix = np.vstack([
-                        fov_cell_type_means[ct_type] for ct_type in neighbor_types
-                    ])
+                    # Compute statistics using optimized sparse-aware function
+                    cov_sum, center_ss, neighbor_ss, n_pairs, n_eff = spatial_utils.compute_covariance_statistics_paired(
+                        expr_genes=expr_genes,
+                        pair_centers=pair_centers,
+                        pair_neighbors=pair_neighbors,
+                        center_mean=center_mean,
+                        cell_type_means=fov_cell_type_means,
+                        neighbor_cell_types=neighbor_types,
+                        is_sparse=is_sparse
+                    )
 
-                    # Center expression values using FOV-specific means
-                    center_expr_centered = center_expr - center_mean
-                    neighbor_expr_centered = neighbor_expr - neighbor_means_matrix
-
-                    # Compute statistics (n_genes × n_genes matrices)
-                    cov_sum = center_expr_centered.T @ neighbor_expr_centered
-                    center_ss = (center_expr_centered ** 2).sum(axis=0)
-                    neighbor_ss = (neighbor_expr_centered ** 2).sum(axis=0)
-
-                    fov_statistics['neighbor'].append({
-                        'fov_idx': fov_idx,
-                        'fov_dataset': sq.dataset,
-                        'n_pairs': len(pair_centers),
-                        'cov_sum': cov_sum,
-                        'center_ss': center_ss,
-                        'neighbor_ss': neighbor_ss,
-                    })
+                    # Accumulate statistics directly (no intermediate storage)
+                    total_cov_sum_neighbor += cov_sum
+                    total_center_ss_neighbor += center_ss
+                    total_neighbor_ss_neighbor += neighbor_ss
+                    total_n_pairs_neighbor += n_pairs
+                    total_n_eff_neighbor += n_eff
+                    n_fovs_neighbor += 1
 
                     # ========================================================================
                     # Correlation 2: Center with motif vs Distant motif (ALL-TO-ALL)
@@ -1798,46 +1790,35 @@ class spatial_query_multi:
                     # Remove center type from non-neighbor
                     ct_in_motif = ct in motif
                     if ct_in_motif:
-                        non_neighbor_cells = non_neighbor_cells[sq.labels.iloc[non_neighbor_cells] != ct]
+                        non_neighbor_cells = non_neighbor_cells[sq.labels[non_neighbor_cells] != ct]
 
                     if len(non_neighbor_cells) >= 10:
-                        print(f"  Corr2: {len(np.unique(pair_centers))} centers × {len(non_neighbor_cells)} non-neighbors")
-
                         # Use unique center cells
                         unique_centers = np.unique(pair_centers)
 
-                        if is_sparse:
-                            center_expr_all = expr_genes[unique_centers, :].toarray()
-                            non_neighbor_expr = expr_genes[non_neighbor_cells, :].toarray()
-                        else:
-                            center_expr_all = expr_genes[unique_centers, :]
-                            non_neighbor_expr = expr_genes[non_neighbor_cells, :]
+                        print(f"  Corr2: {len(unique_centers)} centers × {len(non_neighbor_cells)} non-neighbors")
 
-                        center_expr_all_centered = center_expr_all - center_mean
+                        # Get non-neighbor types
+                        non_neighbor_types = sq.labels[non_neighbor_cells]
 
-                        # Get non-neighbor types and build means matrix
-                        non_neighbor_types = sq.labels.iloc[non_neighbor_cells].values
-                        non_neighbor_means_matrix = np.vstack([
-                            fov_cell_type_means[ct_type] for ct_type in non_neighbor_types
-                        ])
+                        # Compute statistics using optimized sparse-aware function
+                        cov_sum_non, center_ss_non, non_neighbor_ss, n_pairs_non, n_eff_non = spatial_utils.compute_covariance_statistics_all_to_all(
+                            expr_genes=expr_genes,
+                            center_cells=unique_centers,
+                            neighbor_cells=non_neighbor_cells,
+                            center_mean=center_mean,
+                            cell_type_means=fov_cell_type_means,
+                            neighbor_cell_types=non_neighbor_types,
+                            is_sparse=is_sparse
+                        )
 
-                        non_neighbor_expr_centered = non_neighbor_expr - non_neighbor_means_matrix
-
-                        # Compute statistics
-                        cov_sum_non = center_expr_all_centered.T @ non_neighbor_expr_centered
-                        center_ss_non = (center_expr_all_centered ** 2).sum(axis=0)
-                        non_neighbor_ss = (non_neighbor_expr_centered ** 2).sum(axis=0)
-
-                        n_pairs_non = len(unique_centers) * len(non_neighbor_cells)
-
-                        fov_statistics['non_neighbor'].append({
-                            'fov_idx': fov_idx,
-                            'fov_dataset': sq.dataset,
-                            'n_pairs': n_pairs_non,
-                            'cov_sum': cov_sum_non,
-                            'center_ss': center_ss_non,
-                            'non_neighbor_ss': non_neighbor_ss,
-                        })
+                        # Accumulate statistics directly
+                        total_cov_sum_non += cov_sum_non
+                        total_center_ss_non += center_ss_non
+                        total_non_neighbor_ss += non_neighbor_ss
+                        total_n_pairs_non += n_pairs_non
+                        total_n_eff_non += n_eff_non
+                        n_fovs_non += 1
                     else:
                         print(f"  Skipping Corr2: only {len(non_neighbor_cells)} non-neighbor cells")
 
@@ -1862,33 +1843,26 @@ class spatial_query_multi:
                         pair_centers_no_motif = center_no_motif_pairs[:, 0]
                         pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
 
-                        if is_sparse:
-                            center_expr_no_motif = expr_genes[pair_centers_no_motif, :].toarray()
-                            neighbor_expr_no_motif = expr_genes[pair_neighbors_no_motif, :].toarray()
-                        else:
-                            center_expr_no_motif = expr_genes[pair_centers_no_motif, :]
-                            neighbor_expr_no_motif = expr_genes[pair_neighbors_no_motif, :]
+                        neighbor_no_motif_types = sq.labels[pair_neighbors_no_motif]
 
-                        neighbor_no_motif_types = sq.labels.iloc[pair_neighbors_no_motif].values
-                        neighbor_no_motif_means_matrix = np.vstack([
-                            fov_cell_type_means[ct_type] for ct_type in neighbor_no_motif_types
-                        ])
+                        # Compute statistics using optimized sparse-aware function
+                        cov_sum_no_motif, center_ss_no_motif, neighbor_ss_no_motif, n_pairs_no_motif, n_eff_no_motif = spatial_utils.compute_covariance_statistics_paired(
+                            expr_genes=expr_genes,
+                            pair_centers=pair_centers_no_motif,
+                            pair_neighbors=pair_neighbors_no_motif,
+                            center_mean=center_mean,
+                            cell_type_means=fov_cell_type_means,
+                            neighbor_cell_types=neighbor_no_motif_types,
+                            is_sparse=is_sparse
+                        )
 
-                        center_expr_no_motif_centered = center_expr_no_motif - center_mean
-                        neighbor_expr_no_motif_centered = neighbor_expr_no_motif - neighbor_no_motif_means_matrix
-
-                        cov_sum_no_motif = center_expr_no_motif_centered.T @ neighbor_expr_no_motif_centered
-                        center_ss_no_motif = (center_expr_no_motif_centered ** 2).sum(axis=0)
-                        neighbor_ss_no_motif = (neighbor_expr_no_motif_centered ** 2).sum(axis=0)
-
-                        fov_statistics['no_motif'].append({
-                            'fov_idx': fov_idx,
-                            'fov_dataset': sq.dataset,
-                            'n_pairs': len(center_no_motif_pairs),
-                            'cov_sum': cov_sum_no_motif,
-                            'center_ss': center_ss_no_motif,
-                            'neighbor_ss': neighbor_ss_no_motif,
-                        })
+                        # Accumulate statistics directly
+                        total_cov_sum_no_motif += cov_sum_no_motif
+                        total_center_ss_no_motif += center_ss_no_motif
+                        total_neighbor_ss_no_motif += neighbor_ss_no_motif
+                        total_n_pairs_no_motif += n_pairs_no_motif
+                        total_n_eff_no_motif += n_eff_no_motif
+                        n_fovs_no_motif += 1
                     else:
                         print(f"  Skipping Corr3: only {len(center_no_motif_pairs)} no-motif pairs")
 
@@ -1897,66 +1871,28 @@ class spatial_query_multi:
                 continue
 
         # ====================================================================================
-        # Step 2: Aggregate statistics across FOVs
+        # Step 2: Validate and summarize accumulated statistics
         # ====================================================================================
         print("\n" + "="*80)
-        print("Step 2: Aggregating statistics across FOVs")
+        print("Step 2: Summary of accumulated statistics")
         print("="*80)
 
-        if len(fov_statistics['neighbor']) == 0:
+        if n_fovs_neighbor == 0:
             raise ValueError("No valid neighbor pairs found across any FOV!")
 
-        # Aggregate Correlation 1 (neighbor)
-        total_cov_sum_neighbor = np.zeros((n_genes, n_genes))
-        total_center_ss_neighbor = np.zeros(n_genes)
-        total_neighbor_ss_neighbor = np.zeros(n_genes)
-        total_n_pairs_neighbor = 0
+        print(f"Correlation 1 (neighbor): {total_n_pairs_neighbor} total pairs, n_eff={total_n_eff_neighbor} from {n_fovs_neighbor} FOVs")
 
-        for fov_stat in fov_statistics['neighbor']:
-            total_cov_sum_neighbor += fov_stat['cov_sum']
-            total_center_ss_neighbor += fov_stat['center_ss']
-            total_neighbor_ss_neighbor += fov_stat['neighbor_ss']
-            total_n_pairs_neighbor += fov_stat['n_pairs']
-
-        print(f"Correlation 1 (neighbor): {total_n_pairs_neighbor} total pairs from {len(fov_statistics['neighbor'])} FOVs")
-
-        # Aggregate Correlation 2 (non-neighbor)
-        if len(fov_statistics['non_neighbor']) > 0:
-            total_cov_sum_non = np.zeros((n_genes, n_genes))
-            total_center_ss_non = np.zeros(n_genes)
-            total_non_neighbor_ss = np.zeros(n_genes)
-            total_n_pairs_non = 0
-
-            for fov_stat in fov_statistics['non_neighbor']:
-                total_cov_sum_non += fov_stat['cov_sum']
-                total_center_ss_non += fov_stat['center_ss']
-                total_non_neighbor_ss += fov_stat['non_neighbor_ss']
-                total_n_pairs_non += fov_stat['n_pairs']
-
-            print(f"Correlation 2 (non-neighbor): {total_n_pairs_non} total pairs from {len(fov_statistics['non_neighbor'])} FOVs")
+        if n_fovs_non > 0:
+            print(f"Correlation 2 (non-neighbor): {total_n_pairs_non} total pairs, n_eff={total_n_eff_non} from {n_fovs_non} FOVs")
         else:
             print("Warning: No non-neighbor pairs found across any FOV!")
             total_cov_sum_non = None
-            total_n_pairs_non = 0
 
-        # Aggregate Correlation 3 (no-motif)
-        if len(fov_statistics['no_motif']) > 0:
-            total_cov_sum_no_motif = np.zeros((n_genes, n_genes))
-            total_center_ss_no_motif = np.zeros(n_genes)
-            total_neighbor_ss_no_motif = np.zeros(n_genes)
-            total_n_pairs_no_motif = 0
-
-            for fov_stat in fov_statistics['no_motif']:
-                total_cov_sum_no_motif += fov_stat['cov_sum']
-                total_center_ss_no_motif += fov_stat['center_ss']
-                total_neighbor_ss_no_motif += fov_stat['neighbor_ss']
-                total_n_pairs_no_motif += fov_stat['n_pairs']
-
-            print(f"Correlation 3 (no-motif): {total_n_pairs_no_motif} total pairs from {len(fov_statistics['no_motif'])} FOVs")
+        if n_fovs_no_motif > 0:
+            print(f"Correlation 3 (no-motif): {total_n_pairs_no_motif} total pairs, n_eff={total_n_eff_no_motif} from {n_fovs_no_motif} FOVs")
         else:
             print("Warning: No no-motif pairs found across any FOV!")
             total_cov_sum_no_motif = None
-            total_n_pairs_no_motif = 0
 
         # ====================================================================================
         # Step 3: Compute correlation matrices
@@ -1970,7 +1906,7 @@ class spatial_query_multi:
             total_center_ss_neighbor[:, None] * total_neighbor_ss_neighbor[None, :]
         )
         corr_matrix_neighbor = total_cov_sum_neighbor / (denominator_neighbor + 1e-10)
-        n_eff_neighbor = total_n_pairs_neighbor
+        n_eff_neighbor = total_n_eff_neighbor  # Use accumulated n_eff
 
         print(f"Corr1 matrix shape: {corr_matrix_neighbor.shape}, effective n={n_eff_neighbor}")
 
@@ -1980,7 +1916,7 @@ class spatial_query_multi:
                 total_center_ss_non[:, None] * total_non_neighbor_ss[None, :]
             )
             corr_matrix_non_neighbor = total_cov_sum_non / (denominator_non + 1e-10)
-            n_eff_non_neighbor = total_n_pairs_non
+            n_eff_non_neighbor = total_n_eff_non  # Use accumulated n_eff
             print(f"Corr2 matrix shape: {corr_matrix_non_neighbor.shape}, effective n={n_eff_non_neighbor}")
         else:
             corr_matrix_non_neighbor = np.zeros((n_genes, n_genes))
@@ -1992,7 +1928,7 @@ class spatial_query_multi:
                 total_center_ss_no_motif[:, None] * total_neighbor_ss_no_motif[None, :]
             )
             corr_matrix_no_motif = total_cov_sum_no_motif / (denominator_no_motif + 1e-10)
-            n_eff_no_motif = total_n_pairs_no_motif
+            n_eff_no_motif = total_n_eff_no_motif  # Use accumulated n_eff
             print(f"Corr3 matrix shape: {corr_matrix_no_motif.shape}, effective n={n_eff_no_motif}")
         else:
             corr_matrix_no_motif = None
@@ -2121,29 +2057,542 @@ class spatial_query_multi:
         else:
             results_df = results_df.sort_values('adj_p_value_test1', ignore_index=True)
 
-        # Prepare FOV info
-        fov_info = {
-            'fov_statistics': fov_statistics,
-            'total_pairs_neighbor': total_n_pairs_neighbor,
-            'total_pairs_non_neighbor': total_n_pairs_non,
-            'total_pairs_no_motif': total_n_pairs_no_motif,
-            'n_fovs_analyzed': len(selected_queries),
-            'n_fovs_with_neighbor': len(fov_statistics['neighbor']),
-            'n_fovs_with_non_neighbor': len(fov_statistics['non_neighbor']),
-            'n_fovs_with_no_motif': len(fov_statistics['no_motif']),
-        }
+       
 
         print("\n" + "="*80)
         print("Analysis completed!")
         print("="*80)
         print(f"Analyzed {len(selected_queries)} FOVs")
-        print(f"  - {len(fov_statistics['neighbor'])} FOVs contributed neighbor pairs")
-        print(f"  - {len(fov_statistics['non_neighbor'])} FOVs contributed non-neighbor pairs")
-        print(f"  - {len(fov_statistics['no_motif'])} FOVs contributed no-motif pairs")
         print(f"Total gene pairs analyzed: {len(results_df)}")
         print(f"Significant pairs: {results_df['if_significant'].sum()}")
 
-        return results_df, fov_info
+        return results_df
+
+    def compute_gene_gene_correlation_by_type(self,
+                                              ct: str,
+                                              motif: Union[str, List[str]],
+                                              dataset: Union[str, List[str]] = None,
+                                              genes: Optional[Union[str, List[str]]] = None,
+                                              max_dist: Optional[float] = None,
+                                              k: Optional[int] = None,
+                                              min_size: int = 0,
+                                              min_nonzero: int = 10,
+                                              ) -> pd.DataFrame:
+        """
+        Compute gene-gene cross correlation separately for each cell type in the motif across multiple FOVs.
+
+        Similar to compute_gene_gene_correlation_by_type in spatial_query.py, but aggregates across FOVs.
+        For each non-center cell type in the motif, compute:
+        - Correlation 1: Center cells with motif vs neighboring motif cells of THIS TYPE
+        - Correlation 2: Center cells with motif vs distant motif cells of THIS TYPE
+        - Correlation 3: Center cells without motif vs neighbors (same for all types)
+
+        Parameters
+        ----------
+        ct : str
+            Cell type as the center cells.
+        motif : Union[str, List[str]]
+            Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
+        dataset : Union[str, List[str]], optional
+            Datasets to include in analysis. If None, use all datasets.
+        genes : Optional[Union[str, List[str]]], optional
+            List of genes to analyze. If None, uses intersection of genes across all FOVs.
+        max_dist : Optional[float], optional
+            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
+        k : Optional[int], optional
+            Number of nearest neighbors. Use either max_dist or k.
+        min_size : int, default=0
+            Minimum neighborhood size for each center cell (only used when max_dist is specified).
+        min_nonzero : int, default=10
+            Minimum number of non-zero expression values required for a gene to be included.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with correlation results for each cell type and gene pair.
+            Columns include:
+                - cell_type: the non-center cell type in motif
+                - gene_center, gene_motif: gene pairs
+                - corr_neighbor: correlation with neighboring cells of this type
+                - corr_non_neighbor: correlation with distant cells of this type
+                - corr_center_no_motif: correlation with neighbors when no motif present
+                - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
+                - p_value_test2: p-value for test2 (neighbor vs no_motif)
+                - q_value_test1: FDR-corrected q-value for test1
+                - q_value_test2: FDR-corrected q-value for test2
+                - delta_corr_test1: difference in correlation (neighbor - non_neighbor)
+                - delta_corr_test2: difference in correlation (neighbor - no_motif)
+                - reject_test1_fdr: whether test1 passes FDR threshold
+                - reject_test2_fdr: whether test2 passes FDR threshold
+                - combined_score: combined significance score
+        """
+        from time import time
+
+        motif = motif if isinstance(motif, list) else [motif]
+
+        # Get non-center cell types in motif
+        non_center_types = [m for m in motif if m != ct]
+
+        if len(non_center_types) == 1:
+            print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation method.")
+            result, _ = self.compute_gene_gene_correlation(
+                ct=ct,
+                motif=motif,
+                dataset=dataset,
+                genes=genes,
+                max_dist=max_dist,
+                k=k,
+                min_size=min_size,
+                min_nonzero=min_nonzero
+            )
+            return result
+        elif len(non_center_types) == 0:
+            raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
+
+        print(f"Analyzing {len(non_center_types)} non-center cell types in motif: {non_center_types}")
+        print("="*80)
+
+        # Select FOVs
+        if dataset is None:
+            selected_queries = self.queries
+        elif isinstance(dataset, str):
+            selected_queries = [q for q in self.queries if q.dataset == dataset]
+        else:
+            selected_queries = [q for q in self.queries if q.dataset in dataset]
+
+        if len(selected_queries) == 0:
+            raise ValueError(f"No FOVs found for dataset: {dataset}")
+
+        print(f"Selected {len(selected_queries)} FOVs for analysis")
+
+        # Get common genes across FOVs
+        if genes is None:
+            genes_sets = [set(sq.genes) for sq in selected_queries]
+            genes = list(set.intersection(*genes_sets))
+            print(f"Using {len(genes)} genes common across all {len(selected_queries)} FOVs")
+        elif isinstance(genes, str):
+            genes = [genes]
+
+        # Validate genes exist in all FOVs
+        genes_sets = [set(sq.genes) for sq in selected_queries]
+        valid_genes = [gene for gene in genes if gene in set.intersection(*genes_sets)]
+
+        if len(valid_genes) == 0:
+            raise ValueError("No valid genes found across all FOVs.")
+
+        genes = valid_genes
+        n_genes = len(genes)
+        print(f"Analyzing {n_genes} genes across {len(selected_queries)} FOVs")
+
+        # ====================================================================================
+        # Step 1: Accumulate Correlation 3 statistics (same for all types) across FOVs
+        # ====================================================================================
+        print("\n" + "="*80)
+        print("Step 1: Computing Correlation-3 (Center without motif vs Neighbors)")
+        print("="*80)
+
+        total_cov_sum_no_motif = np.zeros((n_genes, n_genes))
+        total_center_ss_no_motif = np.zeros(n_genes)
+        total_neighbor_ss_no_motif = np.zeros(n_genes)
+        total_n_pairs_no_motif = 0
+        total_n_eff_no_motif = 0
+        n_fovs_no_motif = 0
+
+        # Also collect center_neighbor_pairs and non_neighbor_cells for each FOV
+        fov_pair_data = []
+
+        for fov_idx, sq in enumerate(selected_queries):
+            print(f"\n--- Processing FOV {fov_idx + 1}/{len(selected_queries)}: {sq.dataset} ---")
+
+            # Check if ct and motif types exist
+            if ct not in sq.labels.unique():
+                print(f"  Skipping: center type '{ct}' not in this FOV")
+                continue
+
+            missing_motif = [m for m in motif if m not in sq.labels.unique()]
+            if missing_motif:
+                print(f"  Skipping: motif types {missing_motif} not in this FOV")
+                continue
+
+            # Get expression data
+            expr_genes = sq.adata[:, genes].X
+            is_sparse = sparse.issparse(expr_genes)
+
+            # Filter genes by non-zero expression
+            if is_sparse:
+                nonzero_fov = np.array((expr_genes > 0).sum(axis=0)).flatten()
+            else:
+                nonzero_fov = (expr_genes > 0).sum(axis=0)
+
+            valid_gene_mask = nonzero_fov >= min_nonzero
+            if valid_gene_mask.sum() < 10:
+                print(f"  Skipping: only {valid_gene_mask.sum()} genes pass min_nonzero filter")
+                continue
+
+            # Compute FOV-specific cell type means
+            fov_cell_type_means = {}
+            for cell_type in sq.labels.unique():
+                ct_mask = sq.labels == cell_type
+                ct_cells = np.where(ct_mask)[0]
+                if len(ct_cells) > 0:
+                    ct_expr = expr_genes[ct_cells, :]
+                    if is_sparse:
+                        fov_cell_type_means[cell_type] = np.array(ct_expr.mean(axis=0)).flatten()
+                    else:
+                        fov_cell_type_means[cell_type] = ct_expr.mean(axis=0)
+
+            center_mean = fov_cell_type_means[ct]
+
+            # Get motif neighbor pairs
+            try:
+                neighbor_result = spatial_utils.get_motif_neighbor_cells(
+                    sq_obj=sq, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size
+                )
+                center_neighbor_pairs = neighbor_result['center_neighbor_pairs']
+                ct_in_motif = neighbor_result['ct_in_motif']
+
+                if len(center_neighbor_pairs) < 10:
+                    print(f"  Skipping: only {len(center_neighbor_pairs)} pairs found")
+                    continue
+
+                # Get unique cells
+                center_cells = np.unique(center_neighbor_pairs[:, 0])
+                neighbor_cells = np.unique(center_neighbor_pairs[:, 1])
+
+                # Get non-neighbor cells
+                motif_mask = np.isin(sq.labels.values, motif)
+                all_motif_cells = np.where(motif_mask)[0]
+                non_neighbor_cells = np.setdiff1d(all_motif_cells, neighbor_cells)
+
+                if ct_in_motif:
+                    non_neighbor_cells = non_neighbor_cells[sq.labels.iloc[non_neighbor_cells] != ct]
+
+                # Store pair data for this FOV (for Step 2)
+                fov_pair_data.append({
+                    'fov_idx': fov_idx,
+                    'sq': sq,
+                    'expr_genes': expr_genes,
+                    'is_sparse': is_sparse,
+                    'fov_cell_type_means': fov_cell_type_means,
+                    'center_mean': center_mean,
+                    'center_neighbor_pairs': center_neighbor_pairs,
+                    'non_neighbor_cells': non_neighbor_cells,
+                })
+
+                # Compute Correlation 3
+                no_motif_result = spatial_utils.get_all_neighbor_cells(
+                    sq_obj=sq,
+                    ct=ct,
+                    max_dist=max_dist,
+                    k=k,
+                    min_size=min_size,
+                    exclude_centers=center_cells,
+                    exclude_neighbors=neighbor_cells,
+                )
+
+                center_no_motif_pairs = no_motif_result['center_neighbor_pairs']
+
+                if len(center_no_motif_pairs) >= 10:
+                    print(f"  Corr3: {len(center_no_motif_pairs)} no-motif pairs")
+
+                    pair_centers_no_motif = center_no_motif_pairs[:, 0]
+                    pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
+                    neighbor_no_motif_types = sq.labels.iloc[pair_neighbors_no_motif].values
+
+                    cov_sum, center_ss, neighbor_ss, n_pairs, n_eff = spatial_utils.compute_covariance_statistics_paired(
+                        expr_genes=expr_genes,
+                        pair_centers=pair_centers_no_motif,
+                        pair_neighbors=pair_neighbors_no_motif,
+                        center_mean=center_mean,
+                        cell_type_means=fov_cell_type_means,
+                        neighbor_cell_types=neighbor_no_motif_types,
+                        is_sparse=is_sparse
+                    )
+
+                    total_cov_sum_no_motif += cov_sum
+                    total_center_ss_no_motif += center_ss
+                    total_neighbor_ss_no_motif += neighbor_ss
+                    total_n_pairs_no_motif += n_pairs
+                    total_n_eff_no_motif += n_eff
+                    n_fovs_no_motif += 1
+                else:
+                    print(f"  Skipping Corr3: only {len(center_no_motif_pairs)} no-motif pairs")
+
+            except Exception as e:
+                print(f"  Error processing FOV: {e}")
+                continue
+
+        # Compute Correlation 3 matrix
+        if n_fovs_no_motif > 0:
+            denominator_no_motif = np.sqrt(
+                total_center_ss_no_motif[:, None] * total_neighbor_ss_no_motif[None, :]
+            )
+            corr_matrix_no_motif = total_cov_sum_no_motif / (denominator_no_motif + 1e-10)
+            n_eff_no_motif = total_n_eff_no_motif
+            print(f"\nCorrelation 3: {total_n_pairs_no_motif} total pairs, n_eff={n_eff_no_motif} from {n_fovs_no_motif} FOVs")
+        else:
+            corr_matrix_no_motif = None
+            n_eff_no_motif = 0
+            print("\nWarning: No no-motif pairs found across any FOV!")
+
+        # ====================================================================================
+        # Step 2: Process each cell type separately
+        # ====================================================================================
+        print("\n" + "="*80)
+        print("Step 2: Computing correlations for each cell type")
+        print("="*80)
+
+        all_results = []
+
+        for cell_type in non_center_types:
+            print(f"\n{'='*80}")
+            print(f"Processing cell type: {cell_type}")
+            print(f"{'='*80}")
+
+            # Initialize accumulators for this cell type
+            total_cov_sum_neighbor = np.zeros((n_genes, n_genes))
+            total_center_ss_neighbor = np.zeros(n_genes)
+            total_neighbor_ss_neighbor = np.zeros(n_genes)
+            total_n_pairs_neighbor = 0
+            total_n_eff_neighbor = 0
+
+            total_cov_sum_non = np.zeros((n_genes, n_genes))
+            total_center_ss_non = np.zeros(n_genes)
+            total_non_neighbor_ss = np.zeros(n_genes)
+            total_n_pairs_non = 0
+            total_n_eff_non = 0
+
+            n_fovs_this_type = 0
+
+            # Process each FOV for this cell type
+            for fov_data in fov_pair_data:
+                sq = fov_data['sq']
+                expr_genes = fov_data['expr_genes']
+                is_sparse = fov_data['is_sparse']
+                fov_cell_type_means = fov_data['fov_cell_type_means']
+                center_mean = fov_data['center_mean']
+                center_neighbor_pairs = fov_data['center_neighbor_pairs']
+                non_neighbor_cells = fov_data['non_neighbor_cells']
+
+                # Filter pairs for this cell type
+                pair_neighbors = center_neighbor_pairs[:, 1]
+                neighbor_types = sq.labels.iloc[pair_neighbors].values
+                type_mask = neighbor_types == cell_type
+
+                if type_mask.sum() == 0:
+                    continue
+
+                type_specific_pairs = center_neighbor_pairs[type_mask]
+                type_specific_center_cells = np.unique(type_specific_pairs[:, 0])
+
+                # Filter non-neighbor cells for this type
+                type_non_neighbor_mask = sq.labels.iloc[non_neighbor_cells].values == cell_type
+                type_non_neighbor_cells = non_neighbor_cells[type_non_neighbor_mask]
+
+                if len(type_non_neighbor_cells) < 10:
+                    continue
+
+                n_fovs_this_type += 1
+
+                # Correlation 1: neighboring cells of this type
+                pair_centers = type_specific_pairs[:, 0]
+                pair_neighbors_idx = type_specific_pairs[:, 1]
+                neighbor_types_uniform = np.full(len(pair_neighbors_idx), cell_type)
+
+                cov_sum, center_ss, neighbor_ss, n_pairs, n_eff = spatial_utils.compute_covariance_statistics_paired(
+                    expr_genes=expr_genes,
+                    pair_centers=pair_centers,
+                    pair_neighbors=pair_neighbors_idx,
+                    center_mean=center_mean,
+                    cell_type_means=fov_cell_type_means,
+                    neighbor_cell_types=neighbor_types_uniform,
+                    is_sparse=is_sparse
+                )
+
+                total_cov_sum_neighbor += cov_sum
+                total_center_ss_neighbor += center_ss
+                total_neighbor_ss_neighbor += neighbor_ss
+                total_n_pairs_neighbor += n_pairs
+                total_n_eff_neighbor += n_eff
+
+                # Correlation 2: distant cells of this type
+                non_neighbor_types_uniform = np.full(len(type_non_neighbor_cells), cell_type)
+
+                cov_sum_non, center_ss_non, non_neighbor_ss, n_pairs_non, n_eff_non = spatial_utils.compute_covariance_statistics_all_to_all(
+                    expr_genes=expr_genes,
+                    center_cells=type_specific_center_cells,
+                    neighbor_cells=type_non_neighbor_cells,
+                    center_mean=center_mean,
+                    cell_type_means=fov_cell_type_means,
+                    neighbor_cell_types=non_neighbor_types_uniform,
+                    is_sparse=is_sparse
+                )
+
+                total_cov_sum_non += cov_sum_non
+                total_center_ss_non += center_ss_non
+                total_non_neighbor_ss += non_neighbor_ss
+                total_n_pairs_non += n_pairs_non
+                total_n_eff_non += n_eff_non
+
+            if n_fovs_this_type == 0:
+                print(f"No valid FOVs found for cell type {cell_type}. Skipping.")
+                continue
+
+            print(f"Processed {n_fovs_this_type} FOVs for {cell_type}")
+            print(f"  Corr1: {total_n_pairs_neighbor} pairs, n_eff={total_n_eff_neighbor}")
+            print(f"  Corr2: {total_n_pairs_non} pairs, n_eff={total_n_eff_non}")
+
+            # Compute correlation matrices
+            denominator_neighbor = np.sqrt(
+                total_center_ss_neighbor[:, None] * total_neighbor_ss_neighbor[None, :]
+            )
+            corr_matrix_neighbor = total_cov_sum_neighbor / (denominator_neighbor + 1e-10)
+            n_eff_neighbor = total_n_eff_neighbor
+
+            denominator_non = np.sqrt(
+                total_center_ss_non[:, None] * total_non_neighbor_ss[None, :]
+            )
+            corr_matrix_non_neighbor = total_cov_sum_non / (denominator_non + 1e-10)
+            n_eff_non_neighbor = total_n_eff_non
+
+            # Statistical testing
+            print(f"\nPerforming statistical tests for {cell_type}...")
+
+            # Test 1: Corr1 vs Corr2
+            _, p_value_test1 = spatial_utils.fisher_z_test(
+                corr_matrix_neighbor, n_eff_neighbor,
+                corr_matrix_non_neighbor, n_eff_non_neighbor
+            )
+            delta_corr_test1 = corr_matrix_neighbor - corr_matrix_non_neighbor
+
+            # Test 2: Corr1 vs Corr3
+            if corr_matrix_no_motif is not None:
+                _, p_value_test2 = spatial_utils.fisher_z_test(
+                    corr_matrix_neighbor, n_eff_neighbor,
+                    corr_matrix_no_motif, n_eff_no_motif
+                )
+                delta_corr_test2 = corr_matrix_neighbor - corr_matrix_no_motif
+                combined_score = (0.3 * delta_corr_test1 * (-np.log10(p_value_test1 + 1e-300)) +
+                                0.7 * delta_corr_test2 * (-np.log10(p_value_test2 + 1e-300)))
+            else:
+                p_value_test2 = None
+                delta_corr_test2 = None
+                combined_score = None
+
+            # Create results for this cell type
+            gene_center_idx, gene_motif_idx = np.meshgrid(np.arange(n_genes), np.arange(n_genes), indexing='ij')
+
+            type_results_df = pd.DataFrame({
+                'cell_type': cell_type,
+                'gene_center': np.array(genes)[gene_center_idx.flatten()],
+                'gene_motif': np.array(genes)[gene_motif_idx.flatten()],
+                'corr_neighbor': corr_matrix_neighbor.flatten(),
+                'corr_non_neighbor': corr_matrix_non_neighbor.flatten(),
+                'p_value_test1': p_value_test1.flatten(),
+                'delta_corr_test1': delta_corr_test1.flatten(),
+            })
+
+            if corr_matrix_no_motif is not None:
+                type_results_df['corr_center_no_motif'] = corr_matrix_no_motif.flatten()
+                type_results_df['p_value_test2'] = p_value_test2.flatten()
+                type_results_df['delta_corr_test2'] = delta_corr_test2.flatten()
+                type_results_df['combined_score'] = combined_score.flatten()
+            else:
+                type_results_df['corr_center_no_motif'] = np.nan
+                type_results_df['p_value_test2'] = np.nan
+                type_results_df['delta_corr_test2'] = np.nan
+                type_results_df['combined_score'] = np.nan
+
+            all_results.append(type_results_df)
+
+        # ====================================================================================
+        # Step 3: Combine results and apply FDR correction
+        # ====================================================================================
+        print("\n" + "="*80)
+        print("Step 3: Combining results and applying FDR correction")
+        print("="*80)
+
+        if len(all_results) == 0:
+            raise ValueError("No results generated for any cell type. Check input parameters.")
+
+        combined_results = pd.concat(all_results, ignore_index=True)
+        print(f"Total gene pairs across all cell types: {len(combined_results)}")
+
+        if corr_matrix_no_motif is not None:
+            # Filter by direction consistency
+            same_direction = np.sign(combined_results['delta_corr_test1']) == np.sign(combined_results['delta_corr_test2'])
+            print(f"Gene pairs with consistent covarying direction: {same_direction.sum()}")
+
+            if same_direction.sum() > 0:
+                # Pool all p-values for FDR correction
+                combined_results = combined_results[same_direction].copy()
+                p_values_test1 = combined_results['p_value_test1'].values
+                p_values_test2 = combined_results['p_value_test2'].values
+
+                all_p_values = np.concatenate([p_values_test1, p_values_test2])
+                n_consistent = same_direction.sum()
+
+                print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
+                alpha = 0.05
+                reject_all, q_values_all, _, _ = multipletests(
+                    all_p_values,
+                    alpha=alpha,
+                    method='fdr_bh'
+                )
+
+                q_values_test1 = q_values_all[:n_consistent]
+                q_values_test2 = q_values_all[n_consistent:]
+                reject_test1 = reject_all[:n_consistent]
+                reject_test2 = reject_all[n_consistent:]
+
+                combined_results['q_value_test1'] = q_values_test1
+                combined_results['q_value_test2'] = q_values_test2
+                combined_results['reject_test1_fdr'] = reject_test1
+                combined_results['reject_test2_fdr'] = reject_test2
+
+                mask_both_fdr = reject_test1 & reject_test2
+                n_both_fdr = mask_both_fdr.sum()
+
+                print(f"Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+                print(f"Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
+                print(f"Both tests FDR significant: {n_both_fdr}")
+
+                # Sort by combined score
+                combined_results = combined_results.sort_values('combined_score', ascending=False, ignore_index=True)
+            else:
+                print("Warning: No gene pairs with consistent covarying direction.")
+                combined_results['q_value_test1'] = np.nan
+                combined_results['q_value_test2'] = np.nan
+                combined_results['reject_test1_fdr'] = False
+                combined_results['reject_test2_fdr'] = False
+        else:
+            # Only Test 1, apply FDR correction
+            p_values_test1 = combined_results['p_value_test1'].values
+            reject_test1, q_values_test1, _, _ = multipletests(
+                p_values_test1,
+                alpha=0.05,
+                method='fdr_bh'
+            )
+
+            combined_results['q_value_test1'] = q_values_test1
+            combined_results['reject_test1_fdr'] = reject_test1
+
+            print(f"Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
+
+            # Sort by p-value
+            combined_results = combined_results.sort_values('q_value_test1', ignore_index=True)
+
+        print("\n" + "="*80)
+        print("Analysis completed!")
+        print("="*80)
+        print(f"Total gene pairs analyzed: {len(combined_results)}")
+        if 'reject_test1_fdr' in combined_results.columns:
+            print(f"Significant pairs (Test1): {combined_results['reject_test1_fdr'].sum()}")
+        if 'reject_test2_fdr' in combined_results.columns:
+            print(f"Significant pairs (Test2): {combined_results['reject_test2_fdr'].sum()}")
+            print(f"Significant pairs (Both tests): {(combined_results['reject_test1_fdr'] & combined_results['reject_test2_fdr']).sum()}")
+
+        return combined_results
 
 
 
