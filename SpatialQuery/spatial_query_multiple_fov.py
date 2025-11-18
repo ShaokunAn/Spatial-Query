@@ -1550,7 +1550,7 @@ class spatial_query_multi:
                                        k: Optional[int] = None,
                                        min_size: int = 0,
                                        min_nonzero: int = 10,
-                                       ) -> Tuple[pd.DataFrame, Dict]:
+                                       ) -> pd.DataFrame:
         """
         Compute gene-gene co-varying patterns between motif and center cells across multiple FOVs.
 

@@ -912,7 +912,7 @@ def compute_gene_gene_correlation_adata(sq_obj,
 
         if same_direction.sum() > 0:
             # Step 2: Pool all p-values from both tests for FDR correction
-            # This accounts for the fact that we perform 2 × n_gene_pairs tests
+            # This accounts for the fact that we perform 2 �� n_gene_pairs tests
             p_values_test1 = results_df.loc[same_direction, 'p_value_test1'].values
             p_values_test2 = results_df.loc[same_direction, 'p_value_test2'].values
 
@@ -2512,23 +2512,33 @@ def compute_gene_gene_correlation_adata_multi_fov(
         missing = [m for m in motif if not any(m in s.labels.unique() for s in selected_queries)]
         raise ValueError(f"Motif types {missing} not found in any selected datasets!")
 
-    # Get intersection of genes across all FOVs
+    # Get union of genes across all FOVs
     genes_sets = [set(sq.genes) for sq in selected_queries]
-    all_genes = list(set.intersection(*genes_sets))
-    if genes is None:    
-        print(f"No genes specified. Using all common genes across all selected FOVs ...")
-        valid_genes = all_genes
+    all_genes_union = list(set.union(*genes_sets))
+    all_genes_intersection = list(set.intersection(*genes_sets))
+
+    if genes is None:
+        print(f"No genes specified. Using union of genes across all selected FOVs ...")
+        valid_genes = all_genes_union
     elif isinstance(genes, str):
         genes = [genes]
-        valid_genes = [g for g in genes if g in all_genes]
+        valid_genes = [g for g in genes if g in all_genes_union]
     else:
-        valid_genes = [g for g in genes if g in all_genes]
-    
+        valid_genes = [g for g in genes if g in all_genes_union]
+
     if len(valid_genes) == 0:
-        raise ValueError("No valid genes found across all FOVs.")
+        raise ValueError("No valid genes found in any FOV.")
 
     genes = valid_genes
     n_genes = len(genes)
+
+    # Report gene coverage statistics
+    n_union = len(all_genes_union)
+    n_intersection = len(all_genes_intersection)
+    n_excluded = n_union - n_intersection
+    print(f"Gene coverage: {n_intersection} genes in all FOVs, {n_union} genes total (union)")
+    if n_excluded > 0:
+        print(f"  -> {n_excluded} genes present in subset of FOVs (will use available data)")
     print(f"Analyzing {n_genes} genes across {len(selected_queries)} FOVs")
 
     # ====================================================================================
@@ -2576,8 +2586,23 @@ def compute_gene_gene_correlation_adata_multi_fov(
             print(f"  Skipping: motif types {missing_motif} not in this FOV")
             continue
 
-        # Get expression data for this FOV
-        expr_genes = sq.adata[:, genes].X
+        # Find which genes from our gene list exist in this FOV
+        fov_genes_set = set(sq.genes)
+        genes_in_fov = [g for g in genes if g in fov_genes_set]
+
+        if len(genes_in_fov) == 0:
+            print(f"  Skipping: no genes from analysis list found in this FOV")
+            continue
+
+        # Create index mapping from FOV genes to full gene list
+        gene_to_idx = {g: i for i, g in enumerate(genes)}
+        fov_gene_indices = np.array([gene_to_idx[g] for g in genes_in_fov])
+
+        n_genes_fov = len(genes_in_fov)
+        print(f"  FOV has {n_genes_fov}/{n_genes} genes from analysis list")
+
+        # Get expression data for this FOV (only genes present in this FOV)
+        expr_genes = sq.adata[:, genes_in_fov].X
         is_sparse = sparse.issparse(expr_genes)
 
         # Filter genes by non-zero expression in this FOV
@@ -2641,10 +2666,12 @@ def compute_gene_gene_correlation_adata_multi_fov(
                     is_sparse=is_sparse
                 )
 
-                # Accumulate statistics directly (no intermediate storage)
-                total_cov_sum_neighbor += cov_sum
-                total_center_ss_neighbor += center_ss
-                total_neighbor_ss_neighbor += neighbor_ss
+                # Map FOV-specific statistics to full gene indices
+                # cov_sum is (n_genes_fov, n_genes_fov), need to map to (n_genes, n_genes)
+                ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                total_cov_sum_neighbor[ix] += cov_sum
+                total_center_ss_neighbor[fov_gene_indices] += center_ss
+                total_neighbor_ss_neighbor[fov_gene_indices] += neighbor_ss
                 total_n_pairs_neighbor += n_pairs
                 total_n_eff_neighbor += n_eff
                 n_fovs_neighbor += 1
@@ -2691,10 +2718,11 @@ def compute_gene_gene_correlation_adata_multi_fov(
                         is_sparse=is_sparse
                     )
 
-                    # Accumulate statistics directly
-                    total_cov_sum_non += cov_sum_non
-                    total_center_ss_non += center_ss_non
-                    total_non_neighbor_ss += non_neighbor_ss
+                    # Map FOV-specific statistics to full gene indices
+                    ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                    total_cov_sum_non[ix] += cov_sum_non
+                    total_center_ss_non[fov_gene_indices] += center_ss_non
+                    total_non_neighbor_ss[fov_gene_indices] += non_neighbor_ss
                     total_n_pairs_non += n_pairs_non
                     total_n_eff_non += n_eff_non
                     n_fovs_non += 1
@@ -2743,10 +2771,11 @@ def compute_gene_gene_correlation_adata_multi_fov(
                         is_sparse=is_sparse
                     )
 
-                    # Accumulate statistics directly
-                    total_cov_sum_no_motif += cov_sum_no_motif
-                    total_center_ss_no_motif += center_ss_no_motif
-                    total_neighbor_ss_no_motif += neighbor_ss_no_motif
+                    # Map FOV-specific statistics to full gene indices
+                    ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                    total_cov_sum_no_motif[ix] += cov_sum_no_motif
+                    total_center_ss_no_motif[fov_gene_indices] += center_ss_no_motif
+                    total_neighbor_ss_no_motif[fov_gene_indices] += neighbor_ss_no_motif
                     total_n_pairs_no_motif += n_pairs_no_motif
                     total_n_eff_no_motif += n_eff_no_motif
                     n_fovs_no_motif += 1
@@ -2838,7 +2867,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
 
     # Test 1: Corr1 vs Corr2 (neighbor vs non-neighbor)
     if total_cov_sum_non is not None and n_eff_non_neighbor > 0:
-        _, p_value_test1 = spatial_utils.fisher_z_test(
+        _, p_value_test1 = fisher_z_test(
             corr_matrix_neighbor, n_eff_neighbor,
             corr_matrix_non_neighbor, n_eff_non_neighbor
         )
@@ -2851,7 +2880,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
 
     # Test 2: Corr1 vs Corr3 (with motif vs without motif)
     if corr_matrix_no_motif is not None and n_eff_no_motif > 0:
-        _, p_value_test2 = spatial_utils.fisher_z_test(
+        _, p_value_test2 = fisher_z_test(
             corr_matrix_neighbor, n_eff_neighbor,
             corr_matrix_no_motif, n_eff_no_motif
         )
@@ -3054,23 +3083,33 @@ def compute_gene_gene_correlation_binary_multi_fov(
         missing = [m for m in motif if not any(m in s.labels.unique() for s in selected_queries)]
         raise ValueError(f"Motif types {missing} not found in any selected datasets!")
 
-    # Get intersection of genes across all FOVs
+    # Get union of genes across all FOVs
     genes_sets = [set(sq.genes) for sq in selected_queries]
-    all_genes = list(set.intersection(*genes_sets))
+    all_genes_union = list(set.union(*genes_sets))
+    all_genes_intersection = list(set.intersection(*genes_sets))
+
     if genes is None:
-        print(f"No genes specified. Using all common genes across all selected FOVs ...")
-        valid_genes = all_genes
+        print(f"No genes specified. Using union of genes across all selected FOVs ...")
+        valid_genes = all_genes_union
     elif isinstance(genes, str):
         genes = [genes]
-        valid_genes = [g for g in genes if g in all_genes]
+        valid_genes = [g for g in genes if g in all_genes_union]
     else:
-        valid_genes = [g for g in genes if g in all_genes]
+        valid_genes = [g for g in genes if g in all_genes_union]
 
     if len(valid_genes) == 0:
-        raise ValueError("No valid genes found across all FOVs.")
+        raise ValueError("No valid genes found in any FOV.")
 
     genes = valid_genes
     n_genes = len(genes)
+
+    # Report gene coverage statistics
+    n_union = len(all_genes_union)
+    n_intersection = len(all_genes_intersection)
+    n_excluded = n_union - n_intersection
+    print(f"Gene coverage: {n_intersection} genes in all FOVs, {n_union} genes total (union)")
+    if n_excluded > 0:
+        print(f"  -> {n_excluded} genes present in subset of FOVs (will use available data)")
     print(f"Analyzing {n_genes} genes across {len(selected_queries)} FOVs")
 
     # ====================================================================================
@@ -3131,6 +3170,13 @@ def compute_gene_gene_correlation_binary_multi_fov(
             print(f"  Skipping: no genes passed min_nonzero filter")
             continue
 
+        # Create index mapping from FOV genes to full gene list
+        gene_to_idx = {g: i for i, g in enumerate(genes)}
+        fov_gene_indices = np.array([gene_to_idx[g] for g in filtered_genes])
+
+        n_genes_fov = len(filtered_genes)
+        print(f"  FOV has {n_genes_fov}/{n_genes} genes from analysis list")
+
         # Create binary sparse matrix
         binary_expr = sparse.csr_matrix(
             (np.ones(len(rows), dtype=np.int16), (rows, cols)),
@@ -3189,10 +3235,12 @@ def compute_gene_gene_correlation_binary_multi_fov(
                     is_sparse=is_sparse
                 )
 
-                # Accumulate statistics directly (no intermediate storage)
-                total_cov_sum_neighbor += cov_sum
-                total_center_ss_neighbor += center_ss
-                total_neighbor_ss_neighbor += neighbor_ss
+                # Map FOV-specific statistics to full gene indices
+                # cov_sum is (n_genes_fov, n_genes_fov), need to map to (n_genes, n_genes)
+                ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                total_cov_sum_neighbor[ix] += cov_sum
+                total_center_ss_neighbor[fov_gene_indices] += center_ss
+                total_neighbor_ss_neighbor[fov_gene_indices] += neighbor_ss
                 total_n_pairs_neighbor += n_pairs
                 total_n_eff_neighbor += n_eff
                 n_fovs_neighbor += 1
@@ -3239,10 +3287,11 @@ def compute_gene_gene_correlation_binary_multi_fov(
                         is_sparse=is_sparse
                     )
 
-                    # Accumulate statistics directly
-                    total_cov_sum_non += cov_sum_non
-                    total_center_ss_non += center_ss_non
-                    total_non_neighbor_ss += non_neighbor_ss
+                    # Map FOV-specific statistics to full gene indices
+                    ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                    total_cov_sum_non[ix] += cov_sum_non
+                    total_center_ss_non[fov_gene_indices] += center_ss_non
+                    total_non_neighbor_ss[fov_gene_indices] += non_neighbor_ss
                     total_n_pairs_non += n_pairs_non
                     total_n_eff_non += n_eff_non
                     n_fovs_non += 1
@@ -3291,10 +3340,11 @@ def compute_gene_gene_correlation_binary_multi_fov(
                         is_sparse=is_sparse
                     )
 
-                    # Accumulate statistics directly
-                    total_cov_sum_no_motif += cov_sum_no_motif
-                    total_center_ss_no_motif += center_ss_no_motif
-                    total_neighbor_ss_no_motif += neighbor_ss_no_motif
+                    # Map FOV-specific statistics to full gene indices
+                    ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                    total_cov_sum_no_motif[ix] += cov_sum_no_motif
+                    total_center_ss_no_motif[fov_gene_indices] += center_ss_no_motif
+                    total_neighbor_ss_no_motif[fov_gene_indices] += neighbor_ss_no_motif
                     total_n_pairs_no_motif += n_pairs_no_motif
                     total_n_eff_no_motif += n_eff_no_motif
                     n_fovs_no_motif += 1
@@ -3386,7 +3436,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
 
     # Test 1: Corr1 vs Corr2 (neighbor vs non-neighbor)
     if total_cov_sum_non is not None and n_eff_non_neighbor > 0:
-        _, p_value_test1 = spatial_utils.fisher_z_test(
+        _, p_value_test1 = fisher_z_test(
             corr_matrix_neighbor, n_eff_neighbor,
             corr_matrix_non_neighbor, n_eff_non_neighbor
         )
@@ -3399,7 +3449,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
 
     # Test 2: Corr1 vs Corr3 (with motif vs without motif)
     if corr_matrix_no_motif is not None and n_eff_no_motif > 0:
-        _, p_value_test2 = spatial_utils.fisher_z_test(
+        _, p_value_test2 = fisher_z_test(
             corr_matrix_neighbor, n_eff_neighbor,
             corr_matrix_no_motif, n_eff_no_motif
         )
@@ -3597,19 +3647,19 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
 
     # Select FOVs (handle dataset names with and without suffix)
     if dataset is None:
-        dataset = [s.dataset.split('_')[0] for s in sq_objs.queries]
+        dataset = [s.dataset.split('_')[0] for s in sq_objs.spatial_queries]
         print(f"No dataset specified. Using all datasets.")
     if isinstance(dataset, str):
         dataset = [dataset]
 
-    valid_ds_names = [s.dataset.split('_')[0] for s in sq_objs.queries]
+    valid_ds_names = [s.dataset.split('_')[0] for s in sq_objs.spatial_queries]
     for ds in dataset:
         if ds not in valid_ds_names:
             raise ValueError(f"Invalid input dataset name: {ds}.\n "
                             f"Valid dataset names are: {set(valid_ds_names)}")
 
     # Filter queries to include only selected datasets
-    selected_queries = [s for s in sq_objs.queries if s.dataset.split('_')[0] in dataset]
+    selected_queries = [s for s in sq_objs.spatial_queries if s.dataset.split('_')[0] in dataset]
 
     if len(selected_queries) == 0:
         raise ValueError(f"No FOVs found for dataset: {dataset}")
@@ -3626,23 +3676,33 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
         missing = [m for m in motif if not any(m in s.labels.unique() for s in selected_queries)]
         raise ValueError(f"Motif types {missing} not found in any selected datasets!")
 
-    # Get intersection of genes across all FOVs
+    # Get union of genes across all FOVs
     genes_sets = [set(sq.genes) for sq in selected_queries]
-    all_genes = list(set.intersection(*genes_sets))
+    all_genes_union = list(set.union(*genes_sets))
+    all_genes_intersection = list(set.intersection(*genes_sets))
+
     if genes is None:
-        print(f"No genes specified. Using all common genes across all selected FOVs ...")
-        valid_genes = all_genes
+        print(f"No genes specified. Using union of genes across all selected FOVs ...")
+        valid_genes = all_genes_union
     elif isinstance(genes, str):
         genes = [genes]
-        valid_genes = [g for g in genes if g in all_genes]
+        valid_genes = [g for g in genes if g in all_genes_union]
     else:
-        valid_genes = [g for g in genes if g in all_genes]
+        valid_genes = [g for g in genes if g in all_genes_union]
 
     if len(valid_genes) == 0:
-        raise ValueError("No valid genes found across all FOVs.")
+        raise ValueError("No valid genes found in any FOV.")
 
     genes = valid_genes
     n_genes = len(genes)
+
+    # Report gene coverage statistics
+    n_union = len(all_genes_union)
+    n_intersection = len(all_genes_intersection)
+    n_excluded = n_union - n_intersection
+    print(f"Gene coverage: {n_intersection} genes in all FOVs, {n_union} genes total (union)")
+    if n_excluded > 0:
+        print(f"  -> {n_excluded} genes present in subset of FOVs (will use available data)")
     print(f"Analyzing {n_genes} genes across {len(selected_queries)} FOVs")
 
     # ====================================================================================
@@ -3675,8 +3735,23 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
             print(f"  Skipping: motif types {missing_motif} not in this FOV")
             continue
 
-        # Get expression data
-        expr_genes = sq.adata[:, genes].X
+        # Find which genes from our gene list exist in this FOV
+        fov_genes_set = set(sq.genes)
+        genes_in_fov = [g for g in genes if g in fov_genes_set]
+
+        if len(genes_in_fov) == 0:
+            print(f"  Skipping: no genes from analysis list found in this FOV")
+            continue
+
+        # Create index mapping from FOV genes to full gene list
+        gene_to_idx = {g: i for i, g in enumerate(genes)}
+        fov_gene_indices = np.array([gene_to_idx[g] for g in genes_in_fov])
+
+        n_genes_fov = len(genes_in_fov)
+        print(f"  FOV has {n_genes_fov}/{n_genes} genes from analysis list")
+
+        # Get expression data (only genes present in this FOV)
+        expr_genes = sq.adata[:, genes_in_fov].X
         is_sparse = sparse.issparse(expr_genes)
 
         # Filter genes by non-zero expression
@@ -3738,6 +3813,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
                 'center_mean': center_mean,
                 'center_neighbor_pairs': center_neighbor_pairs,
                 'non_neighbor_cells': non_neighbor_cells,
+                'fov_gene_indices': fov_gene_indices,  # Add gene mapping
             })
 
             # Compute Correlation 3
@@ -3770,9 +3846,11 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
                     is_sparse=is_sparse
                 )
 
-                total_cov_sum_no_motif += cov_sum
-                total_center_ss_no_motif += center_ss
-                total_neighbor_ss_no_motif += neighbor_ss
+                # Map FOV-specific statistics to full gene indices
+                ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                total_cov_sum_no_motif[ix] += cov_sum
+                total_center_ss_no_motif[fov_gene_indices] += center_ss
+                total_neighbor_ss_no_motif[fov_gene_indices] += neighbor_ss
                 total_n_pairs_no_motif += n_pairs
                 total_n_eff_no_motif += n_eff
                 n_fovs_no_motif += 1
@@ -3842,6 +3920,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
             center_mean = fov_data['center_mean']
             center_neighbor_pairs = fov_data['center_neighbor_pairs']
             non_neighbor_cells = fov_data['non_neighbor_cells']
+            fov_gene_indices = fov_data['fov_gene_indices']  # Get gene mapping
 
             # Filter pairs for this cell type
             pair_neighbors = center_neighbor_pairs[:, 1]
@@ -3878,9 +3957,11 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
                 is_sparse=is_sparse
             )
 
-            total_cov_sum_neighbor += cov_sum
-            total_center_ss_neighbor += center_ss
-            total_neighbor_ss_neighbor += neighbor_ss
+            # Map FOV-specific statistics to full gene indices
+            ix = np.ix_(fov_gene_indices, fov_gene_indices)
+            total_cov_sum_neighbor[ix] += cov_sum
+            total_center_ss_neighbor[fov_gene_indices] += center_ss
+            total_neighbor_ss_neighbor[fov_gene_indices] += neighbor_ss
             total_n_pairs_neighbor += n_pairs
             total_n_eff_neighbor += n_eff
 
@@ -3905,9 +3986,11 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
                 is_sparse=is_sparse
             )
 
-            total_cov_sum_non += cov_sum_non
-            total_center_ss_non += center_ss_non
-            total_non_neighbor_ss += non_neighbor_ss
+            # Map FOV-specific statistics to full gene indices
+            ix = np.ix_(fov_gene_indices, fov_gene_indices)
+            total_cov_sum_non[ix] += cov_sum_non
+            total_center_ss_non[fov_gene_indices] += center_ss_non
+            total_non_neighbor_ss[fov_gene_indices] += non_neighbor_ss
             total_n_pairs_non += n_pairs_non
             total_n_eff_non += n_eff_non
 
@@ -3944,7 +4027,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
         print(f"\nPerforming statistical tests for {cell_type}...")
 
         # Test 1: Corr1 vs Corr2
-        _, p_value_test1 = spatial_utils.fisher_z_test(
+        _, p_value_test1 = fisher_z_test(
             corr_matrix_neighbor, n_eff_neighbor,
             corr_matrix_non_neighbor, n_eff_non_neighbor
         )
@@ -3952,7 +4035,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
 
         # Test 2: Corr1 vs Corr3
         if corr_matrix_no_motif is not None:
-            _, p_value_test2 = spatial_utils.fisher_z_test(
+            _, p_value_test2 = fisher_z_test(
                 corr_matrix_neighbor, n_eff_neighbor,
                 corr_matrix_no_motif, n_eff_no_motif
             )
@@ -4206,23 +4289,33 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
             missing = [m for m in motif if not any(m in s.labels.unique() for s in selected_queries)]
             raise ValueError(f"Motif types {missing} not found in any selected datasets!")
 
-        # Get intersection of genes across all FOVs
+        # Get union of genes across all FOVs
         genes_sets = [set(sq.genes) for sq in selected_queries]
-        all_genes = list(set.intersection(*genes_sets))
+        all_genes_union = list(set.union(*genes_sets))
+        all_genes_intersection = list(set.intersection(*genes_sets))
+
         if genes is None:
-            print(f"No genes specified. Using all common genes across all selected FOVs ...")
-            valid_genes = all_genes
+            print(f"No genes specified. Using union of genes across all selected FOVs ...")
+            valid_genes = all_genes_union
         elif isinstance(genes, str):
             genes = [genes]
-            valid_genes = [g for g in genes if g in all_genes]
+            valid_genes = [g for g in genes if g in all_genes_union]
         else:
-            valid_genes = [g for g in genes if g in all_genes]
+            valid_genes = [g for g in genes if g in all_genes_union]
 
         if len(valid_genes) == 0:
-            raise ValueError("No valid genes found across all FOVs.")
+            raise ValueError("No valid genes found in any FOV.")
 
         genes = valid_genes
         n_genes = len(genes)
+
+        # Report gene coverage statistics
+        n_union = len(all_genes_union)
+        n_intersection = len(all_genes_intersection)
+        n_excluded = n_union - n_intersection
+        print(f"Gene coverage: {n_intersection} genes in all FOVs, {n_union} genes total (union)")
+        if n_excluded > 0:
+            print(f"  -> {n_excluded} genes present in subset of FOVs (will use available data)")
         print(f"Analyzing {n_genes} genes across {len(selected_queries)} FOVs")
 
         # ====================================================================================
@@ -4267,6 +4360,13 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
             if len(filtered_genes) == 0:
                 print(f"  Skipping: no genes passed min_nonzero filter")
                 continue
+
+            # Create index mapping from FOV genes to full gene list
+            gene_to_idx = {g: i for i, g in enumerate(genes)}
+            fov_gene_indices = np.array([gene_to_idx[g] for g in filtered_genes])
+
+            n_genes_fov = len(filtered_genes)
+            print(f"  FOV has {n_genes_fov}/{n_genes} genes from analysis list")
 
             # Create binary sparse matrix
             binary_expr = sparse.csr_matrix(
@@ -4327,6 +4427,7 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                     'center_mean': center_mean,
                     'center_neighbor_pairs': center_neighbor_pairs,
                     'non_neighbor_cells': non_neighbor_cells,
+                    'fov_gene_indices': fov_gene_indices,  # Add gene mapping
                 })
 
                 # Compute Correlation 3
@@ -4359,9 +4460,11 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                         is_sparse=is_sparse
                     )
 
-                    total_cov_sum_no_motif += cov_sum
-                    total_center_ss_no_motif += center_ss
-                    total_neighbor_ss_no_motif += neighbor_ss
+                    # Map FOV-specific statistics to full gene indices
+                    ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                    total_cov_sum_no_motif[ix] += cov_sum
+                    total_center_ss_no_motif[fov_gene_indices] += center_ss
+                    total_neighbor_ss_no_motif[fov_gene_indices] += neighbor_ss
                     total_n_pairs_no_motif += n_pairs
                     total_n_eff_no_motif += n_eff
                     n_fovs_no_motif += 1
@@ -4431,6 +4534,7 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                 center_mean = fov_data['center_mean']
                 center_neighbor_pairs = fov_data['center_neighbor_pairs']
                 non_neighbor_cells = fov_data['non_neighbor_cells']
+                fov_gene_indices = fov_data['fov_gene_indices']  # Get gene mapping
 
                 # Filter pairs for this cell type
                 pair_neighbors = center_neighbor_pairs[:, 1]
@@ -4467,9 +4571,11 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                     is_sparse=is_sparse
                 )
 
-                total_cov_sum_neighbor += cov_sum
-                total_center_ss_neighbor += center_ss
-                total_neighbor_ss_neighbor += neighbor_ss
+                # Map FOV-specific statistics to full gene indices
+                ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                total_cov_sum_neighbor[ix] += cov_sum
+                total_center_ss_neighbor[fov_gene_indices] += center_ss
+                total_neighbor_ss_neighbor[fov_gene_indices] += neighbor_ss
                 total_n_pairs_neighbor += n_pairs
                 total_n_eff_neighbor += n_eff
 
@@ -4494,9 +4600,11 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                     is_sparse=is_sparse
                 )
 
-                total_cov_sum_non += cov_sum_non
-                total_center_ss_non += center_ss_non
-                total_non_neighbor_ss += non_neighbor_ss
+                # Map FOV-specific statistics to full gene indices
+                ix = np.ix_(fov_gene_indices, fov_gene_indices)
+                total_cov_sum_non[ix] += cov_sum_non
+                total_center_ss_non[fov_gene_indices] += center_ss_non
+                total_non_neighbor_ss[fov_gene_indices] += non_neighbor_ss
                 total_n_pairs_non += n_pairs_non
                 total_n_eff_non += n_eff_non
 
@@ -4533,7 +4641,7 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
             print(f"\nPerforming statistical tests for {cell_type}...")
 
             # Test 1: Corr1 vs Corr2
-            _, p_value_test1 = spatial_utils.fisher_z_test(
+            _, p_value_test1 = fisher_z_test(
                 corr_matrix_neighbor, n_eff_neighbor,
                 corr_matrix_non_neighbor, n_eff_non_neighbor
             )
@@ -4541,7 +4649,7 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
 
             # Test 2: Corr1 vs Corr3
             if corr_matrix_no_motif is not None:
-                _, p_value_test2 = spatial_utils.fisher_z_test(
+                _, p_value_test2 = fisher_z_test(
                     corr_matrix_neighbor, n_eff_neighbor,
                     corr_matrix_no_motif, n_eff_no_motif
                 )
