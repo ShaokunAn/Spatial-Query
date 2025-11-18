@@ -1494,6 +1494,132 @@ const arma::sp_mat EliasFanoDB::csr_to_sp_mat(const py::object& csr_obj) {
   }
 }
 
+// Get non-zero expressing cell indices for given genes in a dataset
+// Returns a dictionary: gene_name -> list of cell indices (0-based, global indices)
+
+// Get sparse matrix construction data directly (more efficient for large gene sets)
+// Returns: {
+//   'rows': np.array of cell indices,
+//   'cols': np.array of gene indices,
+//   'gene_names': list of gene names (filtered),
+//   'n_cells': total number of cells
+// }
+py::dict EliasFanoDB::getBinarySparseMatrixData(const py::list& gene_names, const std::string& dataset_name, int min_nonzero) const
+{
+  py::dict result;
+
+  // Convert gene_names to vector
+  std::vector<std::string> genes = gene_names.cast<std::vector<std::string>>();
+
+  // Get all cell types for the given dataset
+  std::vector<CellTypeName> dataset_cell_types;
+  for (auto const &ct : this->cell_types)
+  {
+    std::string ct_dataset = ct.first.substr(0, ct.first.find("."));
+    std::cout << "ct_dataset=" << ct_dataset << std::endl;  
+    if (ct_dataset == dataset_name)
+    {
+      dataset_cell_types.push_back(ct.first);
+    }
+  }
+
+  if (dataset_cell_types.empty())
+  {
+    std::cerr << "Warning: No cell types found for dataset " << dataset_name << std::endl;
+    result["rows"] = py::array_t<int>(0);
+    result["cols"] = py::array_t<int>(0);
+    result["gene_names"] = py::list();
+    result["n_cells"] = 0;
+    return result;
+  }
+
+  // Get total number of cells and cell type offsets
+  int total_cells = 0;
+  std::map<CellTypeName, int> cell_type_offsets;
+
+  for (const auto& ct_name : dataset_cell_types)
+  {
+    cell_type_offsets[ct_name] = total_cells;
+    const CellType& ct = getCellType(ct_name);
+    total_cells += ct.total_cells;
+  }
+
+  // First pass: collect all cell indices for each gene and filter by min_nonzero
+  std::vector<std::string> filtered_genes;
+  std::vector<std::vector<int>> gene_cell_indices;
+
+  for (const auto& gene : genes)
+  {
+    // Check if gene exists in index
+    if (index.find(gene) == index.end())
+    {
+      continue;
+    }
+
+    std::vector<int> all_indices;
+
+    // Get non-zero cell indices for this gene across all cell types
+    for (const auto& ct_name : dataset_cell_types)
+    {
+      const auto& gene_container = index.at(gene);
+      CellTypeID ct_id = cell_types.at(ct_name);
+
+      auto it = gene_container.find(ct_id);
+      if (it != gene_container.end())
+      {
+        const EliasFano& ef = ef_data[it->second];
+        std::vector<int> local_indices = eliasFanoDecoding(ef);
+
+        int offset = cell_type_offsets[ct_name];
+        for (int local_idx : local_indices)
+        {
+          // scfind uses 1-based indexing, convert to 0-based for Python
+          all_indices.push_back(offset + local_idx - 1);
+        }
+      }
+    }
+
+    // Filter by min_nonzero
+    if ((int)all_indices.size() >= min_nonzero)
+    {
+      filtered_genes.push_back(gene);
+      gene_cell_indices.push_back(std::move(all_indices));
+    }
+  }
+
+  // Calculate total number of non-zero entries
+  size_t total_nnz = 0;
+  for (const auto& indices : gene_cell_indices)
+  {
+    total_nnz += indices.size();
+  }
+
+  // Pre-allocate arrays for COO format sparse matrix
+  std::vector<int> rows;
+  std::vector<int> cols;
+  rows.reserve(total_nnz);
+  cols.reserve(total_nnz);
+
+  // Fill rows and cols arrays
+  for (size_t gene_idx = 0; gene_idx < filtered_genes.size(); ++gene_idx)
+  {
+    const auto& cell_indices = gene_cell_indices[gene_idx];
+    for (int cell_idx : cell_indices)
+    {
+      rows.push_back(cell_idx);
+      cols.push_back(gene_idx);
+    }
+  }
+
+  // Convert to numpy arrays using pybind11
+  result["rows"] = py::array_t<int>(rows.size(), rows.data());
+  result["cols"] = py::array_t<int>(cols.size(), cols.data());
+  result["gene_names"] = py::cast(filtered_genes);
+  result["n_cells"] = total_cells;
+
+  return result;
+}
+
 
 PYBIND11_MODULE(SpatialQueryEliasFanoDB, m){
     py::class_<EliasFanoDB>(m, "EliasFanoDB")
@@ -1526,5 +1652,6 @@ PYBIND11_MODULE(SpatialQueryEliasFanoDB, m){
     .def("evaluateCellTypeMarkers", &EliasFanoDB::evaluateCellTypeMarkers)
     .def("getCellTypeSupport", &EliasFanoDB::getCellTypeSupport)
     .def("DEGenesIndices", &EliasFanoDB::DEGenesIndices)
-    .def("cell_counts_in_indices_genes", &EliasFanoDB::findCellExpressingGenesinIndices);
+    .def("cell_counts_in_indices_genes", &EliasFanoDB::findCellExpressingGenesinIndices)
+    .def("getBinarySparseMatrixData", &EliasFanoDB::getBinarySparseMatrixData);
 }

@@ -172,6 +172,8 @@ class EliasFanoDB
   std::vector<py::dict> DEGenesIndices(const py::list &indices1, const py::list &indices2, const py::list& genes_obj, double min_fraction);
   std::vector<py::dict> findCellExpressingGenesinIndices(const py::list &indices, const py::list& genes_obj);
 
+  // Get sparse matrix construction data (rows, cols, gene_names) for binary expression matrix
+  py::dict getBinarySparseMatrixData(const py::list& gene_names, const std::string& dataset_name, int min_nonzero) const;
 
 };
 
