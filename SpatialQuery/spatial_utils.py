@@ -783,27 +783,36 @@ def compute_covariance_statistics_all_to_all(expr_genes,
         neighbor_type_means_matrix = np.column_stack([cell_type_means[ct] for ct in unique_neighbor_types])
 
         # ==================== Covariance sum computation ====================
-        # Term 1: Σ_i Σ_j x_i * y_j = (Σ_i x_i) * (Σ_j y_j)
+        # To avoid overflow, normalize sums before outer product
         sum_center = np.array(center_expr.sum(axis=0)).flatten()
         sum_neighbor = np.array(neighbor_expr.sum(axis=0)).flatten()
-        term1 = np.outer(sum_center, sum_neighbor)
 
-        # Term 2: -Σ_i Σ_j x_i * μ^{ct_j} = (Σ_i x_i) * (Σ_j μ^{ct_j})
+        # Normalize by counts to avoid overflow in outer product
+        mean_center = sum_center / n_centers
+        mean_neighbor = sum_neighbor / n_neighbors
+
+        # Term 1: Σ_i Σ_j x_i * y_j = n_centers * n_neighbors * mean_center * mean_neighbor
+        term1 = n_pairs * np.outer(mean_center, mean_neighbor)
+
+        # Term 2: -Σ_i Σ_j x_i * μ^{ct_j} = n_centers * (Σ_i x_i) * (Σ_j μ^{ct_j}) / n_neighbors
         weighted_neighbor_mean = neighbor_type_means_matrix @ type_counts
-        term2 = np.outer(sum_center, weighted_neighbor_mean)
+        mean_weighted_neighbor = weighted_neighbor_mean / n_neighbors
+        term2 = n_centers * np.outer(mean_center, mean_weighted_neighbor) * n_neighbors
 
         # Term 3: -Σ_i Σ_j μ_X * y_j = n_centers * μ_X * (Σ_j y_j)
-        term3 = n_centers * np.outer(center_mean, sum_neighbor)
+        term3 = n_centers * np.outer(center_mean, mean_neighbor) * n_neighbors
 
-        # Term 4: Σ_i Σ_j μ_X * μ^{ct_j} = n_centers * μ_X * (Σ_j μ^{ct_j})
-        term4 = n_centers * np.outer(center_mean, weighted_neighbor_mean)
+        # Term 4: Σ_i Σ_j μ_X * μ^{ct_j} = n_centers * n_neighbors * μ_X * mean(μ^{ct_j})
+        term4 = n_pairs * np.outer(center_mean, mean_weighted_neighbor)
 
         cov_sum = term1 - term2 - term3 + term4
 
         # ==================== Sum of squares computation ====================
         # Center: Σ_i Σ_j (x_i - μ_X)^2 = n_neighbors * Σ_i (x_i - μ_X)^2
         sum_sq_center = np.array(center_expr.power(2).sum(axis=0)).flatten()
-        center_ss = n_neighbors * (sum_sq_center - 2 * center_mean * sum_center + n_centers * center_mean**2)
+        # Rewrite to avoid large intermediate values
+        center_variance_sum = sum_sq_center - 2 * center_mean * sum_center + n_centers * center_mean**2
+        center_ss = n_neighbors * center_variance_sum
 
         # Neighbor: Σ_i Σ_j (y_j - μ^{ct_j})^2 = n_centers * Σ_j (y_j - μ^{ct_j})^2
         sum_sq_neighbor = np.array(neighbor_expr.power(2).sum(axis=0)).flatten()
@@ -818,7 +827,8 @@ def compute_covariance_statistics_all_to_all(expr_genes,
         term_y_mean = (sum_neighbor_by_type * neighbor_type_means_matrix).sum(axis=1)
         term_mean_sq = (neighbor_type_means_matrix**2) @ type_counts
 
-        neighbor_ss = n_centers * (sum_sq_neighbor - 2 * term_y_mean + term_mean_sq)
+        neighbor_variance_sum = sum_sq_neighbor - 2 * term_y_mean + term_mean_sq
+        neighbor_ss = n_centers * neighbor_variance_sum
 
     else:
         # Dense matrix operations
@@ -828,9 +838,14 @@ def compute_covariance_statistics_all_to_all(expr_genes,
         neighbor_shifted = neighbor_expr - neighbor_type_means_matrix
 
         # Compute covariance sum: Σ_i Σ_j x'_i * y'_j = (Σ_i x'_i) @ (Σ_j y'_j).T
+        # To avoid overflow, normalize before outer product
         sum_center_shifted = center_shifted.sum(axis=0)
         sum_neighbor_shifted = neighbor_shifted.sum(axis=0)
-        cov_sum = np.outer(sum_center_shifted, sum_neighbor_shifted)
+
+        mean_center_shifted = sum_center_shifted / n_centers
+        mean_neighbor_shifted = sum_neighbor_shifted / n_neighbors
+
+        cov_sum = n_pairs * np.outer(mean_center_shifted, mean_neighbor_shifted)
 
         # Compute sum of squares
         center_ss = n_neighbors * (center_shifted**2).sum(axis=0)
@@ -1039,19 +1054,29 @@ def compute_cross_correlation_all_to_all(sq_obj,
         sum_sq_center = np.array(center_expr.power(2).sum(axis=0)).flatten()
 
         # ==================== Cross-covariance computation ====================
-        # Term 1: (1/(n_c*n_nn)) Σ_i Σ_j x_i*y_j
+        # To avoid overflow, normalize before outer product
+
+        # Compute normalized sums (mean × count)
         sum_non_neighbor = np.array(non_neighbor_expr.sum(axis=0)).flatten()
-        term1 = np.outer(sum_center, sum_non_neighbor) / (n_center * n_non_neighbor)
+        mean_center = sum_center / n_center
+        mean_non_neighbor = sum_non_neighbor / n_non_neighbor
+
+        # Term 1: (1/(n_c*n_nn)) Σ_i Σ_j x_i*y_j
+        # = np.outer(sum_center / n_center, sum_non_neighbor / n_non_neighbor)
+        term1 = np.outer(mean_center, mean_non_neighbor)
 
         # Term 2: -(1/(n_c*n_nn)) Σ_i Σ_j x_i*μ^{ct_j}
         weighted_nn_mean = non_neighbor_type_means_matrix @ type_counts
-        term2 = np.outer(sum_center, weighted_nn_mean) / (n_center * n_non_neighbor)
+        mean_weighted_nn = weighted_nn_mean / n_non_neighbor
+        term2 = np.outer(mean_center, mean_weighted_nn)
 
         # Term 3: -(μ_X/(n_c*n_nn)) Σ_i Σ_j y_j
-        term3 = np.outer(center_mean, sum_non_neighbor) / n_non_neighbor
+        # = -np.outer(center_mean, sum_non_neighbor / n_non_neighbor)
+        term3 = np.outer(center_mean, mean_non_neighbor)
 
         # Term 4: (μ_X/(n_c*n_nn)) Σ_i Σ_j μ^{ct_j}
-        term4 = np.outer(center_mean, weighted_nn_mean) / n_non_neighbor
+        # = np.outer(center_mean, weighted_nn_mean / n_non_neighbor)
+        term4 = np.outer(center_mean, mean_weighted_nn)
 
         cross_cov = term1 - term2 - term3 + term4
 
@@ -1086,10 +1111,14 @@ def compute_cross_correlation_all_to_all(sq_obj,
         non_neighbor_expr_shifted = non_neighbor_expr - non_neighbor_type_means_matrix
 
         # For all-to-all pairs: sum over all combinations
+        # To avoid overflow, normalize before outer product
         sum_center_shifted = center_expr_shifted.sum(axis=0)
         sum_non_neighbor_shifted = non_neighbor_expr_shifted.sum(axis=0)
 
-        cross_cov = np.outer(sum_center_shifted, sum_non_neighbor_shifted) / (n_center * n_non_neighbor)
+        mean_center_shifted = sum_center_shifted / n_center
+        mean_non_neighbor_shifted = sum_non_neighbor_shifted / n_non_neighbor
+
+        cross_cov = np.outer(mean_center_shifted, mean_non_neighbor_shifted)
 
         # Variances
         var_center = (center_expr_shifted**2).sum(axis=0) / n_center
@@ -1469,6 +1498,47 @@ def fisher_z_test(r1, n1, r2, n2):
     return z_stat, p_value
 
 
+def compare_log_odds_ratios(lor1, se1, lor2, se2):
+    """
+    Compare two log odds ratio matrices using Wald Z-test.
+    Two-tailed test: H0: LOR1 = LOR2, H1: LOR1 != LOR2
+
+    Parameters
+    ----------
+    lor1 : ndarray
+        First log odds ratio matrix (n_genes × n_genes)
+    se1 : ndarray
+        Standard error matrix for lor1 (n_genes × n_genes)
+    lor2 : ndarray
+        Second log odds ratio matrix (n_genes × n_genes)
+    se2 : ndarray
+        Standard error matrix for lor2 (n_genes × n_genes)
+
+    Returns
+    -------
+    z_stat : ndarray
+        Z statistic matrix for the difference
+    p_value : ndarray
+        Two-tailed p-value matrix
+    """
+    # Difference in log odds ratios
+    lor_diff = lor1 - lor2
+
+    # Standard error of the difference # TODO: using bootstrap to estimate covariance and effects of overlooking it.
+    se_diff = np.sqrt(se1**2 + se2**2)
+
+    # Avoid division by zero
+    z_stat = lor_diff / se_diff
+
+    # Replace inf and nan with 0
+    z_stat = np.nan_to_num(z_stat, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Two-tailed p-value
+    p_value = 2 * (1 - scipy_stats.norm.cdf(np.abs(z_stat)))
+
+    return z_stat, p_value
+
+
 def test_score_difference(
         result_A: pd.DataFrame,
         result_B: pd.DataFrame,
@@ -1637,3 +1707,160 @@ def test_score_difference(
     print(f"Std score difference: {result['score_diff'].std():.3f}")
 
     return result
+
+
+def compute_log_odds_ratio_paired(binary_matrix_center, binary_matrix_neighbor, pair_centers, pair_neighbors):
+    """
+    Compute log odds ratio for paired data.
+
+    Parameters
+    ----------
+    binary_matrix_center : scipy.sparse matrix
+        Binary matrix for center cell genes (n_cells × n_genes)
+    binary_matrix_neighbor : scipy.sparse matrix
+        Binary matrix for neighbor cell genes (n_cells × n_genes)
+    pair_centers : array
+        Indices of center cells in each pair
+    pair_neighbors : array
+        Indices of neighbor cells in each pair
+
+    Returns
+    -------
+    lor_matrix : ndarray
+        Log odds ratio matrix (n_genes × n_genes)
+    se_matrix : ndarray
+        Standard error matrix (n_genes × n_genes)
+    n_eff : int
+        Effective sample size
+    """
+    from scipy import sparse
+
+    n_pairs = len(pair_centers)
+
+    # Extract paired binary data (keep sparse)
+    X = binary_matrix_center[pair_centers, :]  # center genes (n_pairs × n_genes)
+    Y = binary_matrix_neighbor[pair_neighbors, :]  # neighbor genes (n_pairs × n_genes)
+
+    # Compute contingency table elements for all gene pairs using sparse operations
+    # n11: both genes expressed (sparse matrix multiplication)
+    n11 = X.T @ Y  # (n_genes × n_genes), result may be sparse or dense
+    if sparse.issparse(n11):
+        n11 = n11.toarray()  # Only convert the result, not the inputs
+    n11 = n11.astype(np.float64)
+
+    # n1_: total expressing center gene (sparse sum along axis)
+    n1_ = np.array(X.sum(axis=0)).flatten()  # (n_genes,)
+    # n_1: total expressing neighbor gene
+    n_1 = np.array(Y.sum(axis=0)).flatten()  # (n_genes,)
+
+    # n10: only center gene expressed
+    n10 = n1_[:, np.newaxis] - n11  # (n_genes × n_genes)
+
+    # n01: only neighbor gene expressed
+    n01 = n_1[np.newaxis, :] - n11  # (n_genes × n_genes)
+
+    # n00: neither gene expressed
+    n00 = n_pairs - n11 - n10 - n01
+
+    # Ensure all arrays are float64
+    n11 = n11.astype(np.float64)
+    n10 = n10.astype(np.float64)
+    n01 = n01.astype(np.float64)
+    n00 = n00.astype(np.float64)
+
+    # Apply continuity correction to avoid log(0)
+    correction = 0.5
+
+    # Log Odds Ratio: log((n11 * n00) / (n10 * n01))
+    # = log(n11 + c) + log(n00 + c) - log(n10 + c) - log(n01 + c)
+    # where c is the continuity correction
+    lor_matrix = (np.log(n11 + correction) + np.log(n00 + correction) -
+                    np.log(n10 + correction) - np.log(n01 + correction))
+
+    # Standard error of log odds ratio
+    # SE(LOR) = sqrt(1/(n11+c) + 1/(n10+c) + 1/(n01+c) + 1/(n00+c))
+    se_matrix = np.sqrt(1.0/(n11 + correction) + 1.0/(n10 + correction) +
+                        1.0/(n01 + correction) + 1.0/(n00 + correction))
+
+
+    # Replace inf and nan with 0 (these occur when all cells are 0 or all are 1)
+    lor_matrix = np.nan_to_num(lor_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    se_matrix = np.nan_to_num(se_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Effective sample size
+    center_unique = len(np.unique(pair_centers))
+    neighbor_unique = len(np.unique(pair_neighbors))
+    n_eff = min(center_unique, neighbor_unique)
+
+    return lor_matrix, se_matrix, n_eff
+
+
+def compute_log_odds_ratio_all_to_all(binary_matrix_center, binary_matrix_neighbor, center_cells, non_neighbor_cells):
+    """
+    Compute log odds ratio for all-to-all pairs.
+    Optimized to keep sparse matrix format for memory efficiency.
+
+    Parameters
+    ----------
+    binary_matrix_center : scipy.sparse matrix
+        Binary matrix for center cell genes (n_cells × n_genes)
+    binary_matrix_neighbor : scipy.sparse matrix
+        Binary matrix for neighbor cell genes (n_cells × n_genes)
+    center_cells : array
+        Indices of center cells
+    non_neighbor_cells : array
+        Indices of non-neighbor cells
+
+    Returns
+    -------
+    lor_matrix : ndarray
+        Log odds ratio matrix (n_genes × n_genes)
+    se_matrix : ndarray
+        Standard error matrix (n_genes × n_genes)
+    n_eff : int
+        Effective sample size
+    """
+
+    n_center = len(center_cells)
+    n_non_neighbor = len(non_neighbor_cells)
+
+    # Extract binary data (keep sparse)
+    X = binary_matrix_center[center_cells, :]  # center genes (n_center × n_genes)
+    Y = binary_matrix_neighbor[non_neighbor_cells, :]  # neighbor genes (n_non_neighbor × n_genes)
+
+    # For all-to-all pairs, we compute marginal counts using sparse operations
+    # Count expressing cells for each gene (sparse sum)
+    n1_center = np.array(X.sum(axis=0)).flatten()  # (n_genes,) - how many center cells express each gene
+    n1_neighbor = np.array(Y.sum(axis=0)).flatten()  # (n_genes,) - how many neighbor cells express each gene
+
+    # For all-to-all pairs, the contingency table is based on marginal counts
+    # Ensure float64 to prevent overflow
+    n1_center = n1_center.astype(np.float64)
+    n1_neighbor = n1_neighbor.astype(np.float64)
+
+    n11 = np.outer(n1_center, n1_neighbor)  # (n_genes × n_genes)
+    n10 = np.outer(n1_center, n_non_neighbor - n1_neighbor)
+    n01 = np.outer(n_center - n1_center, n1_neighbor)
+    n00 = np.outer(n_center - n1_center, n_non_neighbor - n1_neighbor)
+
+    # Apply continuity correction to avoid log(0)
+    correction = 0.5
+
+    # Log Odds Ratio: log((n11 * n00) / (n10 * n01))
+    # = log(n11 + c) + log(n00 + c) - log(n10 + c) - log(n01 + c)
+    lor_matrix = (np.log(n11 + correction) + np.log(n00 + correction) -
+                    np.log(n10 + correction) - np.log(n01 + correction))
+
+    # Standard error of log odds ratio
+    # SE(LOR) = sqrt(1/(n11+c) + 1/(n10+c) + 1/(n01+c) + 1/(n00+c))
+    se_matrix = np.sqrt(1.0/(n11 + correction) + 1.0/(n10 + correction) +
+                        1.0/(n01 + correction) + 1.0/(n00 + correction))
+
+    # Replace inf and nan with 0
+    lor_matrix = np.nan_to_num(lor_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    se_matrix = np.nan_to_num(se_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Effective sample size
+    n_eff = min(n_center, n_non_neighbor)
+
+    return lor_matrix, se_matrix, n_eff

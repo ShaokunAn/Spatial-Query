@@ -12,6 +12,7 @@ from scipy.spatial import KDTree
 from scipy import sparse
 from scipy.stats import hypergeom, fisher_exact
 from sklearn.preprocessing import LabelEncoder
+from scipy.sparse import csr_matrix
 from statsmodels.stats.multitest import multipletests
 
 from time import time
@@ -782,7 +783,7 @@ class spatial_query:
         if self.build_gene_index:
             # Use scfind index for DE analysis with Fisher's exact test.
             if genes is None:
-                genes = self.index.scfindGenes
+                genes = self.genes
                 
             if method != 'fisher':
                 print(f"Warning: When build_gene_index=True, only Fisher's exact test is supported. Ignoring method='{method}'.")
@@ -1367,7 +1368,6 @@ class spatial_query:
             non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
             print(f'Removed {center_cell_mask_non.sum()} center type cells from non-neighbor group.')
 
-
         # Get gene list
         if genes is None:
             genes = self.genes
@@ -1708,7 +1708,819 @@ class spatial_query:
         print(f"\nResults prepared and sorted")
 
         return combined_results
-    
+
+    def compute_gene_gene_correlation_binary(self,
+                                              ct: str,
+                                              motif: Union[str, List[str]],
+                                              genes: Optional[Union[str, List[str]]] = None,
+                                              max_dist: Optional[float] = None,
+                                              k: Optional[int] = None,
+                                              min_size: int = 0,
+                                              min_nonzero: int = 10,
+                                              ) -> pd.DataFrame:
+        """
+        Compute gene-gene correlation using deviation from global binary mean for binary expression data.
+
+        Instead of computing phi coefficient directly on binary variables, this method:
+        1. Computes global binary expression mean for each gene in each cell type
+        2. For each cell, computes deviation = binary_value - global_mean
+        3. Computes Pearson correlation between deviation vectors across gene pairs
+        4. Compares correlations using Fisher's Z test
+
+        The analysis structure:
+        1. Correlation 1: Center with motif vs Neighboring motif (paired)
+        2. Correlation 2: Center with motif vs Distant motif (all-to-all)
+        3. Correlation 3: Center without motif vs Neighbors (paired)
+
+        Parameters
+        ----------
+        ct : str
+            Cell type as the center cells.
+        motif : Union[str, List[str]]
+            Motif (names of cell types) to be analyzed.
+        genes : Optional[Union[str, List[str]]], default=None
+            List of genes to analyze. If None, all genes in the index will be used.
+        max_dist : Optional[float], default=None
+            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
+        k : Optional[int], default=None
+            Number of nearest neighbors. Use either max_dist or k.
+        min_size : int, default=0
+            Minimum neighborhood size for each center cell.
+        min_nonzero : int, default=10
+            Minimum number of non-zero expression values required for a gene to be included.
+
+        Returns
+        -------
+        results_df : pd.DataFrame
+            DataFrame with deviation-based correlation results between neighbor and non-neighbor groups.
+        cell_groups : dict
+            Dictionary containing cell pairing information.
+        """
+        motif = motif if isinstance(motif, list) else [motif]
+
+        # Get neighbor and non-neighbor cell IDs using the same logic as compute_gene_gene_correlation
+        neighbor_result = spatial_utils.get_motif_neighbor_cells(
+            sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size
+        )
+
+        center_neighbor_pairs = neighbor_result['center_neighbor_pairs']
+        ct_in_motif = neighbor_result['ct_in_motif']
+
+        # Extract unique center and neighbor cells from pairs
+        center_cells = np.unique(center_neighbor_pairs[:, 0])
+        neighbor_cells = np.unique(center_neighbor_pairs[:, 1])
+
+        # Get non-neighbor motif cells
+        motif_mask = np.isin(self.labels, motif)
+        all_motif_cells = np.where(motif_mask)[0]
+        non_neighbor_cells = np.setdiff1d(all_motif_cells, neighbor_cells)
+
+        # Remove center type cells from non-neighbor groups
+        if ct_in_motif:
+            center_cell_mask_non = self.labels[non_neighbor_cells] == ct
+            non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
+            print(f'Focus on inter-cell-type interactions: Remove center type cells from non-neighbor groups.')
+
+        if len(non_neighbor_cells) < 10:
+            raise ValueError(f"Not enough non-neighbor cells ({len(non_neighbor_cells)}) for correlation analysis.")
+
+        # Get gene list
+        if genes is None:
+            valid_genes = self.genes
+        elif isinstance(genes, str):
+            genes = [genes]
+            valid_genes = [g for g in genes if g in self.index.scfindGenes]
+        else:
+            valid_genes = [g for g in genes if g in self.index.scfindGenes]
+
+        if len(valid_genes) == 0:
+            raise ValueError("No valid genes found in the scfind index.")
+
+        print(f"Building binary expression matrix from scfind index for {len(valid_genes)} genes...")
+        start_time = time()
+
+        # Use efficient C++ method to get sparse matrix data directly
+        # Returns: {'rows': np.array, 'cols': np.array, 'gene_names': list, 'n_cells': int}
+        sparse_data = self.index.index.getBinarySparseMatrixData(valid_genes, self.dataset, min_nonzero)
+
+        rows = sparse_data['rows']
+        cols = sparse_data['cols']
+        filtered_genes = sparse_data['gene_names']
+        n_cells = sparse_data['n_cells']
+
+        if len(filtered_genes) == 0:
+            raise ValueError(f"No genes passed the min_nonzero={min_nonzero} filter.")
+
+        # Create binary sparse matrix (cells × genes) directly from C++ output
+        binary_expr = csr_matrix(
+            (np.ones(len(rows), dtype=np.int16), (rows, cols)),
+            shape=(n_cells, len(filtered_genes)),
+        )
+        print(f"Time for recovering binary matrix: {time() - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Compute global binary means for ALL cell types (similar to compute_gene_gene_correlation)
+        # ==================================================================================
+        print("\n" + "="*60)
+        print("Computing global binary expression means for all cell types")
+        print("="*60)
+        start_time = time()
+
+        # Get all unique cell types in the dataset
+        all_cell_types = np.unique(self.labels)
+        cell_type_means = {}  # Dictionary to store mean expression for each cell type
+
+        for cell_type in all_cell_types:
+            ct_mask = self.labels == cell_type
+            ct_cells = np.where(ct_mask)[0]
+            if len(ct_cells) > 0:
+                ct_expr = binary_expr[ct_cells, :]
+                cell_type_means[cell_type] = np.array(ct_expr.mean(axis=0)).flatten()
+
+        center_mean = cell_type_means[ct]
+        print(f"\nTime for computing global means: {time() - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Correlation 1: Center with motif vs Neighboring motif (PAIRED)
+        # ==================================================================================
+        print("\n" + "="*60)
+        print("Computing Correlation 1: Center with motif vs Neighboring motif (paired)")
+        print("="*60)
+        start_time = time()
+
+        pair_centers = center_neighbor_pairs[:, 0]
+        pair_neighbors = center_neighbor_pairs[:, 1]
+
+        # Get cell types for each neighbor in pairs
+        neighbor_cell_types = self.labels[pair_neighbors]
+
+        corr_matrix_neighbor, n_eff_neighbor = spatial_utils.compute_cross_correlation_paired(
+            sq_obj=self,
+            expr_genes=binary_expr,
+            pair_centers=pair_centers,
+            pair_neighbors=pair_neighbors,
+            center_mean=center_mean,
+            cell_type_means=cell_type_means,
+            neighbor_cell_types=neighbor_cell_types,
+            is_sparse=True
+        )
+
+        print(f"Number of pairs: {len(pair_centers)}")
+        print(f"Unique center cells: {len(np.unique(pair_centers))}")
+        print(f"Unique neighbor cells: {len(np.unique(pair_neighbors))}")
+        print(f"Effective sample size: {n_eff_neighbor}")
+        print(f"Time for computing Corr-1: {time() - start_time:.4f} seconds")
+
+        # ==================================================================================
+        # Correlation 2: Center with motif vs Distant motif (ALL PAIRS)
+        # ==================================================================================
+        print("\n" + "="*60)
+        print("Computing Correlation 2: Center with motif vs Distant motif (all pairs)")
+        print("="*60)
+        start_time = time()
+
+        # Get cell types for non-neighbor cells
+        non_neighbor_cell_types = self.labels[non_neighbor_cells]
+
+        corr_matrix_non_neighbor, n_eff_non_neighbor = spatial_utils.compute_cross_correlation_all_to_all(
+            sq_obj=self,
+            expr_genes=binary_expr,
+            center_cells=center_cells,
+            non_neighbor_cells=non_neighbor_cells,
+            center_mean=center_mean,
+            cell_type_means=cell_type_means,
+            non_neighbor_cell_types=non_neighbor_cell_types,
+            is_sparse=True
+        )
+
+        print(f"Unique center cells: {len(center_cells)}")
+        print(f"Unique distant cells: {len(non_neighbor_cells)}")
+        print(f"Effective sample size: {n_eff_non_neighbor}")
+        print(f"Time for computing Corr-2: {time() - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Correlation 3: Center without motif vs Neighbors (PAIRED)
+        # ==================================================================================
+        print("\n" + "="*60)
+        print("Computing Correlation 3: Center without motif vs Neighbors (paired)")
+        print("="*60)
+        start_time = time()
+
+        no_motif_result = spatial_utils.get_all_neighbor_cells(
+            sq_obj=self,
+            ct=ct,
+            max_dist=max_dist,
+            k=k,
+            min_size=min_size,
+            exclude_centers=center_cells,
+            exclude_neighbors=neighbor_cells,
+        )
+
+        center_no_motif_pairs = no_motif_result['center_neighbor_pairs']
+
+        if len(center_no_motif_pairs) < 10:
+            print(f"Not enough pairs ({len(center_no_motif_pairs)}) for centers without motif. Skipping.")
+            corr_matrix_no_motif = None
+            n_eff_no_motif = 0
+        else:
+            pair_centers_no_motif = center_no_motif_pairs[:, 0]
+            pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
+
+            # Get cell types for each neighbor in no-motif pairs
+            neighbor_cell_types_no_motif = self.labels[pair_neighbors_no_motif]
+
+            corr_matrix_no_motif, n_eff_no_motif = spatial_utils.compute_cross_correlation_paired(
+                sq_obj=self,
+                expr_genes=binary_expr,
+                pair_centers=pair_centers_no_motif,
+                pair_neighbors=pair_neighbors_no_motif,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                neighbor_cell_types=neighbor_cell_types_no_motif,
+                is_sparse=True
+            )
+
+            print(f"Number of pairs: {len(center_no_motif_pairs)}")
+            print(f"Unique center cells: {len(np.unique(pair_centers_no_motif))}")
+            print(f"Unique neighbor cells: {len(np.unique(pair_neighbors_no_motif))}")
+            print(f"Effective sample size: {n_eff_no_motif}")
+
+        print(f"Time for computing Corr-3: {time() - start_time:.2f} seconds")
+
+        # Prepare results using the same structure as compute_gene_gene_correlation
+        print("\n" + "="*60)
+        print("Performing Fisher's Z-tests for comparing correlations")
+        print("="*60)
+        start_time = time()
+
+        # Test 1: Corr1 vs Corr2 (neighbor vs non-neighbor)
+        _, p_value_test1 = spatial_utils.fisher_z_test(
+            corr_matrix_neighbor, n_eff_neighbor,
+            corr_matrix_non_neighbor, n_eff_non_neighbor
+        )
+        delta_corr_test1 = corr_matrix_neighbor - corr_matrix_non_neighbor
+
+        # Test 2: Corr1 vs Corr3 (neighbor vs no_motif)
+        if corr_matrix_no_motif is not None:
+            _, p_value_test2 = spatial_utils.fisher_z_test(
+                corr_matrix_neighbor, n_eff_neighbor,
+                corr_matrix_no_motif, n_eff_no_motif
+            )
+            delta_corr_test2 = corr_matrix_neighbor - corr_matrix_no_motif
+
+            # Combined score
+            combined_score = (0.3 * delta_corr_test1 * (-np.log10(p_value_test1 + 1e-300)) +
+                            0.7 * delta_corr_test2 * (-np.log10(p_value_test2 + 1e-300)))
+        else:
+            p_value_test2 = None
+            delta_corr_test2 = None
+            combined_score = None
+
+        # Build results DataFrame
+        n_genes = len(filtered_genes)
+        gene_center_idx, gene_motif_idx = np.meshgrid(np.arange(n_genes), np.arange(n_genes), indexing='ij')
+
+        results_df = pd.DataFrame({
+            'gene_center': np.array(filtered_genes)[gene_center_idx.flatten()],
+            'gene_motif': np.array(filtered_genes)[gene_motif_idx.flatten()],
+            'corr_neighbor': corr_matrix_neighbor.flatten(),
+            'corr_non_neighbor': corr_matrix_non_neighbor.flatten(),
+            'p_value_test1': p_value_test1.flatten(),
+            'delta_corr_test1': delta_corr_test1.flatten(),
+        })
+
+        # Add test2 results if available
+        if corr_matrix_no_motif is not None:
+            results_df['corr_center_no_motif'] = corr_matrix_no_motif.flatten()
+            results_df['p_value_test2'] = p_value_test2.flatten()
+            results_df['delta_corr_test2'] = delta_corr_test2.flatten()
+            results_df['combined_score'] = combined_score.flatten()
+        else:
+            results_df['corr_center_no_motif'] = np.nan
+            results_df['p_value_test2'] = np.nan
+            results_df['delta_corr_test2'] = np.nan
+            results_df['combined_score'] = np.nan
+
+        # Apply FDR correction
+        print(f"Total gene pairs: {len(results_df)}")
+
+        if corr_matrix_no_motif is not None:
+            # Filter by direction consistency
+            same_direction = np.sign(results_df['delta_corr_test1']) == np.sign(results_df['delta_corr_test2'])
+            print(f"Gene pairs with consistent covarying direction: {same_direction.sum()}")
+
+            if same_direction.sum() > 0:
+                p_values_test1 = results_df.loc[same_direction, 'p_value_test1'].values
+                p_values_test2 = results_df.loc[same_direction, 'p_value_test2'].values
+                all_p_values = np.concatenate([p_values_test1, p_values_test2])
+                n_consistent = same_direction.sum()
+
+                print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
+
+                reject_all, q_values_all, _, _ = multipletests(all_p_values, alpha=0.05, method='fdr_bh')
+
+                q_values_test1 = q_values_all[:n_consistent]
+                q_values_test2 = q_values_all[n_consistent:]
+                reject_test1 = reject_all[:n_consistent]
+                reject_test2 = reject_all[n_consistent:]
+
+                results_df.loc[same_direction, 'q_value_test1'] = q_values_test1
+                results_df.loc[same_direction, 'q_value_test2'] = q_values_test2
+                results_df.loc[same_direction, 'reject_test1_fdr'] = reject_test1
+                results_df.loc[same_direction, 'reject_test2_fdr'] = reject_test2
+
+                results_df = results_df[same_direction]
+
+                mask_both_fdr = reject_test1 & reject_test2
+                n_both_fdr = mask_both_fdr.sum()
+
+                print(f"\nFDR correction results (joint across both tests):")
+                print(f"  - Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
+                print(f"  - Test2 FDR significant (q < 0.05): {reject_test2.sum()}")
+                print(f"  - Both tests FDR significant: {n_both_fdr}")
+            else:
+                results_df['q_value_test1'] = np.nan
+                results_df['q_value_test2'] = np.nan
+                results_df['reject_test1_fdr'] = False
+                results_df['reject_test2_fdr'] = False
+                print("No gene pairs with consistent direction found.")
+        else:
+            print("Note: Test2 not available (no centers without motif)")
+            p_values_test1_all = results_df['p_value_test1'].values
+            reject_test1, q_values_test1, _, _ = multipletests(p_values_test1_all, alpha=0.05, method='fdr_bh')
+            results_df['q_value_test1'] = q_values_test1
+            results_df['reject_test1_fdr'] = reject_test1
+            results_df['q_value_test2'] = np.nan
+            results_df['reject_test2_fdr'] = False
+
+            print(f"FDR correction applied to all {len(results_df)} gene pairs:")
+            print(f"  - Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
+
+        # Sort by absolute value of combined score
+        if corr_matrix_no_motif is not None:
+            results_df['abs_combined_score'] = np.abs(results_df['combined_score'])
+            results_df = results_df.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            results_df['if_significant'] = results_df['reject_test1_fdr'] & results_df['reject_test2_fdr']
+        else:
+            results_df['test1_score'] = results_df['delta_corr_test1'] * (-np.log10(results_df['p_value_test1'] + 1e-300))
+            results_df['combined_score'] = results_df['test1_score']
+            results_df['abs_combined_score'] = np.abs(results_df['combined_score'])
+            results_df = results_df.sort_values('abs_combined_score', ascending=False, na_position='last')
+            results_df['if_significant'] = results_df['reject_test1_fdr'] & results_df['reject_test2_fdr']
+
+        print(f"Time for testing results: {time() - start_time:.2f} seconds\n")
+
+        # Prepare cell groups dictionary
+        cell_groups = {
+            'center_neighbor_motif_pair': center_neighbor_pairs,
+            'non-neighbor_motif_cells': non_neighbor_cells,
+            'non_motif_center_neighbor_pair': center_no_motif_pairs if corr_matrix_no_motif is not None else np.array([]).reshape(0, 2),
+        }
+
+        return results_df, cell_groups
+
+    def compute_gene_gene_correlation_binary_by_type(self,
+                                                     ct: str,
+                                                     motif: Union[str, List[str]],
+                                                     genes: Optional[Union[str, List[str]]] = None,
+                                                     max_dist: Optional[float] = None,
+                                                     k: Optional[int] = None,
+                                                     min_size: int = 0,
+                                                     min_nonzero: int = 10,
+                                                     ) -> pd.DataFrame:
+        """
+        Compute gene-gene correlation using deviation from global binary mean, separately for each cell type in the motif.
+
+        For each non-center cell type in the motif, compute:
+        - Correlation 1: Center cells with motif vs neighboring motif cells of THIS TYPE
+        - Correlation 2: Center cells with motif vs distant motif cells of THIS TYPE
+        - Correlation 3: Center cells without motif vs neighbors (same for all types)
+
+        Only analyzes motifs with >= 2 cell types besides the center type.
+
+        Parameters
+        ----------
+        ct : str
+            Cell type as the center cells.
+        motif : Union[str, List[str]]
+            Motif (names of cell types) to be analyzed.
+        genes : Optional[Union[str, List[str]]], default=None
+            List of genes to analyze. If None, all genes in the index will be used.
+        max_dist : Optional[float], default=None
+            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
+        k : Optional[int], default=None
+            Number of nearest neighbors. Use either max_dist or k.
+        min_size : int, default=0
+            Minimum neighborhood size for each center cell.
+        min_nonzero : int, default=10
+            Minimum number of non-zero expression values required for a gene to be included.
+
+        Returns
+        -------
+        results_df : pd.DataFrame
+            DataFrame with correlation results for each cell type and gene pair.
+            Columns include:
+                - cell_type: the non-center cell type in motif
+                - gene_center, gene_motif: gene pairs
+                - corr_neighbor: correlation with neighboring cells of this type
+                - corr_non_neighbor: correlation with distant cells of this type
+                - corr_center_no_motif: correlation with neighbors when no motif present
+                - p_value_test1, p_value_test2: p-values for statistical tests
+                - q_value_test1, q_value_test2: FDR-corrected q-values
+                - delta_corr_test1, delta_corr_test2: correlation differences
+                - reject_test1_fdr, reject_test2_fdr: FDR significance flags
+                - combined_score, abs_combined_score: combined significance scores
+                - if_significant: whether both tests pass FDR threshold
+        """
+        motif = motif if isinstance(motif, list) else [motif]
+
+        # Get non-center cell types in motif
+        non_center_types = [m for m in motif if m != ct]
+
+        if len(non_center_types) == 1:
+            print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation_binary method.")
+            result, _ = self.compute_gene_gene_correlation_binary(
+                ct=ct,
+                motif=motif,
+                genes=genes,
+                max_dist=max_dist,
+                k=k,
+                min_size=min_size,
+                min_nonzero=min_nonzero
+            )
+            return result
+        elif len(non_center_types) == 0:
+            raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
+
+        print(f"Analyzing {len(non_center_types)} non-center cell types in motif: {non_center_types}")
+        print("="*80)
+
+        # Get neighbor and non-neighbor cell IDs using original motif
+        neighbor_result = spatial_utils.get_motif_neighbor_cells(
+            sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size
+        )
+
+        center_neighbor_pairs = neighbor_result['center_neighbor_pairs']
+        ct_in_motif = neighbor_result['ct_in_motif']
+
+        # Extract unique center and neighbor cells from pairs
+        center_cells = np.unique(center_neighbor_pairs[:, 0])
+        neighbor_cells = np.unique(center_neighbor_pairs[:, 1])
+
+        # Get all motif cells
+        motif_mask = np.isin(self.labels, motif)
+        all_motif_cells = np.where(motif_mask)[0]
+        non_neighbor_cells = np.setdiff1d(all_motif_cells, neighbor_cells)
+
+        # Remove center type cells from non-neighbor cells
+        if ct_in_motif:
+            center_cell_mask_non = self.labels[non_neighbor_cells] == ct
+            non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
+            print(f'Removed {center_cell_mask_non.sum()} center type cells from non-neighbor group.')
+
+        # Get gene list
+        if genes is None:
+            valid_genes = self.genes
+        elif isinstance(genes, str):
+            genes = [genes]
+            valid_genes = [g for g in genes if g in self.index.scfindGenes]
+        else:
+            valid_genes = [g for g in genes if g in self.index.scfindGenes]
+
+        if len(valid_genes) == 0:
+            raise ValueError("No valid genes found in the scfind index.")
+
+        print(f"Building binary expression matrix from scfind index for {len(valid_genes)} genes...")
+        start_time = time()
+
+        # Use efficient C++ method to get sparse matrix data directly
+        sparse_data = self.index.index.getBinarySparseMatrixData(valid_genes, self.dataset, min_nonzero)
+
+        rows = sparse_data['rows']
+        cols = sparse_data['cols']
+        filtered_genes = sparse_data['gene_names']
+        n_cells = sparse_data['n_cells']
+
+        if len(filtered_genes) == 0:
+            raise ValueError(f"No genes passed the min_nonzero={min_nonzero} filter.")
+
+        # Create binary sparse matrix (cells × genes)
+        binary_expr = csr_matrix(
+            (np.ones(len(rows),), (rows, cols)),
+            shape=(n_cells, len(filtered_genes)),
+        )
+        print(f"Time for recovering binary matrix: {time() - start_time:.2f} seconds")
+
+        # Compute global binary means for ALL cell types
+        print("\n" + "="*80)
+        print("Computing global binary expression means for all cell types")
+        print("="*80)
+        start_time = time()
+
+        all_cell_types = np.unique(self.labels)
+        cell_type_means = {}
+
+        for cell_type in all_cell_types:
+            ct_mask = self.labels == cell_type
+            ct_cells = np.where(ct_mask)[0]
+            if len(ct_cells) > 0:
+                ct_expr = binary_expr[ct_cells, :]
+                cell_type_means[cell_type] = np.array(ct_expr.mean(axis=0)).flatten()
+
+        center_mean = cell_type_means[ct]
+        n_genes = len(filtered_genes)
+        print(f"\nTime for computing global means: {time() - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Correlation 3: Center without motif vs Neighbors (SAME FOR ALL TYPES)
+        # ==================================================================================
+        print("\n" + "="*80)
+        print("Computing Correlation-3: Center without motif vs Neighbors")
+        print("="*80)
+
+        start_time = time()
+        no_motif_result = spatial_utils.get_all_neighbor_cells(
+            sq_obj=self,
+            ct=ct,
+            max_dist=max_dist,
+            k=k,
+            min_size=min_size,
+            exclude_centers=center_cells,
+            exclude_neighbors=neighbor_cells,
+        )
+
+        center_no_motif_pairs = no_motif_result['center_neighbor_pairs']
+
+        if len(center_no_motif_pairs) < 10:
+            print(f"Not enough pairs ({len(center_no_motif_pairs)}) for centers without motif. Skipping Correlation 3.")
+            corr_matrix_no_motif = None
+            n_eff_no_motif = 0
+        else:
+            pair_centers_no_motif = center_no_motif_pairs[:, 0]
+            pair_neighbors_no_motif = center_no_motif_pairs[:, 1]
+
+            neighbor_no_motif_cell_types = self.labels[pair_neighbors_no_motif]
+
+            corr_matrix_no_motif, n_eff_no_motif = spatial_utils.compute_cross_correlation_paired(
+                sq_obj=self,
+                expr_genes=binary_expr,
+                pair_centers=pair_centers_no_motif,
+                pair_neighbors=pair_neighbors_no_motif,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                neighbor_cell_types=neighbor_no_motif_cell_types,
+                is_sparse=True
+            )
+            print(f"Unique center cells: {len(np.unique(pair_centers_no_motif))}")
+            print(f"Unique neighbor cells: {len(np.unique(pair_neighbors_no_motif))}")
+            print(f"Number of pairs: {len(pair_centers_no_motif)}")
+            print(f"Effective sample size: {n_eff_no_motif}")
+
+        end_time = time()
+        print(f"Time for computing Correlation 3: {end_time - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Compute correlations for each cell type separately
+        # ==================================================================================
+        all_results = []
+
+        for cell_type in non_center_types:
+            print("\n" + "="*80)
+            print(f"Processing cell type: {cell_type}")
+            print("="*80)
+
+            # Filter pairs and cells for this specific cell type
+            pair_neighbors = center_neighbor_pairs[:, 1]
+            neighbor_types = self.labels[pair_neighbors]
+            type_mask = neighbor_types == cell_type
+
+            if type_mask.sum() == 0:
+                raise ValueError(f"Error: No neighbor pairs found for cell type {cell_type}. Shouldn't happen.")
+
+            type_specific_pairs = center_neighbor_pairs[type_mask]
+            type_specific_neighbor_cells = np.unique(type_specific_pairs[:, 1])
+            type_specific_center_cells = np.unique(type_specific_pairs[:, 0])
+
+            # Filter non-neighbor cells for this type
+            type_non_neighbor_mask = self.labels[non_neighbor_cells] == cell_type
+            type_non_neighbor_cells = non_neighbor_cells[type_non_neighbor_mask]
+
+            if len(type_non_neighbor_cells) < 10:
+                print(f"Not enough non-neighbor cells ({len(type_non_neighbor_cells)}) for {cell_type}. Skipping.")
+                continue
+
+            print(f"{len(type_specific_center_cells)} center cells paired with {cell_type}")
+            print(f"{len(type_specific_neighbor_cells)} neighboring cells of {cell_type}")
+            print(f"{len(type_non_neighbor_cells)} distant cells of {cell_type}")
+            print(f"{len(type_specific_pairs)} center-neighboring {cell_type} pairs")
+
+            # ==================================================================================
+            # Correlation 1: Center with motif vs Neighboring cells of THIS TYPE (PAIRED)
+            # ==================================================================================
+            print(f"\nComputing Correlation-1...")
+            start_time = time()
+
+            pair_centers = type_specific_pairs[:, 0]
+            pair_neighbors_idx = type_specific_pairs[:, 1]
+
+            # All neighbors are of the same type, create uniform type array
+            neighbor_types_uniform = np.full(len(pair_neighbors_idx), cell_type)
+
+            corr_matrix_neighbor, n_eff_neighbor = spatial_utils.compute_cross_correlation_paired(
+                sq_obj=self,
+                expr_genes=binary_expr,
+                pair_centers=pair_centers,
+                pair_neighbors=pair_neighbors_idx,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                neighbor_cell_types=neighbor_types_uniform,
+                is_sparse=True
+            )
+
+            print(f"  Effective sample size: {n_eff_neighbor}")
+            print(f"  Time: {time() - start_time:.2f} seconds")
+
+            # ==================================================================================
+            # Correlation 2: Center with motif vs Distant cells of THIS TYPE (ALL PAIRS)
+            # ==================================================================================
+            print(f"\nComputing Correlation-2...")
+            start_time = time()
+
+            n_non_neighbor = len(type_non_neighbor_cells)
+
+            # All non-neighbors are of the same type
+            non_neighbor_types_uniform = np.full(n_non_neighbor, cell_type)
+
+            corr_matrix_non_neighbor, n_eff_non_neighbor = spatial_utils.compute_cross_correlation_all_to_all(
+                sq_obj=self,
+                expr_genes=binary_expr,
+                center_cells=type_specific_center_cells,
+                non_neighbor_cells=type_non_neighbor_cells,
+                center_mean=center_mean,
+                cell_type_means=cell_type_means,
+                non_neighbor_cell_types=non_neighbor_types_uniform,
+                is_sparse=True
+            )
+
+            print(f"  Effective sample size: {n_eff_non_neighbor}")
+            print(f"  Time: {time() - start_time:.2f} seconds")
+
+            # ==================================================================================
+            # Statistical testing
+            # ==================================================================================
+            print(f"\nPerforming statistical tests for {cell_type}...")
+            start_time = time()
+
+            # Test 1: Corr1 vs Corr2
+            _, p_value_test1 = spatial_utils.fisher_z_test(
+                corr_matrix_neighbor, n_eff_neighbor,
+                corr_matrix_non_neighbor, n_eff_non_neighbor
+            )
+            delta_corr_test1 = corr_matrix_neighbor - corr_matrix_non_neighbor
+
+            # Test 2: Corr1 vs Corr3
+            if corr_matrix_no_motif is not None:
+                _, p_value_test2 = spatial_utils.fisher_z_test(
+                    corr_matrix_neighbor, n_eff_neighbor,
+                    corr_matrix_no_motif, n_eff_no_motif
+                )
+                delta_corr_test2 = corr_matrix_neighbor - corr_matrix_no_motif
+                combined_score = (0.3 * delta_corr_test1 * (-np.log10(p_value_test1 + 1e-300)) +
+                                0.7 * delta_corr_test2 * (-np.log10(p_value_test2 + 1e-300)))
+            else:
+                p_value_test2 = None
+                delta_corr_test2 = None
+                combined_score = None
+
+            # Create results for this cell type
+            gene_center_idx, gene_motif_idx = np.meshgrid(np.arange(n_genes), np.arange(n_genes), indexing='ij')
+
+            type_results_df = pd.DataFrame({
+                'cell_type': cell_type,
+                'gene_center': np.array(filtered_genes)[gene_center_idx.flatten()],
+                'gene_motif': np.array(filtered_genes)[gene_motif_idx.flatten()],
+                'corr_neighbor': corr_matrix_neighbor.flatten(),
+                'corr_non_neighbor': corr_matrix_non_neighbor.flatten(),
+                'p_value_test1': p_value_test1.flatten(),
+                'delta_corr_test1': delta_corr_test1.flatten(),
+            })
+
+            if corr_matrix_no_motif is not None:
+                type_results_df['corr_center_no_motif'] = corr_matrix_no_motif.flatten()
+                type_results_df['p_value_test2'] = p_value_test2.flatten()
+                type_results_df['delta_corr_test2'] = delta_corr_test2.flatten()
+                type_results_df['combined_score'] = combined_score.flatten()
+            else:
+                type_results_df['corr_center_no_motif'] = np.nan
+                type_results_df['p_value_test2'] = np.nan
+                type_results_df['delta_corr_test2'] = np.nan
+                type_results_df['combined_score'] = np.nan
+
+            all_results.append(type_results_df)
+
+            print(f"  Time: {time() - start_time:.2f} seconds")
+
+        # ==================================================================================
+        # Combine results from all cell types and apply FDR correction
+        # ==================================================================================
+        print("\n" + "="*80)
+        print("Combining results and applying FDR correction")
+        print("="*80)
+
+        if len(all_results) == 0:
+            raise ValueError("No results generated for any cell type. Check input parameters.")
+
+        combined_results = pd.concat(all_results, ignore_index=True)
+
+        print(f"Total gene pairs across all cell types: {len(combined_results)}")
+
+        if corr_matrix_no_motif is not None:
+            # Filter by direction consistency
+            same_direction = np.sign(combined_results['delta_corr_test1']) == np.sign(combined_results['delta_corr_test2'])
+            print(f"Gene pairs with consistent covarying direction: {same_direction.sum()}")
+
+            if same_direction.sum() > 0:
+                # Pool all p-values for FDR correction
+                combined_results = combined_results[same_direction]
+                p_values_test1 = combined_results['p_value_test1'].values
+                p_values_test2 = combined_results['p_value_test2'].values
+
+                all_p_values = np.concatenate([p_values_test1, p_values_test2])
+                n_consistent = same_direction.sum()
+
+                print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
+                alpha = 0.05
+                reject_all, q_values_all, _, _ = multipletests(
+                    all_p_values,
+                    alpha=alpha,
+                    method='fdr_bh'
+                )
+
+                q_values_test1 = q_values_all[:n_consistent]
+                q_values_test2 = q_values_all[n_consistent:]
+                reject_test1 = reject_all[:n_consistent]
+                reject_test2 = reject_all[n_consistent:]
+
+                combined_results['q_value_test1'] = q_values_test1
+                combined_results['q_value_test2'] = q_values_test2
+                combined_results['reject_test1_fdr'] = reject_test1
+                combined_results['reject_test2_fdr'] = reject_test2
+
+                mask_both_fdr = reject_test1 & reject_test2
+                n_both_fdr = mask_both_fdr.sum()
+
+                print(f"Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+                print(f"Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
+                print(f"Both tests FDR significant: {n_both_fdr}")
+
+                # Summary by cell type
+                print(f"\nSignificant gene pairs by cell type:")
+                for cell_type in non_center_types:
+                    type_mask = combined_results['cell_type'] == cell_type
+                    if type_mask.sum() > 0:
+                        type_sig = (combined_results.loc[type_mask, 'reject_test1_fdr'] &
+                                   combined_results.loc[type_mask, 'reject_test2_fdr']).sum()
+                        print(f"  - {cell_type}: {type_sig} significant pairs")
+            else:
+                combined_results['q_value_test1'] = np.nan
+                combined_results['q_value_test2'] = np.nan
+                combined_results['reject_test1_fdr'] = False
+                combined_results['reject_test2_fdr'] = False
+                print("No gene pairs with consistent direction found.")
+        else:
+            # Only test1 available
+            alpha = 0.05
+            print("Note: Test2 not available (no centers without motif)")
+            p_values_test1_all = combined_results['p_value_test1'].values
+            reject_test1, q_values_test1, _, _ = multipletests(
+                p_values_test1_all,
+                alpha=alpha,
+                method='fdr_bh'
+            )
+            combined_results['q_value_test1'] = q_values_test1
+            combined_results['reject_test1_fdr'] = reject_test1
+            combined_results['q_value_test2'] = np.nan
+            combined_results['reject_test2_fdr'] = False
+
+            print(f"FDR correction applied to {len(combined_results)} gene pairs:")
+            print(f"Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+
+        # Sort by absolute value of combined score
+        if corr_matrix_no_motif is not None:
+            combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
+            combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            combined_results['if_significant'] = combined_results['reject_test1_fdr'] & combined_results['reject_test2_fdr']
+        else:
+            combined_results['test1_score'] = combined_results['delta_corr_test1'] * (-np.log10(combined_results['p_value_test1'] + 1e-300))
+            combined_results['combined_score'] = combined_results['test1_score']
+            combined_results['abs_combined_score'] = np.abs(combined_results['combined_score'])
+            combined_results = combined_results.sort_values('abs_combined_score', ascending=False, na_position='last').reset_index(drop=True)
+            combined_results['if_significant'] = combined_results['reject_test1_fdr']
+
+        print(f"\nResults prepared and sorted")
+
+        return combined_results
+
     @staticmethod
     def test_score_difference(
         result_A: pd.DataFrame,
