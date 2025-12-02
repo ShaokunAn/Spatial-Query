@@ -20,78 +20,6 @@ from scipy.spatial import KDTree
 from scipy import stats as scipy_stats
 
 
-def initialize_grids(spatial_pos, labels, n_split, overlap_radius):
-    """
-    Initialize spatial grids for efficient querying.
-    
-    Parameters
-    ----------
-    spatial_pos : np.ndarray
-        Spatial coordinates of cells
-    labels : pd.Series
-        Cell type labels
-    n_split : int
-        Number of splits in each axis
-    overlap_radius : float
-        Overlap radius for grids
-        
-    Returns
-    -------
-    tuple
-        (grid_cell_types, grid_indices)
-    """
-    xmax, ymax = np.max(spatial_pos, axis=0)
-    xmin, ymin = np.min(spatial_pos, axis=0)
-    x_step = (xmax - xmin) / n_split  # separate x axis into n_split parts
-    y_step = (ymax - ymin) / n_split  # separate y axis into n_split parts
-
-    grid_cell_types = {}
-    grid_indices = {}
-
-    for i in range(n_split):
-        for j in range(n_split):
-            x_start = xmin + i * x_step - (overlap_radius if i > 0 else 0)
-            x_end = xmin + (i + 1) * x_step + (overlap_radius if i < (n_split - 1) else 0)
-            y_start = ymin + j * y_step - (overlap_radius if j > 0 else 0)
-            y_end = ymin + (j + 1) * y_step + (overlap_radius if j < (n_split - 1) else 0)
-
-            cell_mask = (spatial_pos[:, 0] >= x_start) & (spatial_pos[:, 0] <= x_end) & \
-                        (spatial_pos[:, 1] >= y_start) & (spatial_pos[:, 1] <= y_end)
-
-            grid_indices[(i, j)] = np.where(cell_mask)[0]
-            grid_cell_types[(i, j)] = set(labels[cell_mask])
-
-    return grid_cell_types, grid_indices
-
-
-def query_pattern(pattern, grid_cell_types, grid_indices):
-    """
-    Query which grids contain all cell types in the pattern.
-    
-    Parameters
-    ----------
-    pattern : list
-        List of cell types to query
-    grid_cell_types : dict
-        Dictionary mapping grid coordinates to cell types
-    grid_indices : dict
-        Dictionary mapping grid coordinates to cell indices
-        
-    Returns
-    -------
-    tuple
-        (matching_grids, matching_cells_indices)
-    """
-    matching_grids = []
-    matching_cells_indices = {}
-    for grid, cell_types in grid_cell_types.items():
-        if all(cell_type in cell_types for cell_type in pattern):
-            matching_grids.append(grid)
-            indices = grid_indices[grid]
-            matching_cells_indices[grid] = indices
-    return matching_grids, matching_cells_indices
-
-
 def has_motif(neighbors: List[str], labels: List[str]) -> bool:
     """
     Determines whether all elements in 'neighbors' are present in 'labels'.
@@ -173,7 +101,7 @@ def build_fptree_dist(kd_tree,
                       if_max: bool = True,
                       min_size: int = 0,
                       cinds: List[int] = None,
-                      max_ns: int = 100) -> tuple:
+                      ) -> tuple:
     """
     Build a frequency pattern tree based on the distance of cell types.
 
@@ -197,8 +125,6 @@ def build_fptree_dist(kd_tree,
         patterns whose support values are greater than min_support.
     min_size:
         Minimum neighborhood size for each point to consider.
-    max_ns:
-        Maximum number of neighborhood size for each point.
 
     Return
     ------
@@ -220,7 +146,7 @@ def build_fptree_dist(kd_tree,
             continue
         idx_array = np.array(idx)
         valid_mask = idx_array != i_idx
-        valid_indices = idx_array[valid_mask][:max_ns]
+        valid_indices = idx_array[valid_mask]
 
         transaction = labels_array[valid_indices]
         if len(transaction) > min_size:
@@ -331,6 +257,7 @@ def de_genes_scanpy(adata,
                     genes: Optional[Union[str, List[str]]] = None,
                     min_fraction: float = 0.05,
                     method: str = 't-test',
+                    alpha: Optional[float] = None,
                     ) -> pd.DataFrame:
     """
     Perform differential expression analysis using scanpy's rank_genes_groups.
@@ -439,7 +366,9 @@ def de_genes_scanpy(adata,
     )
     
     # Filter by adjusted p-value and sort
-    result_df = result_df[result_df['adj_p_value'] < 0.05].sort_values('p_value').reset_index(drop=True)
+    if alpha is None:
+        alpha = 0.05
+    result_df = result_df[result_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
     
     return result_df
 
@@ -450,6 +379,7 @@ def de_genes_fisher(adata,
                     ind_group2: Union[List[int], np.ndarray],
                     genes: Optional[Union[str, List[str]]] = None,
                     min_fraction: float = 0.05,
+                    alpha: Optional[float] = None,
                     ) -> pd.DataFrame:
     """
     Perform Fisher's exact test using adata.X directly. This method is used when build_gene_index=False.
@@ -570,7 +500,10 @@ def de_genes_fisher(adata,
     )
     
     # Filter by adjusted p-value and sort by p-value
-    result_df = result_df[result_df['adj_p_value'] < 0.05].sort_values('p_value').reset_index(drop=True)
+    if alpha is None:
+        alpha = 0.05
+
+    result_df = result_df[result_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
     
     return result_df
 
