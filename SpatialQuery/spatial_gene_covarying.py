@@ -1,4 +1,5 @@
 
+from token import OP
 from typing import List, Union, Optional, Literal, Dict
 
 import numpy as np
@@ -584,6 +585,7 @@ def compute_gene_gene_correlation_adata(sq_obj,
                                         k: Optional[int] = None,
                                         min_size: int = 0,
                                         min_nonzero: int = 10,
+                                        alpha: Optional[float] = None
                                         ) -> pd.DataFrame:
     """
     Compute gene-gene cross correlation between neighbor and non-neighbor motif cells. Only considers inter-cell-type interactions. 
@@ -612,6 +614,8 @@ def compute_gene_gene_correlation_adata(sq_obj,
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
     min_nonzero:
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha:
+        Significance threshold
 
     Return
     ------
@@ -646,6 +650,8 @@ def compute_gene_gene_correlation_adata(sq_obj,
     """
     
     motif = motif if isinstance(motif, list) else [motif]
+    if alpha is None:
+        alpha = 0.05
 
     # Get neighbor and non-neighbor cell IDs plus paired mappings (using original motif)
     neighbor_result = spatial_utils.get_motif_neighbor_cells(sq_obj=sq_obj, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size)
@@ -926,7 +932,7 @@ def compute_gene_gene_correlation_adata(sq_obj,
             # Apply FDR correction to ALL pooled p-values
             reject_all, q_values_all, _, _ = multipletests(
                 all_p_values,
-                alpha=0.05,
+                alpha=alpha,
                 method='fdr_bh'
             )
 
@@ -951,8 +957,8 @@ def compute_gene_gene_correlation_adata(sq_obj,
             n_both_fdr = mask_both_fdr.sum()
 
             print(f"\nFDR correction results (joint across both tests):")
-            print(f"  - Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
-            print(f"  - Test2 FDR significant (q < 0.05): {reject_test2.sum()}")
+            print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+            print(f"  - Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
             print(f"  - Both tests FDR significant: {n_both_fdr}")
         else:
             results_df['q_value_test1'] = np.nan
@@ -966,7 +972,7 @@ def compute_gene_gene_correlation_adata(sq_obj,
         p_values_test1_all = results_df['p_value_test1'].values
         reject_test1, q_values_test1, _, _ = multipletests(
             p_values_test1_all,
-            alpha=0.05,
+            alpha=alpha,
             method='fdr_bh'
         )
         results_df['q_value_test1'] = q_values_test1
@@ -975,7 +981,7 @@ def compute_gene_gene_correlation_adata(sq_obj,
         results_df['reject_test2_fdr'] = False
 
         print(f"FDR correction applied to all {len(results_df)} gene pairs:")
-        print(f"  - Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
+        print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
 
     # Sort by absolute value of combined score (descending) to capture both positive and negative co-varying
     if corr_matrix_no_motif is not None:
@@ -1011,6 +1017,7 @@ def compute_gene_gene_correlation_binary(sq_obj,
                                          k: Optional[int] = None,
                                          min_size: int = 0,
                                          min_nonzero: int = 10,
+                                         alpha: Optional[float] = None
                                          ) -> pd.DataFrame:
     """
     Compute gene-gene correlation using deviation from global binary mean for binary expression data.
@@ -1042,6 +1049,8 @@ def compute_gene_gene_correlation_binary(sq_obj,
         Minimum neighborhood size for each center cell.
     min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha: 
+        Significance threshold.
 
     Returns
     -------
@@ -1051,6 +1060,8 @@ def compute_gene_gene_correlation_binary(sq_obj,
         Dictionary containing cell pairing information.
     """
     motif = motif if isinstance(motif, list) else [motif]
+    if alpha is None:
+        alpha = 0.1
 
     # Get neighbor and non-neighbor cell IDs using the same logic as compute_gene_gene_correlation
     neighbor_result = spatial_utils.get_motif_neighbor_cells(
@@ -1308,7 +1319,7 @@ def compute_gene_gene_correlation_binary(sq_obj,
 
             print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
 
-            reject_all, q_values_all, _, _ = multipletests(all_p_values, alpha=0.05, method='fdr_bh')
+            reject_all, q_values_all, _, _ = multipletests(all_p_values, alpha=alpha, method='fdr_bh')
 
             q_values_test1 = q_values_all[:n_consistent]
             q_values_test2 = q_values_all[n_consistent:]
@@ -1326,8 +1337,8 @@ def compute_gene_gene_correlation_binary(sq_obj,
             n_both_fdr = mask_both_fdr.sum()
 
             print(f"\nFDR correction results (joint across both tests):")
-            print(f"  - Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
-            print(f"  - Test2 FDR significant (q < 0.05): {reject_test2.sum()}")
+            print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
+            print(f"  - Test2 FDR significant (q < {alpha}): {reject_test2.sum()}")
             print(f"  - Both tests FDR significant: {n_both_fdr}")
         else:
             results_df['q_value_test1'] = np.nan
@@ -1338,14 +1349,14 @@ def compute_gene_gene_correlation_binary(sq_obj,
     else:
         print("Note: Test2 not available (no centers without motif)")
         p_values_test1_all = results_df['p_value_test1'].values
-        reject_test1, q_values_test1, _, _ = multipletests(p_values_test1_all, alpha=0.05, method='fdr_bh')
+        reject_test1, q_values_test1, _, _ = multipletests(p_values_test1_all, alpha=alpha, method='fdr_bh')
         results_df['q_value_test1'] = q_values_test1
         results_df['reject_test1_fdr'] = reject_test1
         results_df['q_value_test2'] = np.nan
         results_df['reject_test2_fdr'] = False
 
         print(f"FDR correction applied to all {len(results_df)} gene pairs:")
-        print(f"  - Test1 FDR significant (q < 0.05): {reject_test1.sum()}")
+        print(f"  - Test1 FDR significant (q < {alpha}): {reject_test1.sum()}")
 
     # Sort by absolute value of combined score
     if corr_matrix_no_motif is not None:
@@ -1378,6 +1389,7 @@ def compute_gene_gene_correlation_by_type_adata(sq_obj,
                                                 k: Optional[int] = None,
                                                 min_size: int = 0,
                                                 min_nonzero: int = 10,
+                                                alpha: Optional[float] = None
                                                 ) -> pd.DataFrame:
     """
     Compute gene-gene cross correlation separately for each cell type in the motif.
@@ -1404,6 +1416,8 @@ def compute_gene_gene_correlation_by_type_adata(sq_obj,
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
     min_nonzero:
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha:
+        Significance threshold
 
     Return
     ------
@@ -1432,17 +1446,23 @@ def compute_gene_gene_correlation_by_type_adata(sq_obj,
     # Get non-center cell types in motif
     non_center_types = [m for m in motif if m != ct]
 
+    if alpha is None:
+        alpha = 0.05
+
     if len(non_center_types) == 1:
         print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation method.")
-        result, _ = sq_obj.compute_gene_gene_correlation(
+        result, _ = compute_gene_gene_correlation_adata(
+            sq_obj=sq_obj,
             ct=ct,
             motif=motif,
             genes=genes,
             max_dist=max_dist,
             k=k,
             min_size=min_size,
-            min_nonzero=min_nonzero
+            min_nonzero=min_nonzero,
+            alpha=alpha,
         )
+        result['cell_type'] = non_center_types[0]
         return result
     elif len(non_center_types) == 0:
         raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
@@ -1738,7 +1758,7 @@ def compute_gene_gene_correlation_by_type_adata(sq_obj,
             n_consistent = same_direction.sum()
 
             print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
-            alpha = 0.05
+
             reject_all, q_values_all, _, _ = multipletests(
                 all_p_values,
                 alpha=alpha,
@@ -1778,7 +1798,6 @@ def compute_gene_gene_correlation_by_type_adata(sq_obj,
             print("No gene pairs with consistent direction found.")
     else:
         # Only test1 available
-        alpha = 0.05
         print("Note: Test2 not available (no centers without motif)")
         p_values_test1_all = combined_results['p_value_test1'].values
         reject_test1, q_values_test1, _, _ = multipletests(
@@ -1818,6 +1837,7 @@ def compute_gene_gene_correlation_by_type_binary(sq_obj,
                                                  k: Optional[int] = None,
                                                  min_size: int = 0,
                                                  min_nonzero: int = 10,
+                                                 alpha: Optional[float] = None
                                                  ) -> pd.DataFrame:
     """
     Compute gene-gene correlation using deviation from global binary mean, separately for each cell type in the motif.
@@ -1845,6 +1865,8 @@ def compute_gene_gene_correlation_by_type_binary(sq_obj,
         Minimum neighborhood size for each center cell.
     min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha:
+        Significance threshold.
 
     Returns
     -------
@@ -1868,17 +1890,23 @@ def compute_gene_gene_correlation_by_type_binary(sq_obj,
     # Get non-center cell types in motif
     non_center_types = [m for m in motif if m != ct]
 
+    if alpha is None:
+        alpha = 0.1
+
     if len(non_center_types) == 1:
         print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation_binary method.")
-        result, _ = sq_obj.compute_gene_gene_correlation_binary(
+        result, _ = compute_gene_gene_correlation_binary(
+            sq_obj=sq_obj,
             ct=ct,
             motif=motif,
             genes=genes,
             max_dist=max_dist,
             k=k,
             min_size=min_size,
-            min_nonzero=min_nonzero
+            min_nonzero=min_nonzero,
+            alpha=alpha
         )
+        result['cell_type'] = non_center_types[0]
         return result
     elif len(non_center_types) == 0:
         raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
@@ -2177,7 +2205,6 @@ def compute_gene_gene_correlation_by_type_binary(sq_obj,
             n_consistent = same_direction.sum()
 
             print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
-            alpha = 0.05
             reject_all, q_values_all, _, _ = multipletests(
                 all_p_values,
                 alpha=alpha,
@@ -2217,7 +2244,6 @@ def compute_gene_gene_correlation_by_type_binary(sq_obj,
             print("No gene pairs with consistent direction found.")
     else:
         # Only test1 available
-        alpha = 0.05
         print("Note: Test2 not available (no centers without motif)")
         p_values_test1_all = combined_results['p_value_test1'].values
         reject_test1, q_values_test1, _, _ = multipletests(
@@ -2430,6 +2456,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
         k: Optional[int] = None,
         min_size: int = 0,
         min_nonzero: int = 10,
+        alpha: Optional[float] = None
         ) -> pd.DataFrame:
     """
     Compute gene-gene co-varying patterns between motif and center cells across multiple FOVs.
@@ -2462,6 +2489,8 @@ def compute_gene_gene_correlation_adata_multi_fov(
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
     min_nonzero:
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha: 
+        Significance threshold.
 
     Return
     ------
@@ -2482,6 +2511,9 @@ def compute_gene_gene_correlation_adata_multi_fov(
     # Validate parameters
     if (max_dist is None and k is None) or (max_dist is not None and k is not None):
         raise ValueError("Please specify either max_dist or k, but not both.")
+    
+    if alpha is None:
+        alpha = 0.05
 
     # Convert motif to list
     motif = motif if isinstance(motif, list) else [motif]
@@ -2957,12 +2989,12 @@ def compute_gene_gene_correlation_adata_multi_fov(
 
             sig_mask = same_direction.copy()
             sig_indices = np.where(same_direction)[0]
-            sig_both = (adj_p_test1 < 0.05) & (adj_p_test2 < 0.05)
+            sig_both = (adj_p_test1 < alpha) & (adj_p_test2 < alpha)
             sig_mask[sig_indices] = sig_both
 
             results_df.loc[sig_mask, 'if_significant'] = True
 
-            print(f"Significant gene pairs (both tests, FDR < 0.05): {sig_mask.sum()}")
+            print(f"Significant gene pairs (both tests, FDR < {alpha}): {sig_mask.sum()}")
         else:
             results_df['adj_p_value_test1'] = np.nan
             results_df['adj_p_value_test2'] = np.nan
@@ -2973,7 +3005,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
         results_df['adj_p_value_test1'] = adj_p_values
         results_df['adj_p_value_test2'] = np.nan
         results_df['if_significant'] = rejected
-        print(f"Significant gene pairs (test1, FDR < 0.05): {rejected.sum()}")
+        print(f"Significant gene pairs (test1, FDR < {alpha}): {rejected.sum()}")
 
     # Sort by significance
     if corr_matrix_no_motif is not None and 'combined_score' in results_df.columns:
@@ -3000,6 +3032,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
         k: Optional[int] = None,
         min_size: int = 0,
         min_nonzero: int = 10,
+        alpha: Optional[float] = None
         ) -> pd.DataFrame:
     """
     Compute gene-gene co-varying patterns using binary expression data from scfind index across multiple FOVs.
@@ -3033,6 +3066,8 @@ def compute_gene_gene_correlation_binary_multi_fov(
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
     min_nonzero:
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha: 
+        Significance threshold.
 
     Return
     ------
@@ -3053,6 +3088,9 @@ def compute_gene_gene_correlation_binary_multi_fov(
     # Validate parameters
     if (max_dist is None and k is None) or (max_dist is not None and k is not None):
         raise ValueError("Please specify either max_dist or k, but not both.")
+    
+    if alpha is None:
+        alpha = 0.1
 
     # Convert motif to list
     motif = motif if isinstance(motif, list) else [motif]
@@ -3526,12 +3564,12 @@ def compute_gene_gene_correlation_binary_multi_fov(
 
             sig_mask = same_direction.copy()
             sig_indices = np.where(same_direction)[0]
-            sig_both = (adj_p_test1 < 0.05) & (adj_p_test2 < 0.05)
+            sig_both = (adj_p_test1 < alpha) & (adj_p_test2 < alpha)
             sig_mask[sig_indices] = sig_both
 
             results_df.loc[sig_mask, 'if_significant'] = True
 
-            print(f"Significant gene pairs (both tests, FDR < 0.05): {sig_mask.sum()}")
+            print(f"Significant gene pairs (both tests, FDR < {alpha}): {sig_mask.sum()}")
         else:
             results_df['adj_p_value_test1'] = np.nan
             results_df['adj_p_value_test2'] = np.nan
@@ -3542,7 +3580,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
         results_df['adj_p_value_test1'] = adj_p_values
         results_df['adj_p_value_test2'] = np.nan
         results_df['if_significant'] = rejected
-        print(f"Significant gene pairs (test1, FDR < 0.05): {rejected.sum()}")
+        print(f"Significant gene pairs (test1, FDR < {alpha}): {rejected.sum()}")
 
     # Sort by significance
     if corr_matrix_no_motif is not None and 'combined_score' in results_df.columns:
@@ -3570,6 +3608,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
         k: Optional[int] = None,
         min_size: int = 0,
         min_nonzero: int = 10,
+        alpha: Optional[float] = None,
         ) -> pd.DataFrame:
     """
     Compute gene-gene cross correlation separately for each cell type in the motif across multiple FOVs.
@@ -3598,6 +3637,8 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
     min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
+    alpha:
+        Significance threshold.
 
     Returns
     -------
@@ -3625,10 +3666,13 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
 
     # Get non-center cell types in motif
     non_center_types = [m for m in motif if m != ct]
+    if alpha is None:
+        alpha = 0.05
 
     if len(non_center_types) == 1:
         print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation method.")
-        result, _ = sq_objs.compute_gene_gene_correlation(
+        result, _ = compute_gene_gene_correlation_adata_multi_fov(
+            sq_objs=sq_objs,
             ct=ct,
             motif=motif,
             dataset=dataset,
@@ -3636,8 +3680,10 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
             max_dist=max_dist,
             k=k,
             min_size=min_size,
-            min_nonzero=min_nonzero
+            min_nonzero=min_nonzero,
+            alpha=alpha
         )
+        result['cell_type'] = non_center_types[0]
         return result
     elif len(non_center_types) == 0:
         raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
@@ -4101,7 +4147,6 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
             n_consistent = same_direction.sum()
 
             print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
-            alpha = 0.05
             reject_all, q_values_all, _, _ = multipletests(
                 all_p_values,
                 alpha=alpha,
@@ -4141,7 +4186,6 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
             print("No gene pairs with consistent direction found.")
     else:
         # Only test1 available
-        alpha = 0.05
         print("Note: Test2 not available (no centers without motif)")
         p_values_test1_all = combined_results['p_value_test1'].values
         reject_test1, q_values_test1, _, _ = multipletests(
@@ -4173,7 +4217,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
 
     return combined_results
 
-def compute_gene_gene_correlation_binary_by_type_multi_fov(
+def compute_gene_gene_correlation_by_type_binary_multi_fov(
         sq_objs,
         ct: str,
         motif: Union[str, List[str]],
@@ -4183,6 +4227,7 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
         k: Optional[int] = None,
         min_size: int = 0,
         min_nonzero: int = 10,
+        alpha: Optional[float] = None,
         ) -> pd.DataFrame:
         """
         Compute gene-gene cross correlation using binary expression data separately for each cell type in the motif across multiple FOVs.
@@ -4211,6 +4256,8 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
+        alpha:
+            Significance threshold.
 
         Returns
         -------
@@ -4238,10 +4285,12 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
 
         # Get non-center cell types in motif
         non_center_types = [m for m in motif if m != ct]
+        if alpha is None:
+            alpha = 0.1
 
         if len(non_center_types) == 1:
             print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation_binary method.")
-            result = sq_objs.compute_gene_gene_correlation_binary(
+            result = compute_gene_gene_correlation_binary_multi_fov(
                 ct=ct,
                 motif=motif,
                 dataset=dataset,
@@ -4249,8 +4298,10 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                 max_dist=max_dist,
                 k=k,
                 min_size=min_size,
-                min_nonzero=min_nonzero
+                min_nonzero=min_nonzero,
+                alpha=alpha
             )
+            result['cell_type'] = non_center_types[0]
             return result
         elif len(non_center_types) == 0:
             raise ValueError("Error: Only center cell type in motif. Please ensure motif includes at least one non-center cell type.")
@@ -4715,7 +4766,6 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                 n_consistent = same_direction.sum()
 
                 print(f"Applying FDR correction to {len(all_p_values)} total tests (2 × {n_consistent} gene pairs)")
-                alpha = 0.05
                 reject_all, q_values_all, _, _ = multipletests(
                     all_p_values,
                     alpha=alpha,
@@ -4755,7 +4805,6 @@ def compute_gene_gene_correlation_binary_by_type_multi_fov(
                 print("No gene pairs with consistent direction found.")
         else:
             # Only test1 available
-            alpha = 0.05
             print("Note: Test2 not available (no centers without motif)")
             p_values_test1_all = combined_results['p_value_test1'].values
             reject_test1, q_values_test1, _, _ = multipletests(
