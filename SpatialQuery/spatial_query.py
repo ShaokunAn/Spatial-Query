@@ -41,8 +41,6 @@ class spatial_query:
         Leaf size for KDTree, default is 10
     max_radius:
         The upper limit of neighborhood radius, default is 500
-    n_split:
-        The number of splits in each axis for spatial grid to speed up query, default is 10
     build_gene_index:
         Whether to build scfind index of expression data, default is False. If expression data is required for query,
         set this parameter to True
@@ -60,7 +58,6 @@ class spatial_query:
         label_key: str = 'predicted_label',
         leaf_size: int = 10,
         max_radius: float = 20,
-        n_split: int = 10,
         build_gene_index: bool = False,
         feature_name: str = None,
         if_lognorm: bool = True,
@@ -80,11 +77,6 @@ class spatial_query:
         self.labels = adata.obs[self.label_key]
         self.labels = self.labels.astype('category')
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
-        self.overlap_radius = max_radius  # the upper limit of radius in case missing cells with large radius of query
-        self.n_split = n_split
-        self.grid_cell_types, self.grid_indices = spatial_utils.initialize_grids(
-            self.spatial_pos, self.labels, self.n_split, self.overlap_radius
-        )
         self.build_gene_index = build_gene_index
         
         self.adata = None
@@ -280,7 +272,10 @@ class spatial_query:
             motifs = [motifs]
 
         if len(motifs) == 0:
-            raise ValueError("No frequent patterns were found. Please lower min_support value.")
+            # Return empty DataFrame with same structure
+            empty_df = pd.DataFrame(columns=['center', 'motifs', 'n_center_motif', 'n_center',
+                                             'n_motif', 'expectation', 'p-values', 'if_significant'])
+            return empty_df
 
         label_encoder = LabelEncoder()
         int_labels = label_encoder.fit_transform(self.labels)
@@ -367,7 +362,6 @@ class spatial_query:
                               max_dist: float = 100,
                               min_size: int = 0,
                               min_support: float = 0.5,
-                              max_ns: int = 100,
                               return_cellID: bool = False,
                               ) -> DataFrame:
         """
@@ -386,8 +380,6 @@ class spatial_query:
             Minimum neighborhood size for each point to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_ns:
-            Maximum number of neighborhood size for each point.
         return_cellID:
             Indicate whether return cell IDs for each motif within the neighborhood of central cell type.
             By defaults do not return cell ID.
@@ -416,6 +408,12 @@ class spatial_query:
             motifs = [m for m in motifs if m not in motifs_exc]
             motifs = [motifs]
 
+        if len(motifs) == 0:
+            # Return empty DataFrame with same structure
+            empty_df = pd.DataFrame(columns=['center', 'motifs', 'n_center_motif', 'n_center',
+                                             'n_motif', 'expectation', 'p-values', 'if_significant'])
+            return empty_df
+
         label_encoder = LabelEncoder()
         int_labels = label_encoder.fit_transform(np.array(self.labels))
         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
@@ -425,57 +423,37 @@ class spatial_query:
         num_cells = len(self.spatial_pos)
         num_types = len(label_encoder.classes_)
 
-        if return_cellID:
-            idxs_all = self.kd_tree.query_ball_point(
-                self.spatial_pos,
-                r=max_dist,
-                return_sorted=False,
-                workers=-1,
-            )
-            idxs_all_filter = [np.array(ids)[np.array(ids) != i] for i, ids in enumerate(idxs_all)]
-            flat_neighbors_all = np.concatenate(idxs_all_filter)
-            row_indices_all = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_all_filter])
-            neighbor_labels_all = int_labels[flat_neighbors_all]
-            mask_all = int_labels == int_ct
+        # Query neighbors for all cells once (instead of using grid filtering)
+        idxs_all = self.kd_tree.query_ball_point(
+            self.spatial_pos,
+            r=max_dist,
+            return_sorted=False,
+            workers=-1,
+        )
+        idxs_all_filter = [np.array(ids)[np.array(ids) != i] for i, ids in enumerate(idxs_all)]
+
+        # Pre-compute neighbor matrix for all cells
+        flat_neighbors_all = np.concatenate(idxs_all_filter)
+        row_indices_all = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_all_filter])
+        neighbor_labels_all = int_labels[flat_neighbors_all]
+
+        neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
+        np.add.at(neighbor_matrix_all, (row_indices_all, neighbor_labels_all), 1)
 
         for motif in motifs:
             motif = list(motif) if not isinstance(motif, list) else motif
             sort_motif = sorted(motif)
 
-            _, matching_cells_indices = spatial_utils.query_pattern(
-                motif, self.grid_cell_types, self.grid_indices
-            )
-            if not matching_cells_indices:
-                # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
-                continue
-            matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
-            matching_cells_indices = np.unique(matching_cells_indices)
-            # print(f"number of cells skipped: {len(matching_cells_indices)}")
-            print(f"proportion of cells searched: {len(matching_cells_indices) / len(self.spatial_pos)}")
-            idxs_in_grids = self.kd_tree.query_ball_point(
-                self.spatial_pos[matching_cells_indices],
-                r=max_dist,
-                return_sorted=True,
-                workers=-1
-            )
-
             # using numpy
             int_motifs = label_encoder.transform(np.array(motif))
 
-            # filter center out of neighbors
-            idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in
-                           zip(matching_cells_indices, idxs_in_grids)]
+            # Check which cells have all motif types in their neighborhood
+            has_motif_mask = np.all(neighbor_matrix_all[:, int_motifs] > 0, axis=1)
 
-            flat_neighbors = np.concatenate(idxs_filter)
-            row_indices = np.repeat(np.arange(len(matching_cells_indices)), [len(neigh) for neigh in idxs_filter])
-            neighbor_labels = int_labels[flat_neighbors]
-
-            neighbor_matrix = np.zeros((len(matching_cells_indices), num_types), dtype=int)
-            np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
-
-            mask = int_labels[matching_cells_indices] == int_ct
-            n_motif_ct = np.sum(np.all(neighbor_matrix[mask][:, int_motifs] > 0, axis=1))
-            n_motif_labels = np.sum(np.all(neighbor_matrix[:, int_motifs] > 0, axis=1))
+            # Filter for center cell type
+            mask_ct = int_labels == int_ct
+            n_motif_ct = np.sum(has_motif_mask[mask_ct])
+            n_motif_labels = np.sum(has_motif_mask)
 
             n_ct = len(cinds)
             if ct in motif:
@@ -487,10 +465,10 @@ class spatial_query:
                          'p-values': hyge.sf(n_motif_ct)}
 
             if return_cellID:
-                neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
-                np.add.at(neighbor_matrix_all, (row_indices_all, neighbor_labels_all), 1)
-                inds_all = np.where(np.all(neighbor_matrix_all[mask_all][:, int_motifs] > 0, axis=1))[0]
-                cind_with_motif = np.array([cinds[i] for i in inds_all])
+                # Get center cells with motif
+                cind_with_motif = cinds[has_motif_mask[cinds]]
+
+                # Get motif neighbors for these center cells
                 motif_mask = np.isin(np.array(self.labels), motif)
                 all_neighbors = np.concatenate([idxs_all_filter[i] for i in cind_with_motif])
                 valid_neighbors = all_neighbors[motif_mask[all_neighbors]]
@@ -764,6 +742,7 @@ class spatial_query:
                  genes: Optional[Union[str, List[str]]] = None,
                  min_fraction: float = 0.05,
                  method: Literal['fisher', 't-test', 'wilcoxon'] = 'fisher',
+                 alpha: Optional[float] = None,
                  ) -> pd.DataFrame:
         """
         Identify differential genes between two groups of cells.
@@ -804,7 +783,11 @@ class spatial_query:
 
             adjusted_pvals = multipletests(out_df['p_value'], method='fdr_bh')[1]
             out_df['adj_p_value'] = adjusted_pvals
-            results_df = out_df[out_df['adj_p_value'] < 0.05]
+
+            if alpha is None:
+                alpha = 0.1
+
+            results_df = out_df[out_df['adj_p_value'] < alpha]
             results_df.loc[:, 'de_in'] = np.where(
                 (results_df['proportion_1'] >= results_df['proportion_2']),
                 'group1',
@@ -814,16 +797,16 @@ class spatial_query:
                     None
                 )
             )
-            results_df = results_df[results_df['adj_p_value'] < 0.05].sort_values('p_value').reset_index(drop=True)
+            results_df = results_df[results_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
         else:
             # Use adata.X directly for DE analysis
             if method == 'fisher':
                 results_df = spatial_utils.de_genes_fisher(
-                    self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction
+                    self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, alpha
                 )
             elif method == 't-test' or method == 'wilcoxon':
                 results_df = spatial_utils.de_genes_scanpy(
-                    self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, method=method
+                    self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, method=method, alpha=alpha
                 )
             else:
                 raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
@@ -838,6 +821,7 @@ class spatial_query:
                                       k: Optional[int] = None,
                                       min_size: int = 0,
                                       min_nonzero: int = 10,
+                                      alpha: Optional[float] = None
                                       ) -> pd.DataFrame:
         """
         Compute gene-gene cross correlation between neighbor and non-neighbor motif cells. Only considers inter-cell-type interactions. 
@@ -866,6 +850,8 @@ class spatial_query:
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero:
             Minimum number of non-zero expression values required for a gene to be included.
+        alpha: 
+            Significance threshold.
 
         Return
         ------
@@ -909,6 +895,7 @@ class spatial_query:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha,
             )
         else:
             print('Computing covarying genes using binary data...')
@@ -921,6 +908,7 @@ class spatial_query:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha
             )
 
         return results_df, ids
@@ -934,6 +922,7 @@ class spatial_query:
                                              k: Optional[int] = None,
                                              min_size: int = 0,
                                              min_nonzero: int = 10,
+                                             alpha: Optional[float] = None,
                                              ) -> pd.DataFrame:
         """
         Compute gene-gene cross correlation separately for each cell type in the motif.
@@ -960,6 +949,8 @@ class spatial_query:
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero:
             Minimum number of non-zero expression values required for a gene to be included.
+        alpha:      
+            Significance threshold.
 
         Return
         ------
@@ -994,6 +985,7 @@ class spatial_query:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha,
             )
         else: 
             print('Computing covarying genes using binary data...')
@@ -1006,6 +998,7 @@ class spatial_query:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha,
             )
         
     
@@ -1224,3 +1217,32 @@ class spatial_query:
         A figure.
         """
         return plotting.plot_all_center_motif(sq_obj=self, ct=ct, ids=ids, figsize=figsize, save_path=save_path)
+
+    def plot_motif_enrichment_heatmap(self,
+                                       enrich_df: pd.DataFrame,
+                                       figsize: tuple = (7, 5),
+                                       save_path: Optional[str] = None,
+                                       title: Optional[str] = None,
+                                       cmap: str = 'GnBu'):
+        """
+        Plot a heatmap showing the distribution of cell types in enriched motifs.
+
+        Parameter
+        ---------
+        enrich_df:
+            Output DataFrame from motif_enrichment_dist or motif_enrichment_knn
+        figsize:
+            Figure size, default is (7, 5)
+        save_path:
+            Path to save the figure. If None, the figure will not be saved.
+        title:
+            Figure title. If None, will use a default title based on center cell type.
+        cmap:
+            Colormap for the heatmap, default is 'GnBu'
+
+        Return
+        ------
+        A figure showing the heatmap of motif cell type distribution.
+        """
+        return plotting.plot_motif_enrichment_heatmap(enrich_df=enrich_df, figsize=figsize,
+                                                       save_path=save_path, title=title, cmap=cmap)
