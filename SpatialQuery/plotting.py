@@ -170,7 +170,7 @@ def plot_motif_grid(sq_obj,
     # Plotting other spots as background
     bg_index = [i for i, _ in enumerate(sq_obj.labels) if i not in id_motif_celltype]
     bg_pos = sq_obj.spatial_pos[bg_index, :]
-    ax.scatter(bg_pos[:, 0], bg_pos[:, 1], color='darkgrey', s=1)
+    ax.scatter(bg_pos[:, 0], bg_pos[:, 1], color='#D3D3D3', s=1)
 
     for ct in motif_unique:
         ct_ind = motif_spot_label == ct
@@ -278,7 +278,7 @@ def plot_motif_rand(sq_obj,
     # Plotting other spots as background
     bg_index = [i for i, _ in enumerate(sq_obj.labels) if i not in id_motif_celltype]
     bg_adata = sq_obj.spatial_pos[bg_index, :]
-    ax.scatter(bg_adata[:, 0], bg_adata[:, 1], color='darkgrey', s=1)
+    ax.scatter(bg_adata[:, 0], bg_adata[:, 1], color='#D3D3D3', s=1)
 
     for ct in motif_unique:
         ct_ind = motif_spot_label == ct
@@ -392,7 +392,7 @@ def plot_motif_celltype(sq_obj,
     cind_with_motif_set = set(cind_with_motif)
     bg_index = [i for i in range(labels_length) if i not in id_motif_celltype_set and i not in cind_with_motif_set]
     bg_adata = sq_obj.spatial_pos[bg_index, :]
-    ax.scatter(bg_adata[:, 0], bg_adata[:, 1], color='darkgrey', s=1)
+    ax.scatter(bg_adata[:, 0], bg_adata[:, 1], color='#D3D3D3', s=1)
 
     # Plot center the cell type whose neighborhood contains motif
     ax.scatter(sq_obj.spatial_pos[cind_with_motif, 0],
@@ -501,4 +501,88 @@ def plot_all_center_motif(sq_obj,
     ax.set_title(f'Cell types around {ct} with motif', fontsize=10)
     if save_path is not None:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+def plot_motif_enrichment_heatmap(enrich_df: pd.DataFrame,
+                                   figsize: tuple = (7, 5),
+                                   save_path: Optional[str] = None,
+                                   title: Optional[str] = None,
+                                   cmap: str = 'GnBu'):
+    """
+    Plot a heatmap showing the distribution of cell types in enriched motifs.
+
+    Parameter
+    ---------
+    enrich_df : pd.DataFrame
+        Output from motif_enrichment_dist or motif_enrichment_knn
+    figsize : tuple
+        Figure size, default is (7, 5)
+    save_path : str, optional
+        Path to save the figure. If None, the figure will not be saved.
+    title : str, optional
+        Figure title. If None, will use a default title based on center cell type.
+    cmap : str
+        Colormap for the heatmap, default is 'GnBu'
+
+    Return
+    ------
+    A figure showing the heatmap of motif cell type distribution.
+    """
+    if len(enrich_df) == 0:
+        print("No enriched motifs to plot.")
+        return
+
+    # Calculate frequency
+    enrich = enrich_df.copy()
+    enrich['frequency'] = enrich['n_center_motif'] / enrich['n_center']
+
+    # Sort by frequency
+    enrich = enrich.sort_values(by='frequency', ascending=True)
+
+    # Create motif group labels
+    enrich['motif_group'] = [f'motif_{i+1}' for i in range(len(enrich))]
+
+    # Explode motifs list so each cell type becomes a row
+    enrich_expanded = enrich.explode('motifs')
+
+    # Create pivot table: rows are cell types, columns are motif groups
+    heatmap_data = enrich_expanded.pivot_table(
+        index='motifs',  # Rows: each cell type in motif
+        columns='motif_group',  # Columns: each motif group
+        values='frequency',
+        aggfunc='first'
+    )
+
+    # Plot heatmap
+    plt.figure(figsize=figsize)
+    sns.heatmap(
+        heatmap_data,
+        cmap=cmap,
+        linewidths=0.1,
+        linecolor='lightgrey',
+        annot=True,
+        fmt='.3f',
+        annot_kws={'fontsize': 12},
+        cbar_kws={'label': 'Frequency'}
+    )
+
+    # Set title
+    if title is None:
+        if 'center' in enrich.columns and len(enrich['center'].unique()) == 1:
+            ct = enrich['center'].iloc[0]
+            title = f'Distribution of enriched motifs around {ct}'
+        else:
+            title = 'Distribution of enriched motifs'
+
+    plt.title(title, fontsize=14, pad=20)
+    plt.ylabel('', fontsize=12)
+    plt.xlabel('Motifs', fontsize=12)
+    plt.xticks(rotation=30, fontsize=12)
+    plt.yticks(rotation=0, fontsize=12)
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
     plt.show()
