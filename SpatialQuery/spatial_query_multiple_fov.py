@@ -19,7 +19,6 @@ from . import spatial_gene_covarying
 from .spatial_query import spatial_query
 from .spatial_utils import (
     find_maximal_patterns,
-    query_pattern,
     build_fptree_knn,
     build_fptree_dist,
     de_genes_scanpy,
@@ -210,7 +209,6 @@ class spatial_query_multi:
                      max_dist: float = 100,
                      min_size: int = 0,
                      min_support: float = 0.5,
-                     max_ns: int = 100
                      ):
         """
         Find frequent patterns within the radius of certain cell type in multiple fields of view.
@@ -228,8 +226,6 @@ class spatial_query_multi:
             Minimum neighborhood size for each point to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_ns:
-            Upper limit of neighbors for each point.
 
         Return
         ------
@@ -269,7 +265,7 @@ class spatial_query_multi:
             idxs = s.kd_tree.query_ball_point(ct_pos, r=max_dist, return_sorted=False, workers=-1)
 
             for i_id, idx in zip(cinds, idxs):
-                transaction = [labels[i] for i in idx[:min(max_ns, len(idx))] if i != i_id]
+                transaction = [labels[i] for i in idx if i != i_id]
                 if len(transaction) > min_size:
                     transactions.append(transaction)
 
@@ -497,7 +493,6 @@ class spatial_query_multi:
                               max_dist: float = 100,
                               min_size: int = 0,
                               min_support: float = 0.5,
-                              max_ns: int = 100,
                               return_cellID: bool = False
                               ):
         """
@@ -522,8 +517,6 @@ class spatial_query_multi:
         dis_duplicates:
             Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
             like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
-        max_ns:
-            Maximum number of neighborhood size for each point.
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
             By defaults do not return cell ID.
@@ -557,7 +550,7 @@ class spatial_query_multi:
         if motifs is None:
             # If motifs is None, keep the existing logic to find patterns
             fp = self.find_fp_dist(ct=ct, dataset=dataset, max_dist=max_dist, min_size=min_size,
-                                   min_support=min_support, max_ns=max_ns)
+                                   min_support=min_support, )
             motifs = fp['itemsets'].tolist()
         else:
             if isinstance(motifs, str):
@@ -623,60 +616,51 @@ class spatial_query_multi:
                     continue
                 else:
                     n_labels += labels.shape[0]
-                    _, matching_cells_indices = query_pattern(motif, s.grid_cell_types, s.grid_indices)
-                    if not matching_cells_indices:
-                        # if matching_cells_indices is empty, it indicates no motif are grouped together within upper limit of radius (500)
-                        continue 
-                    matching_cells_indices = np.concatenate([t for t in matching_cells_indices.values()])
-                    matching_cells_indices = np.unique(matching_cells_indices)
-                    matching_cells_indices.sort()
 
-                    # print(f"number of cells skipped: {len(matching_cells_indices)}")
-                    # print(f"proportion of cells searched: {len(matching_cells_indices) / len(s.spatial_pos)}")
-                    idxs_in_grids = s.kd_tree.query_ball_point(
-                        s.spatial_pos[matching_cells_indices],
+                    # Query neighbors for all cells once (instead of using grid filtering)
+                    idxs_all = s.kd_tree.query_ball_point(
+                        s.spatial_pos,
                         r=max_dist,
                         return_sorted=False,
-                        workers=-1
+                        workers=-1,
                     )
+                    idxs_all_filter = [np.array(ids)[np.array(ids) != i] for i, ids in enumerate(idxs_all)]
 
-                    # using numppy
+                    # using numpy
                     label_encoder = LabelEncoder()
                     int_labels = label_encoder.fit_transform(labels)
                     int_motifs = label_encoder.transform(np.array(motif))
 
                     num_cells = len(s.spatial_pos)
                     num_types = len(label_encoder.classes_)
-                    # filter center out of neighbors
-                    idxs_filter = [np.array(ids)[np.array(ids) != i][:min(max_ns, len(ids))] for i, ids in
-                                   zip(matching_cells_indices, idxs_in_grids)]
 
-                    num_matching_cells = len(matching_cells_indices)
-                    flat_neighbors = np.concatenate(idxs_filter)
-                    row_indices = np.repeat(np.arange(num_matching_cells), [len(neigh) for neigh in idxs_filter])
-                    neighbor_labels = int_labels[flat_neighbors]
+                    # Pre-compute neighbor matrix for all cells
+                    flat_neighbors_all = np.concatenate(idxs_all_filter)
+                    row_indices_all = np.repeat(np.arange(num_cells), [len(neigh) for neigh in idxs_all_filter])
+                    neighbor_labels_all = int_labels[flat_neighbors_all]
 
-                    neighbor_matrix = np.zeros((num_matching_cells, num_types), dtype=int)
-                    np.add.at(neighbor_matrix, (row_indices, neighbor_labels), 1)
+                    neighbor_matrix_all = np.zeros((num_cells, num_types), dtype=int)
+                    np.add.at(neighbor_matrix_all, (row_indices_all, neighbor_labels_all), 1)
 
-                    motif_mask = np.all(neighbor_matrix[:, int_motifs] > 0, axis=1)
+                    # Check which cells have all motif types in their neighborhood
+                    motif_mask = np.all(neighbor_matrix_all[:, int_motifs] > 0, axis=1)
                     n_motif_labels += np.sum(motif_mask)
 
                     if ct in np.unique(labels):
                         int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
-                        mask = int_labels[matching_cells_indices] == int_ct
-                        center_mask = mask & motif_mask
+                        mask_ct = int_labels == int_ct
+                        center_mask = mask_ct & motif_mask
                         n_motif_ct += np.sum(center_mask)
                         n_ct += np.sum(s.labels == ct)
 
                         if return_cellID:
                             # Get IDs of center cells with motif in neighborhood
-                            center_indices = matching_cells_indices[center_mask]
+                            center_indices = np.where(center_mask)[0]
 
                             if len(center_indices) > 0:
-                                idxs_center = np.array(idxs_filter, dtype=object)[mask & motif_mask]
-                                all_neighbors_center = np.concatenate(idxs_center)
+                                # Get motif neighbors for these center cells
                                 motif_mask_all = np.isin(np.array(s.labels), motif)
+                                all_neighbors_center = np.concatenate([idxs_all_filter[i] for i in center_indices])
                                 valid_neighbors_center = all_neighbors_center[motif_mask_all[all_neighbors_center]]
                                 id_motif_celltype = set(valid_neighbors_center)
 
@@ -770,7 +754,6 @@ class spatial_query_multi:
                          max_dist: float = 100,
                          min_size: int = 0,
                          min_support: float = 0.5,
-                         max_ns: int = 100
                          ):
         """
         Find frequent patterns within the radius-based neighborhood of specific cell type of interest
@@ -788,8 +771,6 @@ class spatial_query_multi:
             Minimum neighborhood size for each point to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_ns:
-            Maximum number of neighborhood size for each point.
 
         Return
         ------
@@ -819,7 +800,6 @@ class spatial_query_multi:
             if_max=False,
             min_size=min_size,
             cinds=cinds,
-            max_ns=max_ns,
         )
         return fp
 
@@ -952,7 +932,6 @@ class spatial_query_multi:
                                    max_dist: float = 100,
                                    min_support: float = 0.5,
                                    min_size: int = 0,
-                                   max_ns: int = 100,
                                    ):
         """
         Explore the differences in cell types and frequent patterns of cell types in spatial radius-based neighborhood
@@ -970,8 +949,6 @@ class spatial_query_multi:
             Threshold of frequency to consider a pattern as a frequent pattern.
         min_size:
             Minimum neighborhood size for each point to consider.
-        max_ns:
-            Upper limit of neighbors for each point.
 
         Return
         ------
@@ -1000,7 +977,7 @@ class spatial_query_multi:
                                                max_dist=max_dist,
                                                min_size=min_size,
                                                min_support=min_support,
-                                               max_ns=max_ns)
+                                               )
                 if len(fp_fov) > 0:
                     fp_d[d_i] = fp_fov
 
@@ -1550,6 +1527,7 @@ class spatial_query_multi:
                                        k: Optional[int] = None,
                                        min_size: int = 0,
                                        min_nonzero: int = 10,
+                                       alpha: Optional[float] = None
                                        ) -> pd.DataFrame:
         """
         Compute gene-gene co-varying patterns between motif and center cells across multiple FOVs.
@@ -1582,6 +1560,8 @@ class spatial_query_multi:
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero:
             Minimum number of non-zero expression values required for a gene to be included.
+        alpha: 
+            Significance threshold.
 
         Return
         ------
@@ -1618,6 +1598,7 @@ class spatial_query_multi:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha,
             )
         else:
             print('Compting covarying genes using binary data ...')
@@ -1631,6 +1612,7 @@ class spatial_query_multi:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha,
             )
         
         return results_df
@@ -1645,6 +1627,7 @@ class spatial_query_multi:
                                               k: Optional[int] = None,
                                               min_size: int = 0,
                                               min_nonzero: int = 10,
+                                              alpha: Optional[float] = None
                                               ) -> pd.DataFrame:
         """
         Compute gene-gene cross correlation separately for each cell type in the motif across multiple FOVs.
@@ -1673,6 +1656,8 @@ class spatial_query_multi:
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
+        alpha
+            Significance threshold.
 
         Returns
         -------
@@ -1707,10 +1692,11 @@ class spatial_query_multi:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha
             )
         else:
             print('Compting covarying genes using binary data ...')
-            results_df = spatial_gene_covarying.compute_gene_gene_correlation_binary_by_type_multi_fov(
+            results_df = spatial_gene_covarying.compute_gene_gene_correlation_by_type_binary_multi_fov(
                 sq_objs=self,
                 ct=ct,
                 motif=motif,
@@ -1720,6 +1706,7 @@ class spatial_query_multi:
                 k=k,
                 min_size=min_size,
                 min_nonzero=min_nonzero,
+                alpha=alpha
             )
 
         return results_df
