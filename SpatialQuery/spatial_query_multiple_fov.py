@@ -10,6 +10,7 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from scipy.stats import hypergeom
 
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
@@ -24,6 +25,7 @@ from .spatial_utils import (
     de_genes_scanpy,
     de_genes_fisher,
     )
+from . import spatial_differential_pattern
 import anndata as ad
 
 from time import time
@@ -37,8 +39,6 @@ class spatial_query_multi:
         spatial_key: str,
         label_key: str,
         leaf_size: int = 10,
-        max_radius: float = 500,
-        n_split: int = 10,
         build_gene_index: bool = False,
         feature_name: str = None,
         if_lognorm: bool = True,
@@ -58,10 +58,6 @@ class spatial_query_multi:
             Label name in AnnData.obs object
         leaf_size:
             The largest number of points stored in each leaf node.
-        max_radius: 
-            The upper limit of neighborhood radius.
-        n_split:
-            The number of splits in each axis for spatial grid to speed up query, default is 10
         build_gene_index:
             Whether to build scfind index or use adata.X directly. If set True, build scfind index otherwise use adata.X directly.
         feature_name:
@@ -72,7 +68,6 @@ class spatial_query_multi:
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
         self.label_key = label_key
-        self.max_radius = max_radius
         self.build_gene_index = build_gene_index
 
         # Modify dataset names by d_0, d_2, ... for duplicates in datasets
@@ -99,8 +94,6 @@ class spatial_query_multi:
             spatial_key=spatial_key,
             label_key=label_key,
             leaf_size=leaf_size,
-            max_radius=self.max_radius,
-            n_split=n_split,
             build_gene_index=build_gene_index,
             feature_name=feature_name,
             if_lognorm=if_lognorm,
@@ -112,7 +105,7 @@ class spatial_query_multi:
                     dataset: Union[str, List[str]] = None,
                     k: int = 30,
                     min_support: float = 0.5,
-                    max_dist: float = 500
+                    max_dist: float = 20
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type in multiple fields of view.
@@ -156,7 +149,6 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n "
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
-        max_dist = min(max_dist, self.max_radius)
         # end = time.time()
         # print(f"time for checking validation of inputs: {end-start} seconds")
 
@@ -206,7 +198,7 @@ class spatial_query_multi:
     def find_fp_dist(self,
                      ct: str,
                      dataset: Union[str, List[str]] = None,
-                     max_dist: float = 100,
+                     max_dist: float = 20,
                      min_size: int = 0,
                      min_support: float = 0.5,
                      ):
@@ -248,7 +240,6 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n "
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
-        max_dist = min(max_dist, self.max_radius)
         # start = time.time()
         transactions = []
         for s in self.spatial_queries:
@@ -302,7 +293,7 @@ class spatial_query_multi:
                              dataset: Union[str, List[str]] = None,
                              k: int = 30,
                              min_support: float = 0.5,
-                             max_dist: float = 500.0,
+                             max_dist: float = 20,
                              return_cellID: bool = False,
                              ) -> pd.DataFrame:
         """
@@ -327,7 +318,7 @@ class spatial_query_multi:
             Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
             like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
-            Maximum distance for neighbors (default: 500).
+            Maximum distance for neighbors (default: 20).
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cell type and center cells.
             By defaults do not return cell ID.
@@ -348,8 +339,6 @@ class spatial_query_multi:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
             dataset = [dataset]
-
-        max_dist = min(max_dist, self.max_radius)
 
         out = []
         if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
@@ -490,7 +479,7 @@ class spatial_query_multi:
                               ct: str,
                               motifs: Union[str, List[str], List[List[str]]] = None,
                               dataset: Union[str, List[str]] = None,
-                              max_dist: float = 100,
+                              max_dist: float = 20,
                               min_size: int = 0,
                               min_support: float = 0.5,
                               return_cellID: bool = False
@@ -541,8 +530,6 @@ class spatial_query_multi:
         if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
-
-        max_dist = min(max_dist, self.max_radius)
 
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
@@ -697,7 +684,7 @@ class spatial_query_multi:
                         dataset_i: str,
                         k: int = 30,
                         min_support: float = 0.5,
-                        max_dist: float = 500.0
+                        max_dist: float = 20
                         ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of specific cell type of interest in single field of view.
@@ -722,8 +709,6 @@ class spatial_query_multi:
         if dataset_i not in self.datasets:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
 
-        max_dist = min(max_dist, self.max_radius)
-
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
         cell_pos = sp_object.spatial_pos
         labels = np.array(sp_object.labels)
@@ -738,7 +723,6 @@ class spatial_query_multi:
         fp, _, _ = build_fptree_knn(
             kd_tree=sp_object.kd_tree,
             labels=labels,
-            max_radius=sp_object.max_radius,
             cell_pos=ct_pos,
             spatial_pos=cell_pos,
             k=k,
@@ -751,7 +735,7 @@ class spatial_query_multi:
     def find_fp_dist_fov(self,
                          ct: str,
                          dataset_i: str,
-                         max_dist: float = 100,
+                         max_dist: float = 20,
                          min_size: int = 0,
                          min_support: float = 0.5,
                          ):
@@ -779,8 +763,6 @@ class spatial_query_multi:
         if dataset_i not in self.datasets:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
 
-        max_dist = min(max_dist, self.max_radius)
-
         sp_object = self.spatial_queries[self.datasets.index(dataset_i)]
         cell_pos = sp_object.spatial_pos
         labels = sp_object.labels
@@ -806,9 +788,10 @@ class spatial_query_multi:
     def differential_analysis_knn(self,
                                   ct: str,
                                   datasets: List[str],
+                                  motifs: Optional[Union[str, List[str], List[List[str]]]] = None,
                                   k: int = 30,
                                   min_support: float = 0.5,
-                                  max_dist: float = 500,
+                                  max_dist: float = 20,
                                   ):
         """
         Explore the differences in cell types and frequent patterns of cell types in spatial KNN neighborhood of cell
@@ -820,21 +803,29 @@ class spatial_query_multi:
             Cell type of interest as center point.
         datasets:
             Dataset names used to perform differential analysis
+        motifs:
+            Optional user-specified motif(s) to test. Can be:
+            - Single cell type: 'CellTypeA'
+            - Single motif: ['CellTypeA', 'CellTypeB']
+            - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
+            If None, automatically discover frequent patterns first.
         k:
             Number of nearest neighbors.
         min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern.
+            Threshold of frequency to consider a pattern as a frequent pattern (only used when motifs=None).
         max_dist:
             Maximum distance for considering a cell as a neighbor.
 
         Return
         ------
-            Dataframes with significant enriched patterns in differential analysis
+            Dict with keys as dataset names, values as DataFrames with significant enriched patterns.
+            Each DataFrame contains:
+                - itemsets: the motif pattern (as tuple)
+                - adj_pvals: FDR-corrected p-value
+            Only significant patterns (adj_p_value < 0.05) for each dataset are included.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
-
-        max_dist = min(max_dist, self.max_radius)
 
         # Check if the two datasets are valid
         valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
@@ -843,8 +834,20 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n"
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
-        flag = 0
+        # If motifs are specified, use the new function for user-specified motifs
+        if motifs is not None:
+            return spatial_differential_pattern.differential_analysis_motif_knn(
+                spatial_queries=self.spatial_queries,
+                datasets_list=datasets,
+                ct=ct,
+                motifs=motifs,
+                k=k,
+                max_dist=max_dist,
+            )
+
+        # Otherwise, use the original flow to discover frequent patterns first
         # Identify frequent patterns in each dataset
+        dataset_patterns = []
         for d in datasets:
             fp_d = {}
             dataset_i = [ds for ds in self.datasets if ds.split('_')[0] == d]
@@ -870,16 +873,15 @@ class spatial_query_multi:
                     support_dict = {itemset: support for itemset, support in
                                     df[['itemsets', 'support']].apply(
                                         lambda row: (tuple(sorted(row['itemsets'])), row['support']), axis=1)}
-                    # support_dict = {tuple(itemset): support for itemset, support in df[['itemsets', 'support']].apply(
-                    #     lambda row: (tuple(row['itemsets']), row['support']), axis=1)}
                     common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
                         lambda x: support_dict.get(tuple(x), None))
             common_patterns['itemsets'] = common_patterns['itemsets'].apply(tuple)
-            if flag == 0:
-                fp_datasets = common_patterns
-                flag = 1
-            else:
-                fp_datasets = fp_datasets.merge(common_patterns, how='outer', on='itemsets', ).fillna(0)
+            dataset_patterns.append(common_patterns)
+
+        # Merge patterns from both datasets
+        fp_datasets = dataset_patterns[0]
+        for pattern_df in dataset_patterns[1:]:
+            fp_datasets = fp_datasets.merge(pattern_df, how='outer', on='itemsets').fillna(0)
 
         match_ind_datasets = [
             [col for ind, col in enumerate(fp_datasets.columns) if col.startswith(f"support_{dataset}")] for dataset in
@@ -929,7 +931,8 @@ class spatial_query_multi:
     def differential_analysis_dist(self,
                                    ct: str,
                                    datasets: List[str],
-                                   max_dist: float = 100,
+                                   motifs: Optional[Union[str, List[str], List[List[str]]]] = None,
+                                   max_dist: float = 20,
                                    min_support: float = 0.5,
                                    min_size: int = 0,
                                    ):
@@ -943,16 +946,26 @@ class spatial_query_multi:
             Cell type of interest as center point.
         datasets:
             Dataset names used to perform differential analysis
+        motifs:
+            Optional user-specified motif(s) to test. Can be:
+            - Single cell type: 'CellTypeA'
+            - Single motif: ['CellTypeA', 'CellTypeB']
+            - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
+            If None, automatically discover frequent patterns first.
         max_dist:
             Maximum distance for considering a cell as a neighbor.
         min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern.
+            Threshold of frequency to consider a pattern as a frequent pattern (only used when motifs=None).
         min_size:
             Minimum neighborhood size for each point to consider.
 
         Return
         ------
-            Dataframes with significant enriched patterns in differential analysis
+            Dict with keys as dataset names, values as DataFrames with significant enriched patterns.
+            Each DataFrame contains:
+                - itemsets: the motif pattern (as tuple)
+                - adj_pvals: FDR-corrected p-value
+            Only significant patterns (adj_p_value < 0.05) for each dataset are included.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -964,10 +977,20 @@ class spatial_query_multi:
                 raise ValueError(f"Invalid input dataset name: {ds}.\n"
                                  f"Valid dataset names are: {set(valid_ds_names)}")
 
-        max_dist = min(max_dist, self.max_radius)
-        
-        flag = 0
+        # If motifs are specified, use the new function for user-specified motifs
+        if motifs is not None:
+            return spatial_differential_pattern.differential_analysis_motif_dist(
+                spatial_queries=self.spatial_queries,
+                datasets_list=datasets,
+                ct=ct,
+                motifs=motifs,
+                max_dist=max_dist,
+                min_size=min_size,
+            )
+
+        # Otherwise, use the original flow to discover frequent patterns first
         # Identify frequent patterns in each dataset
+        dataset_patterns = []
         for d in datasets:
             fp_d = {}
             dataset_i = [ds for ds in self.datasets if ds.split('_')[0] == d]
@@ -994,11 +1017,12 @@ class spatial_query_multi:
                     common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
                         lambda x: support_dict.get(tuple(x), None))
             common_patterns['itemsets'] = common_patterns['itemsets'].apply(tuple)
-            if flag == 0:
-                fp_datasets = common_patterns
-                flag = 1
-            else:
-                fp_datasets = fp_datasets.merge(common_patterns, how='outer', on='itemsets', ).fillna(0)
+            dataset_patterns.append(common_patterns)
+
+        # Merge patterns from both datasets
+        fp_datasets = dataset_patterns[0]
+        for pattern_df in dataset_patterns[1:]:
+            fp_datasets = fp_datasets.merge(pattern_df, how='outer', on='itemsets').fillna(0)
 
         match_ind_datasets = [
             [col for ind, col in enumerate(fp_datasets.columns) if col.startswith(f"support_{dataset}")] for dataset in
@@ -1373,10 +1397,14 @@ class spatial_query_multi:
         
         return results_df
 
-    def cell_type_distribution(self,
-                               dataset: Union[str, List[str]] = None,
-                               data_type: str = 'number',
-                               ):
+    
+    def plot_cell_type_distribution(
+            self,
+            dataset: Optional[Union[str, List[str]]] = None,
+            data_type: Literal['number', 'proportion'] = 'proportion', 
+            colormap: str = 'tab20c',
+            save_path: Optional[str] = None
+            ):
         """
         Visualize the distribution of cell types across datasets using a stacked bar plot.
 
@@ -1392,67 +1420,100 @@ class spatial_query_multi:
         Stacked bar plot
         """
         if data_type not in ['number', 'proportion']:
-            raise ValueError("Invalild data_type. It should be one of 'number' or 'proportion'.")
+            raise ValueError("Invalid data_type. It should be one of 'number' or 'proportion'.")
 
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if isinstance(dataset, str):
             dataset = [dataset]
 
-        valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
-        for ds in dataset:
-            if ds not in valid_ds_names:
-                raise ValueError(f"Invalid input dataset name: {ds}.\n "
-                                 f"Valid dataset names are: {set(valid_ds_names)}")
-
         summary = defaultdict(lambda: defaultdict(int))
 
         valid_queries = [s for s in self.spatial_queries if s.dataset.split('_')[0] in dataset]
-        cell_types = set([ct for s in valid_queries for ct in s.labels.unique()])
+        cell_types = set(ct for s in valid_queries for ct in s.labels.unique())
+
         for s in valid_queries:
             for cell_type in cell_types:
                 summary[s.dataset][cell_type] += np.sum(s.labels == cell_type)
 
-        df = pd.DataFrame([(dataset, cell_type, count)
-                           for dataset, cell_types in summary.items()
-                           for cell_type, count in cell_types.items()],
-                          columns=['Dataset', 'Cell Type', 'Count'])
+        df = pd.DataFrame(
+            [(ds, ct, cnt) for ds, cts in summary.items() for ct, cnt in cts.items()],
+            columns=['Dataset', 'Cell Type', 'Count']
+        )
 
         df['dataset'] = df['Dataset'].str.split('_').str[0]
 
-        summary = df.groupby(['dataset', 'Cell Type'])['Count'].sum().reset_index()
-        plot_data = summary.pivot(index='Cell Type', columns='dataset', values='Count').fillna(0)
+        summary = (
+            df.groupby(['dataset', 'Cell Type'])['Count']
+            .sum()
+            .reset_index()
+        )
 
-        # Sort the cell types by total count (descending)
-        plot_data = plot_data.sort_values(by=plot_data.columns.tolist(), ascending=False, )
+        plot_data = (
+            summary
+            .pivot(index='Cell Type', columns='dataset', values='Count')
+            .fillna(0)
+        )
+
+        plot_data = plot_data.T
+
+        # sort columns by cell counts
+        plot_data = plot_data.loc[
+            plot_data.sum(axis=1).sort_values(ascending=False).index
+        ]
 
         if data_type != 'number':
             plot_data = plot_data.div(plot_data.sum(axis=1), axis=0)
 
-        # Create the stacked bar plot
-        ax = plot_data.plot(kind='bar', stacked=True,
-                            figsize=(plot_data.shape[0], plot_data.shape[0] * 0.6),
-                            edgecolor='black')
+        n_cols = df['Cell Type'].unique().shape[0]   # bar 中 stack 的数量
+        cmap = cm.get_cmap(colormap)
 
-        # Customize the plot
-        plt.title(f"Distribution of Cell Types Across Datasets", fontsize=16)
-        plt.xlabel('Cell Types', fontsize=12)
-        if data_type == 'number':
-            plt.ylabel('Number of Cells', fontsize=12)
-        else:
-            plt.ylabel('Proportion of Cells', fontsize=12)
+        colors = [cmap(i) for i in range(n_cols)]
 
-        plt.xticks(rotation=90, ha='right', fontsize=10)
+        n_x = plot_data.shape[0]   
+        fig_w = max(6, n_x * 0.5) 
+        fig_h = fig_w * 0.5
 
-        plt.legend(title='Datasets', loc='center left', bbox_to_anchor=(1, 0.5), fontsize=10)
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+        plot_data.plot(
+            kind='bar',
+            stacked=True,
+            ax=ax,
+            edgecolor='black',
+            color=colors,
+        )
+
+        ax.set_title("Distribution of cell types across datasets", fontsize=16)
+        ax.set_xlabel("Cell Types", fontsize=12)
+        ax.set_ylabel(
+            "Number of Cells" if data_type == "number" else "Proportion of Cells",
+            fontsize=12,
+        )
+
+        ax.tick_params(axis='x', rotation=90, labelsize=10)
+        ax.legend(
+            title="Datasets",
+            loc='center left',
+            bbox_to_anchor=(1, 0.5),
+            fontsize=10,
+        )
 
         plt.tight_layout(rect=[0, 0, 0.85, 1])
+
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
         plt.show()
 
-    def cell_type_distribution_fov(self,
-                                   dataset: str,
-                                   data_type: str = 'number',
-                                   ):
+
+    def plot_cell_type_distribution_fov(
+            self,
+            dataset: str,
+            data_type: str = 'number',
+            colormap: str = 'tab20c',
+            save_path: str = None
+            ):
         """
         Visualize the distribution of cell types across FOVs in the dataset using a stacked bar plot.
         Parameter
@@ -1466,13 +1527,14 @@ class spatial_query_multi:
         -------
         Stacked bar plot
         """
+         
         if data_type not in ['number', 'proportion']:
             raise ValueError("Invalild data_type. It should be one of 'number' or 'proportion'.")
 
         valid_ds_names = [s.dataset.split('_')[0] for s in self.spatial_queries]
         if dataset not in valid_ds_names:
             raise ValueError(f"Invalid input dataset name: {dataset}. \n"
-                             f"Valid dataset names are: {set(valid_ds_names)}")
+                                f"Valid dataset names are: {set(valid_ds_names)}")
         valid_queries = [s for s in self.spatial_queries if s.dataset.split('_')[0] == dataset]
         cell_types = set([ct for s in valid_queries for ct in s.labels.unique()])
 
@@ -1482,9 +1544,9 @@ class spatial_query_multi:
                 summary[s.dataset][cell_type] = np.sum(s.labels == cell_type)
 
         df = pd.DataFrame([(dataset, cell_type, count)
-                           for dataset, cell_types in summary.items()
-                           for cell_type, count in cell_types.items()],
-                          columns=['Dataset', 'Cell Type', 'Count'])
+                            for dataset, cell_types in summary.items()
+                            for cell_type, count in cell_types.items()],
+                            columns=['Dataset', 'Cell Type', 'Count'])
 
         df['FOV'] = df['Dataset'].str.split('_').str[1]
 
@@ -1498,24 +1560,45 @@ class spatial_query_multi:
         if data_type != 'number':
             plot_data_sorted = plot_data_sorted.div(plot_data_sorted.sum(axis=1), axis=0)
 
-            # Create the stacked bar plot
-        ax = plot_data_sorted.plot(kind='bar', stacked=True,
-                                   figsize=(plot_data.shape[0] * 0.6, plot_data.shape[0] * 0.3),
-                                   edgecolor='black')
+        n_col = df['Cell Type'].unique().shape[0]   # bar 中 stack 的数量
+        cmap = cm.get_cmap(colormap)
 
-        # Customize the plot
-        plt.title(f"Distribution of FOVs in {dataset} dataset", fontsize=20)
-        plt.xlabel('FOV', fontsize=12)
-        if data_type == 'number':
-            plt.ylabel('Number of Cells', fontsize=12)
-        else:
-            plt.ylabel('Proportion of Cells', fontsize=12)
+        colors = [cmap(i) for i in range(n_col)]
+        
+        n_x = plot_data.shape[0]   
+        fig_w = max(6, n_x * 0.5) 
+        fig_h = fig_w * 0.4
 
-        plt.xticks(rotation=90, ha='right', fontsize=10)
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
-        plt.legend(title='Cell Type', bbox_to_anchor=(1, 1.05), loc='center left', fontsize=12)
+        # Create the stacked bar plot
+        plot_data_sorted.plot(kind='bar', 
+                            stacked=True,
+                            edgecolor='black',
+                            color=colors,
+                            ax=ax,
+                            )
+        
+        ax.set_title(f"Distribution of FOVs in {dataset} dataset", fontsize=16)
+        ax.set_xlabel("FOV", fontsize=12)
+        ax.set_ylabel(
+            "Number of Cells" if data_type == "number" else "Proportion of Cells",
+            fontsize=12,
+        )
 
-        plt.tight_layout()
+        ax.tick_params(axis='x', rotation=0, labelsize=10)
+        ax.legend(
+            title="Cell type",
+            loc='center left',
+            bbox_to_anchor=(1, 0.5),
+            fontsize=10,
+        )
+
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
+
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
         plt.show()
 
     def compute_gene_gene_correlation(self,

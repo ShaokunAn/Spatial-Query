@@ -39,8 +39,6 @@ class spatial_query:
         Key of cell type label in adata.obs, default is 'predicted_label'
     leaf_size:
         Leaf size for KDTree, default is 10
-    max_radius:
-        The upper limit of neighborhood radius, default is 500
     build_gene_index:
         Whether to build scfind index of expression data, default is False. If expression data is required for query,
         set this parameter to True
@@ -57,7 +55,6 @@ class spatial_query:
         spatial_key: str = 'X_spatial',
         label_key: str = 'predicted_label',
         leaf_size: int = 10,
-        max_radius: float = 20,
         build_gene_index: bool = False,
         feature_name: str = None,
         if_lognorm: bool = True,
@@ -73,7 +70,6 @@ class spatial_query:
         
         self.dataset = dataset
         self.label_key = label_key
-        self.max_radius = max_radius
         self.labels = adata.obs[self.label_key]
         self.labels = self.labels.astype('category')
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
@@ -128,7 +124,7 @@ class spatial_query:
                     ct: str,
                     k: int = 30,
                     min_support: float = 0.5,
-                    max_dist: float = 200,
+                    max_dist: float = 20,
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type.
@@ -168,7 +164,7 @@ class spatial_query:
 
     def find_fp_dist(self,
                      ct: str,
-                     max_dist: float = 100,
+                     max_dist: float = 20,
                      min_size: int = 0,
                      min_support: float = 0.5,
                      ):
@@ -195,7 +191,6 @@ class spatial_query:
 
         cinds = [id for id, l in enumerate(self.labels) if l == ct]
         ct_pos = self.spatial_pos[cinds]
-        max_dist = min(max_dist, self.max_radius)
 
         fp, _, _ = spatial_utils.build_fptree_dist(
             kd_tree=self.kd_tree,
@@ -214,7 +209,7 @@ class spatial_query:
                              motifs: Union[str, List[str]] = None,
                              k: int = 30,
                              min_support: float = 0.5,
-                             max_dist: float = 200,
+                             max_dist: float = 20,
                              return_cellID: bool = False
                              ) -> pd.DataFrame:
         """
@@ -232,7 +227,7 @@ class spatial_query:
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
         max_dist:
-            Maximum distance for neighbors (default: 200).
+            Maximum distance for neighbors (default: 20).
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
             By defaults do not return cell ID.
@@ -244,8 +239,6 @@ class spatial_query:
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
-
-        max_dist = min(max_dist, self.max_radius)
 
         dists, idxs = self.kd_tree.query(self.spatial_pos,
                                          k=k + 1, workers=-1
@@ -359,7 +352,7 @@ class spatial_query:
     def motif_enrichment_dist(self,
                               ct: str,
                               motifs: Union[str, List[str]] = None,
-                              max_dist: float = 100,
+                              max_dist: float = 20,
                               min_size: int = 0,
                               min_support: float = 0.5,
                               return_cellID: bool = False,
@@ -391,7 +384,6 @@ class spatial_query:
             raise ValueError(f"Found no {ct} in {self.label_key}!")
 
         out = []
-        max_dist = min(max_dist, self.max_radius)
         if motifs is None:
             fp = self.find_fp_dist(ct=ct,
                                    max_dist=max_dist, min_size=min_size,
@@ -495,7 +487,7 @@ class spatial_query:
 
 
     def find_patterns_grid(self,
-                           max_dist: float = 100,
+                           max_dist: float = 20,
                            min_size: int = 0,
                            min_support: float = 0.5,
                            if_display: bool = True,
@@ -531,7 +523,6 @@ class spatial_query:
             Frequent patterns
         """
 
-        max_dist = min(max_dist, self.max_radius)
         xmax, ymax = np.max(self.spatial_pos, axis=0)
         xmin, ymin = np.min(self.spatial_pos, axis=0)
         x_grid = np.arange(xmin - max_dist, xmax + max_dist, max_dist)
@@ -620,7 +611,7 @@ class spatial_query:
             return fp.sort_values(by='support', ignore_index=True, ascending=False)
 
     def find_patterns_rand(self,
-                           max_dist: float = 100,
+                           max_dist: float = 20,
                            n_points: int = 1000,
                            min_support: float = 0.5,
                            min_size: int = 0,
@@ -660,7 +651,6 @@ class spatial_query:
         Results from the pattern finding function.
         """
 
-        max_dist = min(max_dist, self.max_radius)
         xmax, ymax = np.max(self.spatial_pos, axis=0)
         xmin, ymin = np.min(self.spatial_pos, axis=0)
         np.random.seed(seed)
@@ -1088,7 +1078,7 @@ class spatial_query:
     def plot_motif_grid(self,
                         motif: Union[str, List[str]],
                         figsize: tuple = (10, 5),
-                        max_dist: float = 100,
+                        max_dist: float = 20,
                         save_path: Optional[str] = None
                         ):
         """
@@ -1150,7 +1140,7 @@ class spatial_query:
     def plot_motif_celltype(self,
                             ct: str,
                             motif: Union[str, List[str]],
-                            max_dist: float = 100,
+                            max_dist: float = 20,
                             figsize: tuple = (5, 5),
                             save_path: Optional[str] = None
                             ):

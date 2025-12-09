@@ -1,5 +1,4 @@
 
-from token import OP
 from typing import List, Union, Optional, Literal, Dict
 
 import numpy as np
@@ -2379,10 +2378,13 @@ def test_score_difference(
     merged['score_diff'] = merged[score_col_A] - merged[score_col_B]
 
     # Compute percentile for each pair
+    start_time = time()
     diff_all = merged['score_diff'].values
     merged['percentile'] = merged['score_diff'].apply(
         lambda x: percentileofscore(diff_all, x, kind='rank')
     )
+    end_time = time()
+    print(f"Time to compute percentiles: {end_time - start_time:.2f} seconds.")
 
     # Identify outliers
     lower_threshold = 100 - percentile_threshold

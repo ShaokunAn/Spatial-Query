@@ -180,7 +180,7 @@ def build_fptree_knn(kd_tree,
                      spatial_pos: np.ndarray = None,
                      k: int = 30,
                      min_support: float = 0.5,
-                     max_dist: float = 200,
+                     max_dist: float = 20,
                      if_max: bool = True
                      ) -> tuple:
     """
@@ -544,7 +544,7 @@ def get_motif_neighbor_cells(sq_obj,
     Similar to motif_enrichment_* with return_cellID=True, but only returns cell IDs
     and move center type of motifs to center cells for gene-gene covarying analysis.
 
-    For kNN: filters out neighbors beyond min(max_dist, sq_obj.max_radius).
+    For kNN: filters out neighbors beyond max_dist.
     For dist: filters out center cells with fewer than min_size neighbors.
 
     If center type (ct) is in motif, motif cells of center type are also included in center_id.
@@ -599,7 +599,6 @@ def get_motif_neighbor_cells(sq_obj,
 
     if max_dist is not None:
         # Distance-based neighbors - only query for center cells
-        max_dist = min(max_dist, sq_obj.max_radius)
         idxs_centers = sq_obj.kd_tree.query_ball_point(
             sq_obj.spatial_pos[cinds],
             r=max_dist,
@@ -661,8 +660,8 @@ def get_motif_neighbor_cells(sq_obj,
 
         # Apply distance cutoff
         if max_dist is None:
-            max_dist = sq_obj.max_radius
-        max_dist = min(max_dist, sq_obj.max_radius)
+            max_dist = 100
+            print(f'Setting max_distance to {max_dist} to cut off neighbors.')
 
         valid_neighbors = dists[:, 1:] <= max_dist
 
@@ -789,7 +788,6 @@ def get_all_neighbor_cells(sq_obj,
 
     if max_dist is not None:
         # Distance-based neighbors - only query for center cells
-        max_dist = min(max_dist, sq_obj.max_radius)
         idxs_centers = sq_obj.kd_tree.query_ball_point(
             sq_obj.spatial_pos[cinds],
             r=max_dist,
@@ -825,8 +823,8 @@ def get_all_neighbor_cells(sq_obj,
 
         # Apply distance cutoff
         if max_dist is None:
-            max_dist = sq_obj.max_radius
-        max_dist = min(max_dist, sq_obj.max_radius)
+            max_dist = 100
+            print(f"Setting max_distance to {max_dist} to cut off neighbors.")
 
         valid_neighbors = dists[:, 1:] <= max_dist
 

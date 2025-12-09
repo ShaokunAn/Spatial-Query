@@ -88,7 +88,7 @@ def plot_fov(sq_obj,
 def plot_motif_grid(sq_obj,
                     motif: Union[str, List[str]],
                     figsize: tuple = (10, 5),
-                    max_dist: float = 100,
+                    max_dist: float = 20,
                     save_path: Optional[str] = None):
     """
     Display the distribution of each motif around grid points.
@@ -113,8 +113,6 @@ def plot_motif_grid(sq_obj,
     """
     if isinstance(motif, str):
         motif = [motif]
-
-    max_dist = min(max_dist, sq_obj.max_radius)
 
     labels_unique = sq_obj.labels.unique()
     motif_exc = [m for m in motif if m not in labels_unique]
@@ -196,7 +194,7 @@ def plot_motif_grid(sq_obj,
 
 def plot_motif_rand(sq_obj,
                     motif: Union[str, List[str]],
-                    max_dist: float = 100,
+                    max_dist: float = 20,
                     n_points: int = 1000,
                     figsize: tuple = (10, 5),
                     seed: int = 2023,
@@ -229,8 +227,6 @@ def plot_motif_rand(sq_obj,
     """
     if isinstance(motif, str):
         motif = [motif]
-
-    max_dist = min(max_dist, sq_obj.max_radius)
 
     labels_unique = sq_obj.labels.unique()
     motif_exc = [m for m in motif if m not in labels_unique]
@@ -305,7 +301,7 @@ def plot_motif_rand(sq_obj,
 def plot_motif_celltype(sq_obj,
                         ct: str,
                         motif: Union[str, List[str]],
-                        max_dist: float = 100,
+                        max_dist: float = 20,
                         figsize: tuple = (5, 5),
                         save_path: Optional[str] = None):
     """
@@ -335,8 +331,6 @@ def plot_motif_celltype(sq_obj,
     """
     if isinstance(motif, str):
         motif = [motif]
-
-    max_dist = min(max_dist, sq_obj.max_radius)
 
     motif_exc = [m for m in motif if m not in sq_obj.labels.unique()]
     if len(motif_exc) != 0:
