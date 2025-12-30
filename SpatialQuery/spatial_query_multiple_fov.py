@@ -727,7 +727,7 @@ class spatial_query_multi:
             spatial_pos=cell_pos,
             k=k,
             min_support=min_support,
-            if_max=False,
+            if_max=True,
             max_dist=max_dist,
         )
         return fp
@@ -779,7 +779,7 @@ class spatial_query_multi:
             spatial_pos=cell_pos,
             max_dist=max_dist,
             min_support=min_support,
-            if_max=False,
+            if_max=True,
             min_size=min_size,
             cinds=cinds,
         )
@@ -846,10 +846,9 @@ class spatial_query_multi:
             )
 
         # Otherwise, use the original flow to discover frequent patterns first
-        # Identify frequent patterns in each dataset
-        dataset_patterns = []
+        # Step 1: Collect all frequent patterns discovered across all FOVs in both datasets
+        all_discovered_motifs = set()
         for d in datasets:
-            fp_d = {}
             dataset_i = [ds for ds in self.datasets if ds.split('_')[0] == d]
             for d_i in dataset_i:
                 fp_fov = self.find_fp_knn_fov(ct=ct,
@@ -858,75 +857,23 @@ class spatial_query_multi:
                                               min_support=min_support,
                                               max_dist=max_dist)
                 if len(fp_fov) > 0:
-                    fp_d[d_i] = fp_fov
+                    # Collect all discovered motifs (use union instead of intersection)
+                    for itemset in fp_fov['itemsets']:
+                        all_discovered_motifs.add(tuple(sorted(itemset)))
 
-            if len(fp_d) == 1:
-                common_patterns = list(fp_d.values())[0]
-                common_patterns = common_patterns.rename(columns={'support': f"support_{list(fp_d.keys())[0]}"})
-            else:
-                # in comm_fps, duplicates items are not allowed by using set object
-                comm_fps = set.intersection(
-                    *[set(df['itemsets'].apply(lambda x: tuple(sorted(x)))) for df in
-                      fp_d.values()])  # the items' order in patterns will not affect the returned intersection
-                common_patterns = pd.DataFrame({'itemsets': [list(items) for items in comm_fps]})
-                for data_name, df in fp_d.items():
-                    support_dict = {itemset: support for itemset, support in
-                                    df[['itemsets', 'support']].apply(
-                                        lambda row: (tuple(sorted(row['itemsets'])), row['support']), axis=1)}
-                    common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
-                        lambda x: support_dict.get(tuple(x), None))
-            common_patterns['itemsets'] = common_patterns['itemsets'].apply(tuple)
-            dataset_patterns.append(common_patterns)
+        # Convert to list of lists for the motif-based analysis
+        all_motifs = [list(motif) for motif in all_discovered_motifs]
 
-        # Merge patterns from both datasets
-        fp_datasets = dataset_patterns[0]
-        for pattern_df in dataset_patterns[1:]:
-            fp_datasets = fp_datasets.merge(pattern_df, how='outer', on='itemsets').fillna(0)
-
-        match_ind_datasets = [
-            [col for ind, col in enumerate(fp_datasets.columns) if col.startswith(f"support_{dataset}")] for dataset in
-            datasets]
-        p_values = []
-        dataset_higher_ranks = []
-        for index, row in fp_datasets.iterrows():
-            group1 = pd.to_numeric(row[match_ind_datasets[0]].values)
-            group2 = pd.to_numeric(row[match_ind_datasets[1]].values)
-
-            # Perform the Mann-Whitney U test
-            stat, p = stats.mannwhitneyu(group1, group2, alternative='two-sided', method='auto')
-            p_values.append(p)
-
-            # Label the dataset with higher frequency of patterns based on rank median
-            support_rank = pd.concat([pd.DataFrame(group1), pd.DataFrame(group2)]).rank()  # ascending
-            median_rank1 = support_rank[:len(group1)].median()[0]
-            median_rank2 = support_rank[len(group1):].median()[0]
-            if median_rank1 > median_rank2:
-                dataset_higher_ranks.append(datasets[0])
-            else:
-                dataset_higher_ranks.append(datasets[1])
-
-        fp_datasets['dataset_higher_frequency'] = dataset_higher_ranks
-        # Apply Benjamini-Hochberg correction for multiple testing problems
-        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                           alpha=0.05,
-                                                           method='poscorr')
-
-        # Add the corrected p-values back to the DataFrame (optional)
-        fp_datasets['adj_pvals'] = corrected_p_values
-        fp_datasets['if_significant'] = if_rejected
-
-        # Return the significant patterns in each dataset
-        fp_dataset0 = fp_datasets[
-            (fp_datasets['dataset_higher_frequency'] == datasets[0]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'adj_pvals']]
-        fp_dataset1 = fp_datasets[
-            (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'adj_pvals']]
-        fp_dataset0 = fp_dataset0.reset_index(drop=True)
-        fp_dataset1 = fp_dataset1.reset_index(drop=True)
-        fp_dataset0 = fp_dataset0.sort_values(by='adj_pvals', ascending=True)
-        fp_dataset1 = fp_dataset1.sort_values(by='adj_pvals', ascending=True)
-        return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
+        # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
+        # This ensures consistency with the specified-motif pathway
+        return spatial_differential_pattern.differential_analysis_motif_knn(
+            spatial_queries=self.spatial_queries,
+            datasets_list=datasets,
+            ct=ct,
+            motifs=all_motifs,
+            k=k,
+            max_dist=max_dist,
+        )
 
     def differential_analysis_dist(self,
                                    ct: str,
@@ -989,10 +936,9 @@ class spatial_query_multi:
             )
 
         # Otherwise, use the original flow to discover frequent patterns first
-        # Identify frequent patterns in each dataset
-        dataset_patterns = []
+        # Step 1: Collect all frequent patterns discovered across all FOVs in both datasets
+        all_discovered_motifs = set()
         for d in datasets:
-            fp_d = {}
             dataset_i = [ds for ds in self.datasets if ds.split('_')[0] == d]
             for d_i in dataset_i:
                 fp_fov = self.find_fp_dist_fov(ct=ct,
@@ -1002,73 +948,24 @@ class spatial_query_multi:
                                                min_support=min_support,
                                                )
                 if len(fp_fov) > 0:
-                    fp_d[d_i] = fp_fov
+                    # Collect all discovered motifs (use union instead of intersection)
+                    for itemset in fp_fov['itemsets']:
+                        all_discovered_motifs.add(tuple(sorted(itemset)))
 
-            if len(fp_d) == 1:
-                common_patterns = list(fp_d.values())[0]
-                common_patterns = common_patterns.rename(columns={'support': f"support_{list(fp_d.keys())[0]}"})
-            else:
-                comm_fps = set.intersection(*[set(df['itemsets'].apply(lambda x: tuple(sorted(x)))) for df in
-                                              fp_d.values()])  # the items' order in patterns will not affect the returned intersection
-                common_patterns = pd.DataFrame({'itemsets': [list(items) for items in comm_fps]})
-                for data_name, df in fp_d.items():
-                    support_dict = {itemset: support for itemset, support in df[['itemsets', 'support']].apply(
-                        lambda row: (tuple(sorted(row['itemsets'])), row['support']), axis=1)}
-                    common_patterns[f"support_{data_name}"] = common_patterns['itemsets'].apply(
-                        lambda x: support_dict.get(tuple(x), None))
-            common_patterns['itemsets'] = common_patterns['itemsets'].apply(tuple)
-            dataset_patterns.append(common_patterns)
+        # Convert to list of lists for the motif-based analysis
+        all_motifs = [list(motif) for motif in all_discovered_motifs]
+        print(f"Discovered {len(all_motifs)} motifs across the datasets for differential analysis.")
 
-        # Merge patterns from both datasets
-        fp_datasets = dataset_patterns[0]
-        for pattern_df in dataset_patterns[1:]:
-            fp_datasets = fp_datasets.merge(pattern_df, how='outer', on='itemsets').fillna(0)
-
-        match_ind_datasets = [
-            [col for ind, col in enumerate(fp_datasets.columns) if col.startswith(f"support_{dataset}")] for dataset in
-            datasets]
-        p_values = []
-        dataset_higher_ranks = []
-        for index, row in fp_datasets.iterrows():
-            group1 = pd.to_numeric(row[match_ind_datasets[0]].values)
-            group2 = pd.to_numeric(row[match_ind_datasets[1]].values)
-
-            # Perform the Mann-Whitney U test
-            stat, p = stats.mannwhitneyu(group1, group2, alternative='two-sided', method='auto')
-            p_values.append(p)
-
-            # Label the dataset with higher frequency of patterns based on rank sum
-            support_rank = pd.concat([pd.DataFrame(group1), pd.DataFrame(group2)]).rank()  # ascending
-            median_rank1 = support_rank[:len(group1)].median()[0]
-            median_rank2 = support_rank[len(group1):].median()[0]
-            if median_rank1 > median_rank2:
-                dataset_higher_ranks.append(datasets[0])
-            else:
-                dataset_higher_ranks.append(datasets[1])
-
-        fp_datasets['dataset_higher_frequency'] = dataset_higher_ranks
-        # Apply Benjamini-Hochberg correction for multiple testing problems
-        if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                           alpha=0.05,
-                                                           method='poscorr')
-
-        # Add the corrected p-values back to the DataFrame (optional)
-        fp_datasets['adj_pvals'] = corrected_p_values
-        fp_datasets['if_significant'] = if_rejected
-
-        # Return the significant patterns in each dataset
-        fp_dataset0 = fp_datasets[
-            (fp_datasets['dataset_higher_frequency'] == datasets[0]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'adj_pvals']]
-        fp_dataset1 = fp_datasets[
-            (fp_datasets['dataset_higher_frequency'] == datasets[1]) & (fp_datasets['if_significant'])
-            ][['itemsets', 'adj_pvals']]
-
-        fp_dataset0 = fp_dataset0.sort_values(by='adj_pvals', ascending=True)
-        fp_dataset1 = fp_dataset1.sort_values(by='adj_pvals', ascending=True)
-        fp_dataset0 = fp_dataset0.reset_index(drop=True)
-        fp_dataset1 = fp_dataset1.reset_index(drop=True)
-        return {datasets[0]: fp_dataset0, datasets[1]: fp_dataset1}
+        # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
+        # This ensures consistency with the specified-motif pathway
+        return spatial_differential_pattern.differential_analysis_motif_dist(
+            spatial_queries=self.spatial_queries,
+            datasets_list=datasets,
+            ct=ct,
+            motifs=all_motifs,
+            max_dist=max_dist,
+            min_size=min_size,
+        )
 
     def de_genes(self,
                  ind_group1: Dict[str, List[int]],
@@ -1357,7 +1254,6 @@ class spatial_query_multi:
             # Get the adata for this dataset
             if sp.adata is None:
                 raise ValueError(f"Error: {ds} does not have adata.X. Please use use fisher's exact using indexed data.")
-                continue
             
             # Extract cells for group 2
             idx_g2 = ind_group2[ds]
@@ -1499,7 +1395,7 @@ class spatial_query_multi:
             fontsize=10,
         )
 
-        plt.tight_layout(rect=[0, 0, 0.85, 1])
+        # plt.tight_layout(rect=[0, 0, 0.85, 1])
 
         if save_path is not None:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
