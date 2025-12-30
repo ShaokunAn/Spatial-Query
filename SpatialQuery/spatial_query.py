@@ -118,6 +118,15 @@ class spatial_query:
 
             self.adata = adata
             self.genes = adata.var[feature_name].tolist()
+            
+    def get_genes(self):
+        return self.genes
+    
+    def get_labels(self):
+        return self.labels
+    
+    def get_dataset(self):
+        return self.dataset
 
 
     def find_fp_knn(self,
@@ -1235,4 +1244,33 @@ class spatial_query:
         A figure showing the heatmap of motif cell type distribution.
         """
         return plotting.plot_motif_enrichment_heatmap(enrich_df=enrich_df, figsize=figsize,
+                                                       save_path=save_path, title=title, cmap=cmap)
+        
+    def plot_gene_pair_heatmap(self,
+                               gene_pair_df: pd.DataFrame,
+                               figsize: tuple = (7, 5),
+                               save_path: Optional[str] = None,
+                               title: Optional[str] = None,
+                               cmap: str = 'GnBu'):
+        """
+        Plot a heatmap showing the cross-varying gene pairs.
+        
+        Parameter
+        ---------
+        gene_pair_df:
+            Output DataFrame from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type.
+        figsize:
+            Figure size, default is (7, 5)
+        save_path:
+            Path to save the figure. If None, the figure will not be saved.
+        title:
+            Figure title. If None, will use a default title based on center cell type.
+        cmap:
+            Colormap for the heatmap, default is 'GnBu'
+        
+        Return
+        ------
+        A figure showing the heatmap of motif cell type distribution.
+        """
+        return plotting.plot_gene_pair_heatmap(gene_pair_df=gene_pair_df, figsize=figsize,
                                                        save_path=save_path, title=title, cmap=cmap)
