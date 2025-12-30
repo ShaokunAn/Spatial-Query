@@ -324,6 +324,11 @@ class spatial_query:
                 inds = np.where(np.all(neighbor_counts[mask][:, int_motifs] > 0, axis=1))[0]
                 cind_with_motif = np.array(cinds)[inds]  # Centers with motif in neighborhood
 
+                if len(cind_with_motif) == 0:
+                    motif_out['neighbor_id'] = []
+                    motif_out['center_id'] = []
+                    continue
+
                 motif_mask = np.isin(self.labels, motif)  # Mask for motif cell types
 
                 # Use the idxs array which contains the original KNN indices
@@ -344,6 +349,11 @@ class spatial_query:
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
+        
+        if len(out_pd) == 0:
+            out_pd = pd.DataFrame(columns=['center', 'motifs', 'n_center_motif', 'n_center',
+                                           'n_motif', 'expectation', 'p-values', 'if_significant']) 
+            return out_pd
 
         if len(out_pd) == 1:
             out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
@@ -468,6 +478,10 @@ class spatial_query:
             if return_cellID:
                 # Get center cells with motif
                 cind_with_motif = cinds[has_motif_mask[cinds]]
+                if len(cind_with_motif) == 0:
+                    motif_out['center_id'] = np.array([])
+                    motif_out['neighbor_id'] = np.array([])
+                    continue
 
                 # Get motif neighbors for these center cells
                 motif_mask = np.isin(np.array(self.labels), motif)
@@ -480,6 +494,11 @@ class spatial_query:
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
+        
+        if len(out_pd) == 0:
+            out_pd = pd.DataFrame(columns=['center', 'motifs', 'n_center_motif', 'n_center',
+                                           'n_motif', 'expectation', 'p-values', 'if_significant']) 
+            return out_pd
 
         if len(out_pd) == 1:
             out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
