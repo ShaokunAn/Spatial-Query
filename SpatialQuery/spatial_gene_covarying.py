@@ -105,6 +105,7 @@ def compute_cross_correlation_paired(expr_genes,
         # ==================== Cross-covariance computation ====================
         # Term 1: (1/n) Σ_i x_i * y_i
         cross_product = pair_center_expr.T @ pair_neighbor_expr
+        cross_product = cross_product.astype('float32')
         if sparse.issparse(cross_product):
             cross_product = np.asarray(cross_product.todense())
         term1 = cross_product / n_pairs
@@ -2355,7 +2356,7 @@ def test_score_difference(
     # Filter for overlapping pairs that are significant in at least one group
 
     pairs_to_test = overlapping_pairs & at_least_one_sig if background == 'Significant' else overlapping_pairs
-    # pairs_to_test = overlapping_pairs  # TODO: 先试试如果把所有overlapping的pairs作为null distribution有什么影响. 返回的结果肯定更多
+    
 
 
     if len(pairs_to_test) == 0:
