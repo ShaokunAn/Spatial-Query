@@ -4,13 +4,16 @@ This module contains visualization methods for spatial query analysis.
 """
 
 from typing import List, Optional, Union
+from unittest import skip
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy import cluster
 import seaborn as sns
 from matplotlib import cm
 import scanpy as sc
 from sklearn.preprocessing import LabelEncoder
+from sklearn.cluster import SpectralBiclustering
 
 from . import spatial_utils
 
@@ -580,3 +583,325 @@ def plot_motif_enrichment_heatmap(enrich_df: pd.DataFrame,
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
 
     plt.show()
+    
+
+def plot_differential_pattern_heatmap(
+    diff_motif: dict,
+    ct: str,
+    figsize: Optional[tuple] = None,
+    cmap: str = 'YlOrRd',
+    save_path: Optional[str] = None
+):
+    """
+    Plot a heatmap showing differential patterns from multiple datasets.
+
+    This function visualizes the differential patterns returned by differential_analysis_dist,
+    comparing motifs across different datasets (e.g., CLR vs DII). Each motif is represented
+    as a column, with cell types as rows, and the heatmap colored by -log10(adjusted p-value).
+
+    Parameters
+    ----------
+    diff_motif : dict
+        Dictionary containing differential analysis results from differential_analysis_dist.
+        Keys are dataset names (e.g., 'CLR', 'DII'), values are DataFrames with columns:
+        'itemsets' (motifs), 'adj_pvals' (adjusted p-values)
+    ct : str
+        Center cell type name (used in the title)
+    figsize : tuple, optional
+        Figure size (width, height). If None, automatically calculated based on data dimensions
+    cmap : str
+        Colormap for the heatmap, default is 'YlOrRd'
+    save_path : str, optional
+        Path to save the figure. If None, the figure will not be saved.
+
+    Returns
+    -------
+    None
+        Displays and optionally saves the heatmap figure
+
+    Example
+    -------
+    >>> diff_motif = sps.differential_analysis_dist(
+    ...     ct='tumor cells',
+    ...     datasets=['CLR', 'DII'],
+    ...     max_dist=5,
+    ...     min_support=0.01
+    ... )
+    >>> plot_differential_pattern_heatmap(
+    ...     diff_motif=diff_motif,
+    ...     ct='tumor cells',
+    ...     save_path='differential_patterns.pdf'
+    ... )
+    """
+    # Combine all datasets
+    combined_dfs = []
+    for dataset_name, df in diff_motif.items():
+        df_copy = df.copy()
+        df_copy['dataset'] = dataset_name
+        df_copy['-log10(adj_pvals)'] = -np.log10(df_copy['adj_pvals'])
+        combined_dfs.append(df_copy)
+
+    diff_combined = pd.concat(combined_dfs, ignore_index=True)
+
+    # Sort by dataset, then by -log10(adj_pvals)
+    diff_combined = diff_combined.sort_values(
+        by=['dataset', '-log10(adj_pvals)'],
+        ascending=[True, True]
+    ).reset_index(drop=True)
+
+    # Create motif group labels for each dataset
+    diff_combined['motif_num'] = diff_combined.groupby('dataset').cumcount() + 1
+    diff_combined['motif_group'] = (diff_combined['dataset'] + '_motif_' +
+                                    diff_combined['motif_num'].astype(str))
+
+    # Explode itemsets (motifs)
+    diff_expanded = diff_combined.explode('itemsets')
+
+    # Create pivot table
+    heatmap_data = diff_expanded.pivot_table(
+        index='itemsets',
+        columns='motif_group',
+        values='-log10(adj_pvals)',
+        aggfunc='first'
+    )
+
+    # Maintain column order
+    col_order = diff_combined['motif_group'].tolist()
+    heatmap_data = heatmap_data[col_order]
+
+    # Calculate dataset boundaries for vertical lines
+    datasets = diff_combined['dataset'].tolist()
+    boundaries = [i for i in range(1, len(datasets)) if datasets[i] != datasets[i-1]]
+
+    # Auto-calculate figure size if not provided
+    if figsize is None:
+        width = max(8, len(col_order) * 0.45)
+        height = max(4, len(heatmap_data) * 0.45)
+        figsize = (width, height)
+
+    # Plot heatmap
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sns.heatmap(
+        heatmap_data,
+        cmap=cmap,
+        linewidths=0.5,
+        linecolor='lightgrey',
+        cbar_kws={'label': '-log10(adj p-value)'},
+        ax=ax
+    )
+
+    # Draw boundaries between datasets
+    for b in boundaries:
+        ax.axvline(x=b, color='black', linewidth=2)
+
+    # Format plot
+    dataset_names = ' vs '.join(diff_combined['dataset'].unique())
+    plt.title(f'Differential patterns around {ct} ({dataset_names})',
+              fontsize=14, pad=20)
+    plt.ylabel('Cell types', fontsize=12)
+    plt.xlabel('Motifs', fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=9)
+    plt.yticks(rotation=0, fontsize=10)
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, bbox_inches='tight')
+
+    plt.show()
+
+
+def plot_gene_pair_heatmap(
+    gene_pair_df: pd.DataFrame,
+    figsize: tuple = (7, 5),
+    save_path: Optional[str] = None,
+):
+    """
+    Plot heatmaps for gene pairs with biclustering, separately for each cell type.
+
+    Parameters
+    ----------
+    gene_pair_df : pd.DataFrame
+        DataFrame containing gene pair information with columns:
+        'cell_type', 'gene_center', 'gene_motif', 'combined_score', 'if_significant'
+    figsize : tuple
+        Figure size for each cell type subplot (width, height)
+    save_path : str, optional
+        Path to save the figure. If None, the figure will not be saved.
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined DataFrame with cluster assignments for all cell types.
+        Contains columns: 'cell_type', 'gene_center', 'gene_motif',
+        'combined_score', 'cluster_type', 'cluster_row', 'cluster_col'
+    """
+    def draw_bicluster_on_axis(matrix, model, ax, title, cmap):
+        # 排序
+        row_order = np.argsort(model.row_labels_)
+        col_order = np.argsort(model.column_labels_)
+        mat = matrix.iloc[row_order, col_order]
+
+        # cluster labels
+        row_clusters = model.row_labels_[row_order]
+        col_clusters = model.column_labels_[col_order]
+
+        # cluster 边界
+        row_boundaries = np.where(np.diff(row_clusters) != 0)[0] + 1
+        col_boundaries = np.where(np.diff(col_clusters) != 0)[0] + 1
+
+        # mask zero entries
+        mask = (mat == 0)
+
+        # 绘图
+        sns.heatmap(np.log10(mat+1), cmap=cmap, mask=mask, ax=ax, cbar=True, linewidths=0.1, linecolor='lightgrey')
+        cbar = ax.collections[0].colorbar   # 获取 heatmap 的 colorbar
+        cbar.set_label("log10(score + 1)",
+                    #    rotation=90,
+                    fontsize=12)
+
+
+        for rb in row_boundaries:
+            ax.hlines(rb, xmin=0, xmax=mat.shape[1], colors='black', linewidth=1.5)
+
+        for cb in col_boundaries:
+            ax.vlines(cb, ymin=0, ymax=mat.shape[0], colors='black', linewidth=1.5)
+
+        ax.set_title(title)
+        ax.set_xlabel("Motif genes")
+        ax.set_ylabel("Center genes")
+
+    unique_ct = gene_pair_df['cell_type'].unique()
+    fig, axes = plt.subplots(
+        nrows=len(unique_ct), ncols=2,
+        figsize=(figsize[0], figsize[1] * len(unique_ct)),
+        squeeze=False
+    )
+
+    # Filter for significant pairs only
+    gene_pair_df = gene_pair_df[gene_pair_df['if_significant']]
+
+    # Store all cluster assignments for each cell type
+    all_cluster_assignments = []
+
+    for ct_idx, ct in enumerate(unique_ct):
+        # Filter data for current cell type
+        sub_gene_pair = gene_pair_df[gene_pair_df['cell_type'] == ct]
+
+        df_pivot = sub_gene_pair.pivot_table(
+            index='gene_center',
+            columns='gene_motif',
+            values='combined_score',
+            fill_value=0
+        )
+
+        mask = sub_gene_pair.pivot_table(
+            index='gene_center',
+            columns='gene_motif',
+            values='if_significant',
+            fill_value=0
+        ).astype(bool)
+
+        df_pivot = df_pivot.where(mask, 0)
+
+        # separate positive and negative pairs
+        pos_mat = df_pivot.clip(lower=0)
+        neg_mat = (-df_pivot.clip(upper=0))  # positive values 
+
+        # delete empty rows and columns
+        pos_mat = pos_mat.loc[(pos_mat.sum(axis=1) > 0), (pos_mat.sum(axis=0) > 0)]
+        neg_mat = neg_mat.loc[(neg_mat.sum(axis=1) > 0), (neg_mat.sum(axis=0) > 0)]
+
+        # if less than 2 rows or columns, skip
+        skip_pos, skip_neg = False, False
+        if pos_mat.shape[0] < 2 or pos_mat.shape[1] < 2:
+            skip_pos = True
+            print(f"Cell type {ct}: Skipping pos with {pos_mat.shape[0]} rows and {pos_mat.shape[1]} columns.")
+        if neg_mat.shape[0] < 2 or neg_mat.shape[1] < 2:
+            skip_neg = True
+            print(f"Cell type {ct}: Skipping neg with {neg_mat.shape[0]} rows and {neg_mat.shape[1]} columns.")
+
+        pos_pairs = pd.DataFrame()
+        neg_pairs = pd.DataFrame()
+
+        # biclustering for positive pairs
+        if not skip_pos:
+            model_pos = SpectralBiclustering(n_clusters=3, method='scale', random_state=42)
+            model_pos.fit(pos_mat)
+            ax_pos = axes[ct_idx, 0]  # Use ct_idx for row selection
+            draw_bicluster_on_axis(
+                pos_mat,
+                model_pos,
+                ax=ax_pos,
+                title=f"{ct} - Positive biclusters",
+                cmap="Reds"
+            )
+            # assign cluster labels
+            pos_row_labels = pd.Series(model_pos.row_labels_, index=pos_mat.index)
+            pos_col_labels = pd.Series(model_pos.column_labels_, index=pos_mat.columns)
+
+            row_idx, col_idx = np.where(pos_mat.values > 0)
+
+            # 向量化构建结果
+            pos_pairs = pd.DataFrame({
+                'gene_center': pos_mat.index[row_idx],
+                'gene_motif': pos_mat.columns[col_idx],
+                'combined_score': pos_mat.values[row_idx, col_idx],
+                'cluster_type': 'positive',
+                'cluster_row': pos_row_labels.iloc[row_idx].values,
+                'cluster_col': pos_col_labels.iloc[col_idx].values
+            })
+        else:
+            # Hide the axis if skipping
+            axes[ct_idx, 0].axis('off')
+
+        # biclustering for negative pairs
+        if not skip_neg:
+            model_neg = SpectralBiclustering(n_clusters=3, method='scale', random_state=42)
+            model_neg.fit(neg_mat)
+
+            ax_neg = axes[ct_idx, 1]  # Use ct_idx for row selection
+            draw_bicluster_on_axis(
+                neg_mat,
+                model_neg,
+                ax=ax_neg,
+                title=f"{ct} - Negative biclusters",
+                cmap="Blues"
+            )
+            neg_row_labels = pd.Series(model_neg.row_labels_, index=neg_mat.index)
+            neg_col_labels = pd.Series(model_neg.column_labels_, index=neg_mat.columns)
+
+            row_idx, col_idx = np.where(neg_mat.values > 0)
+
+            neg_pairs = pd.DataFrame({
+                'gene_center': neg_mat.index[row_idx],
+                'gene_motif': neg_mat.columns[col_idx],
+                'combined_score': -neg_mat.values[row_idx, col_idx],  #  negative values
+                'cluster_type': 'negative',
+                'cluster_row': neg_row_labels.iloc[row_idx].values,
+                'cluster_col': neg_col_labels.iloc[col_idx].values
+            })
+        else:
+            # Hide the axis if skipping
+            axes[ct_idx, 1].axis('off')
+
+        # Combine positive and negative pairs for this cell type
+        if not pos_pairs.empty or not neg_pairs.empty:
+            cluster_assignment = pd.concat([pos_pairs, neg_pairs], ignore_index=True)
+            cluster_assignment['cell_type'] = ct
+            all_cluster_assignments.append(cluster_assignment)
+
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.show()
+
+    # Concatenate all cluster assignments into a single DataFrame
+    if all_cluster_assignments:
+        return pd.concat(all_cluster_assignments, ignore_index=True)
+    else:
+        # Return empty DataFrame with expected columns if no results
+        return pd.DataFrame(columns=['cell_type', 'gene_center', 'gene_motif',
+                                     'combined_score', 'cluster_type', 'cluster_row', 'cluster_col'])
+
+
