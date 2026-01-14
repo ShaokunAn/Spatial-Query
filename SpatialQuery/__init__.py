@@ -8,8 +8,8 @@ from .plotting import (
     plot_motif_celltype,
     plot_all_center_motif
 )
-from . import spatial_differential_pattern
 from .spatial_query_multiple_fov import spatial_query_multi
+from . import spatial_differential_pattern
 
 __all__ = [
     'spatial_query',
