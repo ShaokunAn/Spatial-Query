@@ -835,8 +835,8 @@ class spatial_query_multi:
 
         # If motifs are specified, use the new function for user-specified motifs
         if motifs is not None:
-            from . import spatial_differential_pattern
-            return spatial_differential_pattern.differential_analysis_motif_knn(
+            from .spatial_differential_pattern import differential_analysis_motif_knn
+            return differential_analysis_motif_knn(
                 spatial_queries=self.spatial_queries,
                 datasets_list=datasets,
                 ct=ct,
@@ -866,8 +866,8 @@ class spatial_query_multi:
 
         # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
         # This ensures consistency with the specified-motif pathway
-        from . import spatial_differential_pattern
-        return spatial_differential_pattern.differential_analysis_motif_knn(
+        from .spatial_differential_pattern import differential_analysis_motif_knn
+        return differential_analysis_motif_knn(
             spatial_queries=self.spatial_queries,
             datasets_list=datasets,
             ct=ct,
@@ -927,8 +927,8 @@ class spatial_query_multi:
 
         # If motifs are specified, use the new function for user-specified motifs
         if motifs is not None:
-            from . import spatial_differential_pattern
-            return spatial_differential_pattern.differential_analysis_motif_dist(
+            from .spatial_differential_pattern import differential_analysis_motif_dist
+            return differential_analysis_motif_dist(
                 spatial_queries=self.spatial_queries,
                 datasets_list=datasets,
                 ct=ct,
@@ -960,8 +960,8 @@ class spatial_query_multi:
 
         # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
         # This ensures consistency with the specified-motif pathway
-        from . import spatial_differential_pattern
-        return spatial_differential_pattern.differential_analysis_motif_dist(
+        from .spatial_differential_pattern import differential_analysis_motif_dist
+        return differential_analysis_motif_dist(
             spatial_queries=self.spatial_queries,
             datasets_list=datasets,
             ct=ct,
