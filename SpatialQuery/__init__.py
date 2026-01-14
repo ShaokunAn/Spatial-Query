@@ -1,4 +1,5 @@
 from .spatial_query import spatial_query
+from . import spatial_differential_pattern
 from .spatial_query_multiple_fov import spatial_query_multi
 from .utils import maximal_patterns, retrieve_niche_pattern_freq, plot_niche_pattern_freq
 from .scfind4sp import SCFind
@@ -13,6 +14,7 @@ from .plotting import (
 __all__ = [
     'spatial_query',
     'spatial_query_multi',
+    'spatial_differential_pattern',
     'maximal_patterns',
     'retrieve_niche_pattern_freq',
     'plot_niche_pattern_freq',
