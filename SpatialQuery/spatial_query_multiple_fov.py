@@ -25,7 +25,6 @@ from .spatial_utils import (
     de_genes_scanpy,
     de_genes_fisher,
     )
-from . import spatial_differential_pattern
 import anndata as ad
 
 from time import time
@@ -836,6 +835,7 @@ class spatial_query_multi:
 
         # If motifs are specified, use the new function for user-specified motifs
         if motifs is not None:
+            from . import spatial_differential_pattern
             return spatial_differential_pattern.differential_analysis_motif_knn(
                 spatial_queries=self.spatial_queries,
                 datasets_list=datasets,
@@ -866,6 +866,7 @@ class spatial_query_multi:
 
         # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
         # This ensures consistency with the specified-motif pathway
+        from . import spatial_differential_pattern
         return spatial_differential_pattern.differential_analysis_motif_knn(
             spatial_queries=self.spatial_queries,
             datasets_list=datasets,
@@ -926,6 +927,7 @@ class spatial_query_multi:
 
         # If motifs are specified, use the new function for user-specified motifs
         if motifs is not None:
+            from . import spatial_differential_pattern
             return spatial_differential_pattern.differential_analysis_motif_dist(
                 spatial_queries=self.spatial_queries,
                 datasets_list=datasets,
@@ -958,6 +960,7 @@ class spatial_query_multi:
 
         # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
         # This ensures consistency with the specified-motif pathway
+        from . import spatial_differential_pattern
         return spatial_differential_pattern.differential_analysis_motif_dist(
             spatial_queries=self.spatial_queries,
             datasets_list=datasets,
