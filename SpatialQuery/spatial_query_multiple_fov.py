@@ -16,6 +16,7 @@ from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
 
 from . import spatial_gene_covarying
+from .spatial_differential_pattern import differential_analysis_motif_knn, differential_analysis_motif_dist
 
 from .spatial_query import spatial_query
 from .spatial_utils import (
@@ -835,7 +836,6 @@ class spatial_query_multi:
 
         # If motifs are specified, use the new function for user-specified motifs
         if motifs is not None:
-            from .spatial_differential_pattern import differential_analysis_motif_knn
             return differential_analysis_motif_knn(
                 spatial_queries=self.spatial_queries,
                 datasets_list=datasets,
@@ -866,7 +866,6 @@ class spatial_query_multi:
 
         # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
         # This ensures consistency with the specified-motif pathway
-        from .spatial_differential_pattern import differential_analysis_motif_knn
         return differential_analysis_motif_knn(
             spatial_queries=self.spatial_queries,
             datasets_list=datasets,
@@ -927,7 +926,7 @@ class spatial_query_multi:
 
         # If motifs are specified, use the new function for user-specified motifs
         if motifs is not None:
-            from .spatial_differential_pattern import differential_analysis_motif_dist
+            
             return differential_analysis_motif_dist(
                 spatial_queries=self.spatial_queries,
                 datasets_list=datasets,
@@ -960,7 +959,7 @@ class spatial_query_multi:
 
         # Step 2: Use the motif-specified pathway to compute true support values for all discovered motifs
         # This ensures consistency with the specified-motif pathway
-        from .spatial_differential_pattern import differential_analysis_motif_dist
+        
         return differential_analysis_motif_dist(
             spatial_queries=self.spatial_queries,
             datasets_list=datasets,
