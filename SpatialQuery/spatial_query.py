@@ -772,6 +772,7 @@ class spatial_query:
         genes: List of gene names to query. If None, all genes will be used.
         min_fraction: The minimum fraction of cells that express a gene for it to be considered differentially expressed.
         method: The method to use for DE analysis. Please choose from fisher, t-test, or wilcoxon. If build_gene_index=True, only Fisher's exact test is supported.
+        alpha: Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
         Return  
         ------
         pd.DataFrame containing the differentially expressed genes between the two groups.

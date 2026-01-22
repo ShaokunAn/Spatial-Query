@@ -975,6 +975,7 @@ class spatial_query_multi:
                  genes: Optional[Union[str, List[str]]] = None,
                  min_fraction: float = 0.05,
                  method: Literal['fisher', 't-test', 'wilcoxon'] = 'fisher',
+                 alpha: Optional[float] = None,
                  ) -> pd.DataFrame:
         """
         Perform differential expression analysis on the given indices.
@@ -995,6 +996,7 @@ class spatial_query_multi:
             The minimum fraction of cells that express a gene for it to be considered differentially expressed.
         method: Literal['fisher', 't-test', 'wilcoxon'], default='fisher'
             The method to use for DE analysis. If build_gene_index=True, only Fisher's exact test is supported.
+        alpha: Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
 
         Returns
         -------
@@ -1005,16 +1007,17 @@ class spatial_query_multi:
             # Use scfind index-based method with Fisher's exact test
             if method != 'fisher':
                 print(f"Warning: When build_gene_index=True, only Fisher's exact test is supported. Ignoring method='{method}'.")
-            return self._de_genes_scfind(ind_group1, ind_group2, genes, min_fraction)
+            return self._de_genes_scfind(ind_group1, ind_group2, genes, min_fraction, alpha)
         else:
             # Use adata.X directly with specified method
-            return self._de_genes_adata(ind_group1, ind_group2, genes, min_fraction, method)
+            return self._de_genes_adata(ind_group1, ind_group2, genes, min_fraction, method, alpha)
 
     def _de_genes_scfind(self,
                          ind_group1: Dict[str, List[int]],
                          ind_group2: Dict[str, List[int]],
                          genes: Optional[Union[str, List[str]]] = None,
-                         min_fraction: float = 0.05
+                         min_fraction: float = 0.05,
+                         alpha: Optional[float] = None
                          ) -> pd.DataFrame:
         """
         Perform differential expression analysis using scfind index with Fisher's exact test.
@@ -1026,6 +1029,9 @@ class spatial_query_multi:
             genes = set.intersection(*[set(s.genes) for s in self.spatial_queries])
             genes = list(genes)
             print(f"Testing {len(genes)} genes with Fisher's exact test ...\n")
+            
+        if alpha is None:
+            alpha = 0.1
 
         n_1 = np.sum([len(ids) for ids in ind_group1.values()])
         n_2 = np.sum([len(ids) for ids in ind_group2.values()])
@@ -1183,7 +1189,7 @@ class spatial_query_multi:
         else:
             filtered_df['adj_p_value'] = filtered_df['p_value']
 
-        filtered_df = filtered_df[filtered_df['adj_p_value']<0.05].reset_index(drop=True)
+        filtered_df = filtered_df[filtered_df['adj_p_value']<alpha].reset_index(drop=True)
 
         # Add information about which group shows higher expression
         filtered_df['de_in'] = np.where(
@@ -1208,6 +1214,7 @@ class spatial_query_multi:
                         genes: Optional[Union[str, List[str]]] = None,
                         min_fraction: float = 0.05,
                         method: Literal['fisher', 't-test', 'wilcoxon'] = 'fisher',
+                        alpha: Optional[float] = None
                         ) -> pd.DataFrame:
         """
         Perform differential expression analysis using adata.X directly.
@@ -1223,6 +1230,9 @@ class spatial_query_multi:
             raise ValueError("No valid datasets found in ind_group1.")
         if not valid_ds2:
             raise ValueError("No valid datasets found in ind_group2.")
+        
+        if alpha is None:
+            alpha = 0.05
         
         # Collect all cells from group 1
         all_adatas_g1 = []
@@ -1284,11 +1294,11 @@ class spatial_query_multi:
         # Perform DE analysis using spatial_utils
         if method == 'fisher':
             results_df = de_genes_fisher(
-                adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction
+                adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction, alpha
             )
         elif method == 't-test' or method == 'wilcoxon':
             results_df = de_genes_scanpy(
-                adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction, method=method
+                adata_combined, genes_list, ind_combined_g1, ind_combined_g2, genes, min_fraction, method=method, alpha=alpha
             )
         else:
             raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
