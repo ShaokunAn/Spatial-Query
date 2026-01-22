@@ -1380,21 +1380,25 @@ class spatial_query_multi:
             ax=ax,
             edgecolor='black',
             color=colors,
+            width=0.75,
         )
 
         ax.set_title("Distribution of cell types across datasets", fontsize=16)
-        ax.set_xlabel("Cell Types", fontsize=12)
+        ax.set_xlabel("Dataset", fontsize=12)
         ax.set_ylabel(
             "Number of Cells" if data_type == "number" else "Proportion of Cells",
             fontsize=12,
         )
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
 
-        ax.tick_params(axis='x', rotation=90, labelsize=10)
+        ax.tick_params(axis='x', rotation=45, labelsize=10)
         ax.legend(
-            title="Datasets",
+            title="Cell type",
             loc='center left',
             bbox_to_anchor=(1, 0.5),
             fontsize=10,
+            frameon=False,
         )
 
         # plt.tight_layout(rect=[0, 0, 0.85, 1])
