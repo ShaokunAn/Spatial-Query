@@ -8,7 +8,8 @@ from unittest import skip
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy import cluster
+from scipy import cluster, sparse
+from matplotlib.colors import Normalize
 import seaborn as sns
 from matplotlib import cm
 import scanpy as sc
@@ -805,11 +806,16 @@ def plot_gene_pair_heatmap(
     """
     Plot heatmaps for gene pairs with biclustering, separately for each cell type.
 
+    If the input DataFrame does not contain a 'cell_type' column (e.g., output from
+    compute_gene_gene_correlation where all cell types in the motif are pooled),
+    the function will plot a single heatmap for the entire dataset.
+
     Parameters
     ----------
     gene_pair_df : pd.DataFrame
         DataFrame containing gene pair information with columns:
-        'cell_type', 'gene_center', 'gene_motif', 'combined_score', 'if_significant'
+        'gene_center', 'gene_motif', 'combined_score', 'if_significant'
+        Optionally includes 'cell_type' column for per-cell-type plotting.
     figsize : tuple
         Figure size for each cell type subplot (width, height)
     save_path : str, optional
@@ -819,8 +825,9 @@ def plot_gene_pair_heatmap(
     -------
     pd.DataFrame
         Combined DataFrame with cluster assignments for all cell types.
-        Contains columns: 'cell_type', 'gene_center', 'gene_motif',
-        'combined_score', 'cluster_type', 'cluster_row', 'cluster_col'
+        Contains columns: 'gene_center', 'gene_motif', 'combined_score',
+        'cluster_type', 'cluster_row', 'cluster_col'
+        If 'cell_type' column exists in input, it will also be included.
     """
     def draw_bicluster_on_axis(matrix, model, ax, title, cmap):
         # 排序
@@ -857,23 +864,8 @@ def plot_gene_pair_heatmap(
         ax.set_xlabel("Motif genes")
         ax.set_ylabel("Center genes")
 
-    unique_ct = gene_pair_df['cell_type'].unique()
-    fig, axes = plt.subplots(
-        nrows=len(unique_ct), ncols=2,
-        figsize=(figsize[0], figsize[1] * len(unique_ct)),
-        squeeze=False
-    )
-
-    # Filter for significant pairs only
-    gene_pair_df = gene_pair_df[gene_pair_df['if_significant']]
-
-    # Store all cluster assignments for each cell type
-    all_cluster_assignments = []
-
-    for ct_idx, ct in enumerate(unique_ct):
-        # Filter data for current cell type
-        sub_gene_pair = gene_pair_df[gene_pair_df['cell_type'] == ct]
-
+    def process_single_group(sub_gene_pair, axes_row, group_label=None):
+        """Process a single group (cell type or entire dataset) and return cluster assignments."""
         df_pivot = sub_gene_pair.pivot_table(
             index='gene_center',
             columns='gene_motif',
@@ -892,7 +884,7 @@ def plot_gene_pair_heatmap(
 
         # separate positive and negative pairs
         pos_mat = df_pivot.clip(lower=0)
-        neg_mat = (-df_pivot.clip(upper=0))  # positive values 
+        neg_mat = (-df_pivot.clip(upper=0))  # positive values
 
         # delete empty rows and columns
         pos_mat = pos_mat.loc[(pos_mat.sum(axis=1) > 0), (pos_mat.sum(axis=0) > 0)]
@@ -900,12 +892,13 @@ def plot_gene_pair_heatmap(
 
         # if less than 2 rows or columns, skip
         skip_pos, skip_neg = False, False
+        label_str = group_label if group_label else "Motif cells"
         if pos_mat.shape[0] < 2 or pos_mat.shape[1] < 2:
             skip_pos = True
-            print(f"Cell type {ct}: Skipping pos with {pos_mat.shape[0]} rows and {pos_mat.shape[1]} columns.")
+            print(f"{label_str}: Skipping pos with {pos_mat.shape[0]} rows and {pos_mat.shape[1]} columns.")
         if neg_mat.shape[0] < 2 or neg_mat.shape[1] < 2:
             skip_neg = True
-            print(f"Cell type {ct}: Skipping neg with {neg_mat.shape[0]} rows and {neg_mat.shape[1]} columns.")
+            print(f"{label_str}: Skipping neg with {neg_mat.shape[0]} rows and {neg_mat.shape[1]} columns.")
 
         pos_pairs = pd.DataFrame()
         neg_pairs = pd.DataFrame()
@@ -914,12 +907,13 @@ def plot_gene_pair_heatmap(
         if not skip_pos:
             model_pos = SpectralBiclustering(n_clusters=3, method='scale', random_state=42)
             model_pos.fit(pos_mat)
-            ax_pos = axes[ct_idx, 0]  # Use ct_idx for row selection
+            ax_pos = axes_row[0]
+            pos_title = f"{group_label} - Positive biclusters" if group_label else "Positive biclusters"
             draw_bicluster_on_axis(
                 pos_mat,
                 model_pos,
                 ax=ax_pos,
-                title=f"{ct} - Positive biclusters",
+                title=pos_title,
                 cmap="Reds"
             )
             # assign cluster labels
@@ -939,19 +933,20 @@ def plot_gene_pair_heatmap(
             })
         else:
             # Hide the axis if skipping
-            axes[ct_idx, 0].axis('off')
+            axes_row[0].axis('off')
 
         # biclustering for negative pairs
         if not skip_neg:
             model_neg = SpectralBiclustering(n_clusters=3, method='scale', random_state=42)
             model_neg.fit(neg_mat)
 
-            ax_neg = axes[ct_idx, 1]  # Use ct_idx for row selection
+            ax_neg = axes_row[1]
+            neg_title = f"{group_label} - Negative biclusters" if group_label else "Negative biclusters"
             draw_bicluster_on_axis(
                 neg_mat,
                 model_neg,
                 ax=ax_neg,
-                title=f"{ct} - Negative biclusters",
+                title=neg_title,
                 cmap="Blues"
             )
             neg_row_labels = pd.Series(model_neg.row_labels_, index=neg_mat.index)
@@ -969,12 +964,47 @@ def plot_gene_pair_heatmap(
             })
         else:
             # Hide the axis if skipping
-            axes[ct_idx, 1].axis('off')
+            axes_row[1].axis('off')
 
-        # Combine positive and negative pairs for this cell type
+        # Combine positive and negative pairs
         if not pos_pairs.empty or not neg_pairs.empty:
-            cluster_assignment = pd.concat([pos_pairs, neg_pairs], ignore_index=True)
-            cluster_assignment['cell_type'] = ct
+            return pd.concat([pos_pairs, neg_pairs], ignore_index=True)
+        return pd.DataFrame()
+
+    # Check if cell_type column exists
+    has_cell_type = 'cell_type' in gene_pair_df.columns
+
+    # Filter for significant pairs only
+    gene_pair_df = gene_pair_df[gene_pair_df['if_significant']]
+
+    # Store all cluster assignments
+    all_cluster_assignments = []
+
+    if has_cell_type:
+        # Original behavior: plot separately for each cell type
+        unique_ct = gene_pair_df['cell_type'].unique()
+        fig, axes = plt.subplots(
+            nrows=len(unique_ct), ncols=2,
+            figsize=(figsize[0], figsize[1] * len(unique_ct)),
+            squeeze=False
+        )
+
+        for ct_idx, ct in enumerate(unique_ct):
+            sub_gene_pair = gene_pair_df[gene_pair_df['cell_type'] == ct]
+            cluster_assignment = process_single_group(sub_gene_pair, axes[ct_idx], group_label=ct)
+            if not cluster_assignment.empty:
+                cluster_assignment['cell_type'] = ct
+                all_cluster_assignments.append(cluster_assignment)
+    else:
+        # No cell_type column: plot entire dataset as one group
+        fig, axes = plt.subplots(
+            nrows=1, ncols=2,
+            figsize=figsize,
+            squeeze=False
+        )
+
+        cluster_assignment = process_single_group(gene_pair_df, axes[0], group_label=None)
+        if not cluster_assignment.empty:
             all_cluster_assignments.append(cluster_assignment)
 
     plt.tight_layout()
@@ -987,7 +1017,251 @@ def plot_gene_pair_heatmap(
         return pd.concat(all_cluster_assignments, ignore_index=True)
     else:
         # Return empty DataFrame with expected columns if no results
-        return pd.DataFrame(columns=['cell_type', 'gene_center', 'gene_motif',
-                                     'combined_score', 'cluster_type', 'cluster_row', 'cluster_col'])
+        base_columns = ['gene_center', 'gene_motif', 'combined_score',
+                        'cluster_type', 'cluster_row', 'cluster_col']
+        if has_cell_type:
+            base_columns.append('cell_type')
+        return pd.DataFrame(columns=base_columns)
 
 
+def plot_gene_pair_spatial(
+    sq_obj,
+    gene_pairs: List[tuple],
+    gene_pair_df: pd.DataFrame,
+    ids: dict,
+    ct: str,
+    motif: List[str],
+    motif_ct: Optional[str] = None,
+    figsize: tuple = (20, 5),
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    cmap: str = "RdYlBu_r",
+    save_path: Optional[str] = None,
+):
+    def _compute_celltype_means(sq_obj, genes):
+        """Compute cell type-specific global means for given genes."""
+        celltype_means = {}
+        for ct_name in sq_obj.labels.unique():
+            ct_mask = sq_obj.labels == ct_name
+            ct_cells = np.where(ct_mask)[0]
+            if len(ct_cells) > 0:
+                gene_indices = [i for i, g in enumerate(sq_obj.genes) if g in genes]
+                ct_expr = sq_obj.adata[ct_cells, :][:, gene_indices].X
+                if sparse.issparse(ct_expr):
+                    celltype_means[ct_name] = np.array(ct_expr.mean(axis=0)).flatten()
+                else:
+                    celltype_means[ct_name] = ct_expr.mean(axis=0)
+        return celltype_means
+
+    def _get_shifted_expression(sq_obj, cell_indices, gene, mean_center, mean_dict,
+                                 gene1, celltype_means, gene2_idx):
+        """Get expression and compute shifted expression for cells."""
+        raw_expr = np.asarray(
+            sq_obj.adata[cell_indices, sq_obj.adata.var['gene'] == gene].X
+        ).ravel()
+
+        cell_types = sq_obj.labels[cell_indices].values
+        shifted = np.zeros_like(raw_expr)
+
+        if gene == gene1:
+            # center gene: subtract center type mean
+            shifted = raw_expr - mean_center
+        else:
+            # motif/neighbor gene: subtract celltype-specific mean
+            for ct_name in np.unique(cell_types):
+                mask = (cell_types == ct_name)
+                if ct_name in mean_dict:
+                    shifted[mask] = raw_expr[mask] - mean_dict[ct_name]
+                else:
+                    shifted[mask] = raw_expr[mask] - celltype_means[ct][gene2_idx]
+
+        return raw_expr, shifted
+
+    def _scatter_panel(df, df_background, ax, title, cmap, norm, fig):
+        """Draw a single scatter panel with background."""
+        # Plot all cells as gray background
+        ax.scatter(df_background["x"], df_background["y"],
+                   c="#D3D3D3", s=5, edgecolor='none', rasterized=True)
+
+        if df is None or len(df) == 0:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(title, fontsize=12, fontweight='normal')
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(1)
+                spine.set_edgecolor('black')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlabel('')
+            ax.set_ylabel('')
+            return None
+
+        # Plot query points on top
+        sc = ax.scatter(df["x"], df["y"],
+                        c=df["shifted_expression"],
+                        cmap=cmap, norm=norm,
+                        s=50, edgecolor='none', rasterized=True)
+
+        ax.set_title(title, fontsize=12, fontweight='normal')
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1)
+            spine.set_edgecolor('black')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+
+        cbar = fig.colorbar(sc, ax=ax)
+        cbar.set_label("Shifted expression", rotation=270, labelpad=15, fontsize=10)
+        cbar.ax.tick_params(labelsize=9)
+        return sc
+
+    # Collect all genes needed
+    all_genes = set()
+    for g1, g2 in gene_pairs:
+        all_genes.add(g1)
+        all_genes.add(g2)
+
+    # Compute celltype means for all genes
+    celltype_means = _compute_celltype_means(sq_obj, list(all_genes))
+
+    # Build gene to index mapping
+    gene_to_idx = {g: i for i, g in enumerate(all_genes)}
+
+    # Filter ids for specific motif cell type (if provided)
+    if motif_ct is not None:
+        # Filter for specific motif cell type
+        motif_ct_mask = sq_obj.adata.obs[sq_obj.label_key][ids['center_neighbor_motif_pair'][:, 1]] == motif_ct
+        center_neighbor_motif_pair = ids['center_neighbor_motif_pair'][motif_ct_mask]
+    else:
+        # Use all motif cell types
+        center_neighbor_motif_pair = ids['center_neighbor_motif_pair']
+
+    non_motif_center_neighbor_pair = ids['non_motif_center_neighbor_pair']
+
+    # Extract cell indices
+    center_with_motif = np.unique(center_neighbor_motif_pair[:, 0])
+    neighbor_motif = np.unique(center_neighbor_motif_pair[:, 1])
+    center_without_motif = np.unique(non_motif_center_neighbor_pair[:, 0]) \
+        if len(non_motif_center_neighbor_pair) else np.array([])
+    center_without_motif_neighbors = np.unique(non_motif_center_neighbor_pair[:, 1]) \
+        if len(non_motif_center_neighbor_pair) else np.array([])
+
+    # Background coordinates
+    all_coords = sq_obj.adata.obsm[sq_obj.spatial_key]
+    df_background = pd.DataFrame({
+        "x": all_coords[:, 0],
+        "y": all_coords[:, 1],
+    })
+
+    # Plot each gene pair
+    for gene1, gene2 in gene_pairs:
+        # Get score from gene_pair_df
+        match_mask = (gene_pair_df['gene_center'] == gene1) & (gene_pair_df['gene_motif'] == gene2)
+        if not match_mask.any():
+            print(f"[WARNING] Gene pair {gene1}_{gene2} not found in gene_pair_df, skipping.")
+            continue
+
+        score_val = float(gene_pair_df.loc[match_mask, "combined_score"].iloc[0])
+        print(f"[INFO] Plotting {gene1}_{gene2}, score={score_val:.3f}")
+
+        gene1_idx = gene_to_idx[gene1]
+        gene2_idx = gene_to_idx[gene2]
+
+        gene1_mean_center = celltype_means[ct][gene1_idx]
+        gene2_means_motif = {m: celltype_means[m][gene2_idx] for m in motif if m in celltype_means}
+
+        # Compute shifted expressions
+        _, gene1_shifted_cwm = _get_shifted_expression(
+            sq_obj, center_with_motif, gene1, gene1_mean_center, gene2_means_motif,
+            gene1, celltype_means, gene2_idx
+        )
+        _, gene2_shifted_nm = _get_shifted_expression(
+            sq_obj, neighbor_motif, gene2, gene1_mean_center, gene2_means_motif,
+            gene1, celltype_means, gene2_idx
+        )
+
+        # Build DataFrames for plotting
+        df_center_with_motif = pd.DataFrame({
+            "x": sq_obj.adata.obsm[sq_obj.spatial_key][center_with_motif, 0],
+            "y": sq_obj.adata.obsm[sq_obj.spatial_key][center_with_motif, 1],
+            "shifted_expression": gene1_shifted_cwm,
+        })
+
+        df_neighbor_motif = pd.DataFrame({
+            "x": sq_obj.adata.obsm[sq_obj.spatial_key][neighbor_motif, 0],
+            "y": sq_obj.adata.obsm[sq_obj.spatial_key][neighbor_motif, 1],
+            "shifted_expression": gene2_shifted_nm,
+        })
+
+        df_center_without_motif = None
+        df_center_without_motif_neighbors = None
+
+        if len(center_without_motif) > 0:
+            _, gene1_shifted_cwom = _get_shifted_expression(
+                sq_obj, center_without_motif, gene1, gene1_mean_center, gene2_means_motif,
+                gene1, celltype_means, gene2_idx
+            )
+            df_center_without_motif = pd.DataFrame({
+                "x": sq_obj.adata.obsm[sq_obj.spatial_key][center_without_motif, 0],
+                "y": sq_obj.adata.obsm[sq_obj.spatial_key][center_without_motif, 1],
+                "shifted_expression": gene1_shifted_cwom,
+            })
+
+        if len(center_without_motif_neighbors) > 0:
+            _, gene2_shifted_cwmn = _get_shifted_expression(
+                sq_obj, center_without_motif_neighbors, gene2, gene1_mean_center, gene2_means_motif,
+                gene1, celltype_means, gene2_idx
+            )
+            df_center_without_motif_neighbors = pd.DataFrame({
+                "x": sq_obj.adata.obsm[sq_obj.spatial_key][center_without_motif_neighbors, 0],
+                "y": sq_obj.adata.obsm[sq_obj.spatial_key][center_without_motif_neighbors, 1],
+                "shifted_expression": gene2_shifted_cwmn,
+            })
+
+        # Compute symmetric color range if vmin/vmax not provided
+        if vmin is None or vmax is None:
+            all_shifted_values = []
+            all_shifted_values.extend(df_center_with_motif["shifted_expression"].values)
+            all_shifted_values.extend(df_neighbor_motif["shifted_expression"].values)
+            if df_center_without_motif is not None:
+                all_shifted_values.extend(df_center_without_motif["shifted_expression"].values)
+            if df_center_without_motif_neighbors is not None:
+                all_shifted_values.extend(df_center_without_motif_neighbors["shifted_expression"].values)
+
+            all_shifted_values = np.array(all_shifted_values)
+            max_abs_val = np.max(np.abs(all_shifted_values))
+            norm = Normalize(vmin=-max_abs_val, vmax=max_abs_val)
+        else:
+            norm = Normalize(vmin=vmin, vmax=vmax)
+
+        # Create figure with 4 panels
+        fig, axes = plt.subplots(1, 4, figsize=figsize, sharex=True, sharey=True)
+
+        # Create panel titles based on whether motif_ct is specified
+        motif_label = motif_ct if motif_ct is not None else "motif"
+
+        _scatter_panel(df_center_with_motif, df_background, axes[0],
+                       f"{gene1} in {ct} (with {motif_label})", cmap, norm, fig)
+        _scatter_panel(df_neighbor_motif, df_background, axes[1],
+                       f"{gene2} in {motif_label} (neighbors)", cmap, norm, fig)
+        _scatter_panel(df_center_without_motif, df_background, axes[2],
+                       f"{gene1} in {ct} (without {motif_label})", cmap, norm, fig)
+        _scatter_panel(df_center_without_motif_neighbors, df_background, axes[3],
+                       f"{gene2} in non-{motif_label} neighbors", cmap, norm, fig)
+
+        # Create suptitle with anchor and motif info
+        suptitle = f"Shifted expression: {gene1} ({ct}) vs {gene2} ({motif_label})\nscore={score_val:.3f}"
+        fig.suptitle(suptitle, fontsize=14, y=1.02, fontweight='normal')
+
+        plt.tight_layout()
+
+        if save_path is not None:
+            import os
+            os.makedirs(save_path, exist_ok=True)
+            pdf_name = os.path.join(save_path, f"{gene1}_{gene2}_spatial.pdf")
+            fig.savefig(pdf_name, dpi=300, bbox_inches="tight")
+            print(f"[SAVED] {pdf_name}")
+        else:
+            plt.show()

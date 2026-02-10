@@ -879,7 +879,7 @@ class spatial_query:
                                       alpha: Optional[float] = None
                                       ) -> Tuple[pd.DataFrame, dict]:
         """
-        Compute gene-gene cross correlation between neighbor and non-neighbor motif cells. Only considers inter-cell-type interactions. 
+        Compute gene-gene cross correlation between anchor and neighboring motif cells. Only considers inter-cell-type interactions. 
         After finding neighbors using the full motif, removes all cells of the center cell type from both neighbor and
         non-neighbor groups. For Pearson correlation, uses shifted correlation (subtract cell type mean) to enable
         comparison across different niches/motifs.
@@ -919,7 +919,6 @@ class spatial_query:
                     - gene_center, gene_motif: gene pairs
                     - corr_neighbor: correlation in neighbor group
                     - corr_non_neighbor: correlation in non-neighbor group
-                    - corr_diff_neighbor_vs_non: difference in correlation (neighbor - non_neighbor)
                     - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
                     - delta_corr_test1: difference in correlation for test1
                     - corr_center_no_motif: correlation for centers without motif (NaN if not available)
@@ -1389,4 +1388,98 @@ class spatial_query:
         A figure showing the heatmap of motif cell type distribution.
         """
         return plotting.plot_gene_pair_heatmap(gene_pair_df=gene_pair_df, figsize=figsize,
-                                                       save_path=save_path, title=title, cmap=cmap)
+                                                       save_path=save_path)
+
+    def plot_gene_pair_spatial(self,
+                               gene_pairs: List[tuple],
+                               gene_pair_df: pd.DataFrame,
+                               ids: dict,
+                               ct: str,
+                               motif: List[str],
+                               motif_ct: Optional[str] = None,
+                               figsize: tuple = (20, 5),
+                               vmin: Optional[float] = None,
+                               vmax: Optional[float] = None,
+                               cmap: str = "RdYlBu_r",
+                               save_path: Optional[str] = None,
+                               ):
+        """
+        Plot spatial expression distribution of gene pairs showing shifted expression.
+
+        For each gene pair, generates 4 panels showing:
+        1. Center gene expression in center cells with motif
+        2. Motif gene expression in neighboring motif cells
+        3. Center gene expression in center cells without motif
+        4. Motif gene expression in non-motif neighbors
+
+        Parameter
+        ---------
+        gene_pairs:
+            List of gene pairs to plot, e.g., [('gene1', 'gene2'), ('gene3', 'gene4')]. First gene
+            in the pair is the center gene, second is the motif gene.
+        gene_pair_df:
+            DataFrame containing gene pair correlation results with columns:
+            'gene_center', 'gene_motif', 'combined_score'.
+            This is typically the output from compute_gene_gene_correlation.
+        ids:
+            Dictionary containing cell pairing information from compute_gene_gene_correlation:
+            - 'center_neighbor_motif_pair': array of [center_idx, neighbor_idx] pairs
+            - 'non_motif_center_neighbor_pair': array of [center_idx, neighbor_idx] pairs
+        ct:
+            Center cell type name.
+        motif:
+            List of cell types in the motif.
+        motif_ct:
+            Specific motif cell type to filter for plotting. If None, all motif cell types
+            are used (suitable for compute_gene_gene_correlation results where motif types
+            are pooled together).
+        figsize:
+            Figure size for each gene pair plot (width, height), default (20, 5).
+        vmin:
+            Minimum value for color normalization. If None, automatically computed as
+            -max(|shifted_expression|) to ensure symmetric colormap.
+        vmax:
+            Maximum value for color normalization. If None, automatically computed as
+            max(|shifted_expression|) to ensure symmetric colormap.
+        cmap:
+            Colormap name, default "RdYlBu_r".
+        save_path:
+            Directory path to save figures. If None, figures are displayed but not saved.
+            Each gene pair will be saved as '{save_path}/{gene1}_{gene2}_spatial.pdf'.
+
+        Return
+        ------
+        None
+            Displays and optionally saves spatial expression plots for each gene pair.
+
+        Example
+        -------
+        >>> gene_pair_df, ids = sq.compute_gene_gene_correlation(
+        ...     ct='Cardiomyocyte',
+        ...     motif=['Fibroblast', 'Endothelial'],
+        ...     max_dist=20
+        ... )
+        >>> sq.plot_gene_pair_spatial(
+        ...     gene_pairs=[('Ttn', 'Myh6'), ('Actn2', 'Tnni3')],
+        ...     gene_pair_df=gene_pair_df,
+        ...     ids=ids,
+        ...     ct='Cardiomyocyte',
+        ...     motif=['Fibroblast', 'Endothelial'],
+        ...     motif_ct='Fibroblast',
+        ...     save_path='./figures/'
+        ... )
+        """
+        return plotting.plot_gene_pair_spatial(
+            sq_obj=self,
+            gene_pairs=gene_pairs,
+            gene_pair_df=gene_pair_df,
+            ids=ids,
+            ct=ct,
+            motif=motif,
+            motif_ct=motif_ct,
+            figsize=figsize,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            save_path=save_path,
+        )

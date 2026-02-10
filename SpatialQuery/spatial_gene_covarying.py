@@ -588,7 +588,7 @@ def compute_gene_gene_correlation_adata(sq_obj,
                                         alpha: Optional[float] = None
                                         ) -> pd.DataFrame:
     """
-    Compute gene-gene cross correlation between neighbor and non-neighbor motif cells. Only considers inter-cell-type interactions. 
+    Compute gene-gene cross correlation between anchor and neighboring motif cells. Only considers inter-cell-type interactions. 
     After finding neighbors using the full motif, removes all cells of the center cell type from both neighbor and
     non-neighbor groups. For Pearson correlation, uses shifted correlation (subtract cell type mean) to enable
     comparison across different niches/motifs.
@@ -888,7 +888,6 @@ def compute_gene_gene_correlation_adata(sq_obj,
         'gene_motif': np.array(filtered_genes)[gene_motif_idx.flatten()],
         'corr_neighbor': corr_matrix_neighbor.flatten(),
         'corr_non_neighbor': corr_matrix_non_neighbor.flatten(),
-        'corr_diff_neighbor_vs_non': delta_corr_test1.flatten(),
         'p_value_test1': p_value_test1.flatten(),
         'delta_corr_test1': delta_corr_test1.flatten(),
     })
@@ -2474,7 +2473,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
         alpha: Optional[float] = None
         ) -> pd.DataFrame:
     """
-    Compute gene-gene co-varying patterns between motif and center cells across multiple FOVs.
+    Compute gene-gene co-varying patterns between anchor and neighboring motif cells across multiple FOVs.
 
     Similar to compute_gene_gene_correlation in single FOV, but:
     - Aggregates center-neighbor pairs across all FOVs in specified dataset
