@@ -464,7 +464,7 @@ def plot_all_center_motif(sq_obj,
     adata.obs.iloc[center_without_motif, adata.obs.columns.get_loc('tmp')] = f'non-motif center {ct}'
 
     adata.obs.iloc[neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'neighbor motif: {sq_obj.labels[i]}' for i in neighbor_motif]
-    adata.obs.iloc[non_neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'non-neighbor motif: {sq_obj.labels[i]}' for i in non_neighbor_motif]
+    adata.obs.iloc[non_neighbor_motif, adata.obs.columns.get_loc('tmp')] = [f'distal motif: {sq_obj.labels[i]}' for i in non_neighbor_motif]
 
     adata.obs.iloc[center_without_motif_neighbors, adata.obs.columns.get_loc('tmp')] = 'non-motif-center neighbors'
 
@@ -478,19 +478,19 @@ def plot_all_center_motif(sq_obj,
         'non-motif-center neighbors': "#6DE7E9"  # light blue
     }
 
-    # Set red colors for neighbor motif and purple colors for non-neighbor motif
+    # Set red colors for neighbor motif and green colors for distal motif
     n_neighbor_types = len(neighbor_motif_types)
     if n_neighbor_types > 0:
         red_colors = cm.Reds(np.linspace(0.3, 0.6, n_neighbor_types))
         for i, cell_type in enumerate(neighbor_motif_types):
             color_dict[f'neighbor motif: {cell_type}'] = red_colors[i]
 
-    # Set purple colors for non-neighbor motif
+    # Set green colors for distal motif
     n_non_neighbor_types = len(non_neighbor_motif_types)
     if n_non_neighbor_types > 0:
-        purple_colors = cm.Greens(np.linspace(0.4, 0.8, n_non_neighbor_types))
+        green_colors = cm.Greens(np.linspace(0.4, 0.8, n_non_neighbor_types))
         for i, cell_type in enumerate(non_neighbor_motif_types):
-            color_dict[f'non-neighbor motif: {cell_type}'] = purple_colors[i]
+            color_dict[f'distal motif: {cell_type}'] = green_colors[i]
 
     # Plot figure
     fig, ax = plt.subplots(figsize=figsize)
@@ -535,7 +535,7 @@ def plot_motif_enrichment_heatmap(enrich_df: pd.DataFrame,
     enrich['frequency'] = enrich['n_center_motif'] / enrich['n_center']
 
     # Sort by frequency
-    enrich = enrich.sort_values(by='frequency', ascending=True)
+    enrich = enrich.sort_values(by='frequency', ascending=False)
 
     # Create motif group labels
     enrich['motif_group'] = [f'motif_{i+1}' for i in range(len(enrich))]
@@ -559,7 +559,7 @@ def plot_motif_enrichment_heatmap(enrich_df: pd.DataFrame,
         linewidths=0.1,
         linecolor='lightgrey',
         annot=True,
-        fmt='.3f',
+        fmt='.2f',
         annot_kws={'fontsize': 12},
         cbar_kws={'label': 'Frequency'}
     )
