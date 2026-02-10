@@ -850,16 +850,19 @@ class spatial_query:
                 )
             )
             results_df = results_df[results_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
+            results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'p_value', 'adj_p_value', 'de_in']]
         else:
             # Use adata.X directly for DE analysis
             if method == 'fisher':
                 results_df = spatial_utils.de_genes_fisher(
                     self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, alpha
                 )
+                results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'p_value', 'adj_p_value', 'de_in']]
             elif method == 't-test' or method == 'wilcoxon':
                 results_df = spatial_utils.de_genes_scanpy(
                     self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, method=method, alpha=alpha
                 )
+                results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'log2fc', 'p_value', 'adj_p_value', 'de_in']]
             else:
                 raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
 
