@@ -473,10 +473,6 @@ def de_genes_fisher(adata,
         'proportion_2': prop2[gene_indices],
         'abs_difference': np.abs(prop1[gene_indices] - prop2[gene_indices]),
         'p_value': p_values,
-        'expressed_cells_1': count1[gene_indices].astype(int),
-        'expressed_cells_2': count2[gene_indices].astype(int),
-        'total_cells_1': n1,
-        'total_cells_2': n2,
     })
     
     # Filter out invalid p-values
