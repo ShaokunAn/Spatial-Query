@@ -890,6 +890,13 @@ class SCFind:
 
         """
         gene_list = self._case_correct(gene_list)
+        
+        # convert to list
+        if isinstance(ind_group1, np.ndarray):
+            ind_group1 = ind_group1.tolist()
+
+        if isinstance(ind_group2, np.ndarray):
+            ind_group2 = ind_group2.tolist()    
 
         out = self.index.DEGenesIndices(ind_group1, ind_group2, gene_list, min_fraction)
 
