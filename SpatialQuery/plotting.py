@@ -151,7 +151,7 @@ def plot_motif_grid(sq_obj,
     # Set color map using motif cell types
     motif_unique = sorted(set(motif))
     n_colors = len(motif_unique)
-    colors = sns.color_palette('hsv', n_colors)
+    colors = sns.color_palette('rainbow', n_colors)
     color_map = {ct: col for ct, col in zip(motif_unique, colors)}
 
     motif_spot_pos = sq_obj.spatial_pos[list(id_motif_celltype), :]
