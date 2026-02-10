@@ -157,6 +157,11 @@ def plot_motif_grid(sq_obj,
     motif_spot_pos = sq_obj.spatial_pos[list(id_motif_celltype), :]
     motif_spot_label = sq_obj.labels[list(id_motif_celltype)]
     fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plotting other spots as background
+    bg_index = [i for i, _ in enumerate(sq_obj.labels) if i not in id_motif_celltype]
+    bg_pos = sq_obj.spatial_pos[bg_index, :]
+    ax.scatter(bg_pos[:, 0], bg_pos[:, 1], color="#E6DFDF", s=1)
 
     # Plotting the grid lines
     for x in x_grid:
@@ -168,10 +173,6 @@ def plot_motif_grid(sq_obj,
     ax.scatter(grid[id_center, 0], grid[id_center, 1], label='Grid Points',
                edgecolors='red', facecolors='none', s=8)
 
-    # Plotting other spots as background
-    bg_index = [i for i, _ in enumerate(sq_obj.labels) if i not in id_motif_celltype]
-    bg_pos = sq_obj.spatial_pos[bg_index, :]
-    ax.scatter(bg_pos[:, 0], bg_pos[:, 1], color='#D3D3D3', s=1)
 
     for ct in motif_unique:
         ct_ind = motif_spot_label == ct
@@ -498,6 +499,91 @@ def plot_all_center_motif(sq_obj,
     ax.set_title(f'Cell types around {ct} with motif', fontsize=10)
     if save_path is not None:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+def plot_fp_heatmap(fp_df: pd.DataFrame,
+                    figsize: tuple = (7, 5),
+                    save_path: Optional[str] = None,
+                    title: Optional[str] = None,
+                    cmap: str = 'GnBu'):
+    """
+    Plot a heatmap showing the distribution of cell types in frequent patterns.
+
+    Parameter
+    ---------
+    fp_df : pd.DataFrame
+        DataFrame containing frequent pattern results with two columns:
+            - support: frequency of the pattern (proportion of points with this pattern)
+            - itemsets: frozenset of cell types in the frequent pattern
+        This is typically the output from find_fp_knn or find_fp_dist methods.
+    figsize : tuple
+        Figure size, default is (7, 5)
+    save_path : str, optional
+        Path to save the figure. If None, the figure will not be saved.
+    title : str, optional
+        Figure title. If None, will use a default title.
+    cmap : str
+        Colormap for the heatmap, default is 'GnBu'
+
+    Return
+    ------
+    None
+        Displays a heatmap showing the cell type distribution across frequent patterns.
+        Rows represent cell types, columns represent pattern groups (sorted by support),
+        and cell values show the support frequency.
+    """
+    if len(fp_df) == 0:
+        print("No frequent patterns to plot.")
+        return
+
+    # Make a copy to avoid modifying the original
+    fp = fp_df.copy()
+
+    # Sort by support
+    fp = fp.sort_values(by='support', ascending=False).reset_index(drop=True)
+
+    # Create pattern group labels
+    fp['motif_group'] = [f'motif_{i+1}' for i in range(len(fp))]
+
+    # Explode itemsets so each cell type becomes a row
+    fp_expanded = fp.explode('itemsets')
+
+    # Create pivot table: rows are cell types, columns are motif`` groups
+    heatmap_data = fp_expanded.pivot_table(
+        index='itemsets',  # Rows: each cell type in pattern
+        columns='motif_group',  # Columns: each motif group
+        values='support',
+        aggfunc='first'
+    )
+
+    # Plot heatmap
+    plt.figure(figsize=figsize)
+    sns.heatmap(
+        heatmap_data,
+        cmap=cmap,
+        linewidths=0.1,
+        linecolor='lightgrey',
+        annot=True,
+        fmt='.2f',
+        annot_kws={'fontsize': 12},
+        cbar_kws={'label': 'Support'}
+    )
+
+    # Set title
+    if title is None:
+        title = 'Distribution of frequent patterns'
+
+    plt.title(title, fontsize=14, pad=20)
+    plt.ylabel('', fontsize=12)
+    plt.xlabel('Patterns', fontsize=12)
+    plt.xticks(rotation=30, fontsize=12)
+    plt.yticks(rotation=0, fontsize=12)
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
     plt.show()
 
 

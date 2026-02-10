@@ -1,5 +1,5 @@
 
-from typing import List, Union, Optional, Literal
+from typing import List, Tuple, Union, Optional, Literal
 
 import matplotlib.pyplot as plt
 import statsmodels.stats.multitest as mt
@@ -243,8 +243,19 @@ class spatial_query:
 
         Return
         ------
-        pd.Dataframe containing the cell type name, motifs, number of motifs nearby given cell type,
-        number of spots of cell type, number of motifs in single FOV, p value of hypergeometric distribution.
+        pd.DataFrame
+            DataFrame with motif enrichment results. Columns include:
+                - center: center cell type name
+                - motifs: list of cell types in the motif
+                - n_center_motif: number of center cells with motif in neighborhood
+                - n_center: total number of center cells
+                - n_motif: total number of cells with motif in neighborhood (across all cell types)
+                - expectation: expected number under hypergeometric distribution
+                - p-values: p-value from hypergeometric test
+                - if_significant: whether the enrichment is significant (p < 0.05)
+                - corrected p-values: FDR-corrected p-values (only when multiple motifs tested)
+                - neighbor_id: array of unique neighbor cell indices with motif types (only if return_cellID=True)
+                - center_id: array of center cell indices with motif in neighborhood (only if return_cellID=True)
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
@@ -395,9 +406,22 @@ class spatial_query:
         return_cellID:
             Indicate whether return cell IDs for each motif within the neighborhood of central cell type.
             By defaults do not return cell ID.
-        Returns
-        -------
-        Tuple containing counts and statistical measures.
+
+        Return
+        ------
+        pd.DataFrame
+            DataFrame with motif enrichment results. Columns include:
+                - center: center cell type name
+                - motifs: list of cell types in the motif
+                - n_center_motif: number of center cells with motif in neighborhood
+                - n_center: total number of center cells
+                - n_motif: total number of cells with motif in neighborhood (across all cell types)
+                - expectation: expected number under hypergeometric distribution
+                - p-values: p-value from hypergeometric test
+                - if_significant: whether the enrichment is significant (p < 0.05)
+                - corrected p-values: FDR-corrected p-values (only when multiple motifs tested)
+                - neighbor_id: array of unique neighbor cell indices with motif types (only if return_cellID=True)
+                - center_id: array of center cell indices with motif in neighborhood (only if return_cellID=True)
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
@@ -522,33 +546,42 @@ class spatial_query:
                            figsize: tuple = (10, 5),
                            return_cellID: bool = False,
                            return_grid: bool = False,
-                           ):
+                           ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, np.ndarray]]:
         """
         Create a grid and use it to find surrounding patterns in spatial data.
 
         Parameter
         ---------
         max_dist:
-            Maximum distance to consider a cell as a neighbor.
-        min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern
+            Maximum distance to consider a cell as a neighbor. Also used as grid spacing.
         min_size:
-            Additional parameters for pattern finding.
+            Minimum neighborhood size for each grid point to consider.
+        min_support:
+            Threshold of frequency to consider a pattern as a frequent pattern.
         if_display:
             Display the grid points with nearby frequent patterns if if_display=True.
         figsize:
-            Tuple of figure size.
+            Tuple of figure size for the display plot.
         return_cellID:
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
-            By defaults do not return cell ID.
+            By default do not return cell ID.
         return_grid:
             Indicate whether return the grid points. By default, do not return grid points.
-            If true, will return a tuple (fp_tree, grid)
+            If True, will return a tuple (fp_df, grid).
 
         Return
         ------
-        fp_tree:
-            Frequent patterns
+        Union[pd.DataFrame, Tuple[pd.DataFrame, np.ndarray]]
+            If return_grid=False (default):
+                pd.DataFrame with frequent pattern results. Columns include:
+                    - itemsets: frozenset of cell types in the frequent pattern
+                    - support: frequency of the pattern (proportion of grid points with this pattern)
+                    - neighbor_id: set of cell indices belonging to the pattern (only if return_cellID=True)
+
+            If return_grid=True:
+                Tuple containing:
+                    - pd.DataFrame: frequent pattern results as described above
+                    - np.ndarray: grid points coordinates of shape (n_grid_points, 2)
         """
 
         xmax, ymax = np.max(self.spatial_pos, axis=0)
@@ -646,37 +679,37 @@ class spatial_query:
                            if_display: bool = True,
                            figsize: tuple = (10, 5),
                            return_cellID: bool = False,
-                           seed: int = 2023) -> DataFrame:
+                           seed: int = 2023) -> pd.DataFrame:
         """
         Randomly generate points and use them to find surrounding patterns in spatial data.
 
         Parameter
         ---------
-        if_knn:
-            Use k-nearest neighbors or points within max_dist distance as neighborhood.
-        k:
-            Number of nearest neighbors. If if_knn=True, parameter k is used.
         max_dist:
-            Maximum distance to consider a cell as a neighbor. If if_knn=False, parameter max_dist is used.
+            Maximum distance to consider a cell as a neighbor.
         n_points:
             Number of random points to generate.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
         min_size:
-            Additional parameters for pattern finding.
+            Minimum neighborhood size for each random point to consider.
         if_display:
-            Display the grid points with nearby frequent patterns if if_display=True.
+            Display the random points with nearby frequent patterns if if_display=True.
         figsize:
-            Tuple of figure size.
+            Tuple of figure size for the display plot.
         return_cellID:
-            Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
-            By defaults do not return cell ID.
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of random points.
+            By default do not return cell ID.
         seed:
-            Set random seed for reproducible.
+            Random seed for reproducibility.
 
         Return
         ------
-        Results from the pattern finding function.
+        pd.DataFrame
+            DataFrame with frequent pattern results. Columns include:
+                - itemsets: frozenset of cell types in the frequent pattern
+                - support: frequency of the pattern (proportion of random points with this pattern)
+                - neighbor_id: set of cell indices belonging to the pattern (only if return_cellID=True)
         """
 
         xmax, ymax = np.max(self.spatial_pos, axis=0)
@@ -841,7 +874,7 @@ class spatial_query:
                                       min_size: int = 0,
                                       min_nonzero: int = 10,
                                       alpha: Optional[float] = None
-                                      ) -> pd.DataFrame:
+                                      ) -> Tuple[pd.DataFrame, dict]:
         """
         Compute gene-gene cross correlation between neighbor and non-neighbor motif cells. Only considers inter-cell-type interactions. 
         After finding neighbors using the full motif, removes all cells of the center cell type from both neighbor and
@@ -874,34 +907,44 @@ class spatial_query:
 
         Return
         ------
-        results_df : DataFrame
-            DataFrame with correlation results between neighbor and non-neighbor groups.
-            Columns include:
-                - gene_center, gene_motif: gene pairs
-                - corr_neighbor: correlation in neighbor group
-                - corr_non_neighbor: correlation in non-neighbor group
-                - corr_diff: difference in correlation (neighbor - non_neighbor)
-                - n_neighbor: number of cells in neighbor group (after removing center type)
-                - n_non_neighbor: number of cells in non-neighbor group (after removing center type)
-                - combined_score: combined significance score
-                - abs_combined_score: absolute value of combined score
-                - if_significant: whether both tests pass FDR threshold
+        Tuple[pd.DataFrame, dict]
+            A tuple containing:
 
-        cell_groups : dict
-            Dictionary containing cell pairing information for correlations:
-                - 'center_neighbor_motif_pair': array of shape (n_pairs, 2) containing
-                  center-neighbor pairs for Correlation 1 (center with motif vs neighboring motif).
-                  Each row is [center_cell_idx, neighbor_cell_idx].
-                - 'non-neighbor_motif_cells': array of cell indices for distant motif cells
-                  used in Correlation 2 (center with motif vs distant motif).
-                  Correlation 2 uses all combinations of center cells (from corr1) × these cells.
-                - 'non_motif_center_neighbor_pair': array of shape (n_pairs, 2) containing
-                  center-neighbor pairs for Correlation 3 (center without motif vs neighbors).
-                  Each row is [center_cell_idx, neighbor_cell_idx]. Empty if insufficient pairs.
+            results_df : DataFrame
+                DataFrame with correlation results between neighbor and non-neighbor groups.
+                Columns include:
+                    - gene_center, gene_motif: gene pairs
+                    - corr_neighbor: correlation in neighbor group
+                    - corr_non_neighbor: correlation in non-neighbor group
+                    - corr_diff_neighbor_vs_non: difference in correlation (neighbor - non_neighbor)
+                    - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
+                    - delta_corr_test1: difference in correlation for test1
+                    - corr_center_no_motif: correlation for centers without motif (NaN if not available)
+                    - p_value_test2: p-value for test2 (neighbor vs no_motif)
+                    - delta_corr_test2: difference in correlation for test2
+                    - q_value_test1: FDR-corrected q-value for test1
+                    - q_value_test2: FDR-corrected q-value for test2
+                    - reject_test1_fdr: whether test1 passes FDR threshold
+                    - reject_test2_fdr: whether test2 passes FDR threshold
+                    - combined_score: combined significance score
+                    - abs_combined_score: absolute value of combined score
+                    - if_significant: whether both tests pass FDR threshold
 
-            Note: Individual cell IDs can be extracted from pairs using np.unique() like:
-                - center_cells = np.unique(center_neighbor_motif_pair[:, 0])
-                - neighbor_cells = np.unique(center_neighbor_motif_pair[:, 1])
+            cell_groups : dict
+                Dictionary containing cell pairing information for correlations:
+                    - 'center_neighbor_motif_pair': array of shape (n_pairs, 2) containing
+                      center-neighbor pairs for Correlation 1 (center with motif vs neighboring motif).
+                      Each row is [center_cell_idx, neighbor_cell_idx].
+                    - 'non-neighbor_motif_cells': array of cell indices for distant motif cells
+                      used in Correlation 2 (center with motif vs distant motif).
+                      Correlation 2 uses all combinations of center cells (from corr1) × these cells.
+                    - 'non_motif_center_neighbor_pair': array of shape (n_pairs, 2) containing
+                      center-neighbor pairs for Correlation 3 (center without motif vs neighbors).
+                      Each row is [center_cell_idx, neighbor_cell_idx]. Empty if insufficient pairs.
+
+                Note: Individual cell IDs can be extracted from pairs using np.unique() like:
+                    - center_cells = np.unique(center_neighbor_motif_pair[:, 0])
+                    - neighbor_cells = np.unique(center_neighbor_motif_pair[:, 1])
         """
         if not self.build_gene_index:
             print('Computing covarying genes using expression data...')
@@ -1036,42 +1079,54 @@ class spatial_query:
         background: Literal['Overlapping', 'Significant'] = 'Significant'
         ) -> pd.DataFrame:
         """
-        Test whether gene-pairs have significantly different correlation scores between two groups.
+        Identify gene pairs with large score differences between two covariation pattern results.
+
+        This function compares covariation scores between two groups (e.g., disease vs control,
+        treatment vs baseline, covarying gene pairs by distinct motif types) and identifies gene 
+        pairs with the largest score differences using percentile-based ranking. Gene pairs in the 
+        top percentile_threshold% and bottom (100 - percentile_threshold)% of score differences are 
+        flagged as emperical significant ones.
 
         Parameters
         ----------
         result_A : pd.DataFrame
-            Results from compute_gene_gene_correlation/_by_type for condition A
-            Must contain columns: gene_center, gene_motif, combined_score, if_significant
+            Results from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type
+            for condition A. Must contain columns: gene_center, gene_motif, combined_score, if_significant.
         result_B : pd.DataFrame
-            Results from compute_gene_gene_correlation/_by_type for condition B
-            Must contain the same columns as result_A
+            Results from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type
+            for condition B. Must contain the same columns as result_A.
         score_col : str, default='combined_score'
-            Name of the column containing correlation scores to compare
+            Name of the column containing covariation scores to compare.
         significance_col : str, default='if_significant'
-            Name of the column indicating whether a pair is significant
+            Name of the column indicating whether a gene pair is significant.
         gene_center_col : str, default='gene_center'
-            Name of the column containing center gene names
+            Name of the column containing center gene names.
         gene_motif_col : str, default='gene_motif'
-            Name of the column containing motif gene names
+            Name of the column containing motif gene names.
         percentile_threshold : float, default=95.0
-            Percentile threshold for identifying outliers (e.g., 95 means top/bottom 5%)
+            Percentile threshold for identifying outliers. Gene pairs with score_diff in the
+            top percentile_threshold% (e.g., >95th percentile) or bottom (100 - percentile_threshold)%
+            (e.g., <5th percentile) are flagged as outliers.
+        background : Literal['Overlapping', 'Significant'], default='Significant'
+            Defines the background gene pairs for comparison:
+            - 'Significant': Only gene pairs significant in at least one condition are considered.
+            - 'Overlapping': All overlapping gene pairs between both conditions are considered.
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with columns:
-            - gene_center: center gene name
-            - gene_motif: motif gene name
-            - score_A: score in condition A
-            - score_B: score in condition B
-            - score_diff: score_A - score_B
-            - percentile: percentile rank of score_diff in the distribution
-            - is_outlier: whether this pair is an outlier (percentile > 95 or < 5)
-            - significant_in_A: whether pair is significant in condition A
-            - significant_in_B: whether pair is significant in condition B
-            - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
-
+            DataFrame with gene pair comparison results. Columns include:
+                - gene_center: center gene name
+                - gene_motif: motif gene name
+                - score_A: covariation score in condition A
+                - score_B: covariation score in condition B
+                - score_diff: score difference (score_A - score_B)
+                - percentile: percentile rank of score_diff in the distribution
+                - is_outlier: True if percentile > percentile_threshold or < (100 - percentile_threshold)
+                - significant_in_A: whether the gene pair is significant in condition A
+                - significant_in_B: whether the gene pair is significant in condition B
+                - outlier_direction: 'higher_in_A' (top percentile), 'higher_in_B' (bottom percentile),
+                  or 'not_outlier'
         """
 
         return spatial_gene_covarying.test_score_difference(result_A, result_B, score_col, significance_col, gene_center_col, gene_motif_col, percentile_threshold, background)
@@ -1081,26 +1136,28 @@ class spatial_query:
                  title: str = 'Spatial distribution of cell types',
                  figsize: tuple = (10, 5),
                  save_path: Optional[str] = None,
-                 ):
+                 ) -> None:
         """
-        Plot the cell type distribution of single fov.
+        Plot the cell type distribution of a single field of view (FOV).
 
         Parameter
-        --------
+        ---------
         min_cells_label:
-            Minimum number of points in each cell type to display.
+            Minimum number of cells required for a cell type to be displayed in the plot.
+            Cell types with fewer cells will be excluded from the legend.
         title:
-            Figure title.
+            Title of the figure.
         figsize:
-            Figure size parameter.
-
+            Figure size as (width, height) tuple.
         save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
+            Path to save the figure. If None, the figure will not be saved.
 
         Return
         ------
-        A figure.
+        None
+            Displays a scatter plot showing spatial distribution of cell types,
+            with each cell type colored differently. The legend shows cell types
+            with at least min_cells_label cells.
         """
         return plotting.plot_fov(sq_obj=self, min_cells_label=min_cells_label, title=title, figsize=figsize, save_path=save_path)
 
@@ -1175,8 +1232,9 @@ class spatial_query:
                             ):
         """
         Display the distribution of interested motifs in the radius-based neighborhood of certain cell type.
-        This function is mainly used to visualize the results of motif_enrichment_dist. Make sure the input parameters
-        are consistent with those of motif_enrichment_dist.
+        This function could be used to visualize significant motifs by `motif_enrichment_dist()` 
+        or `motif_enrichment_knn()`, or customized motifs by users.
+
 
         Parameter
         ---------
@@ -1236,6 +1294,41 @@ class spatial_query:
         A figure.
         """
         return plotting.plot_all_center_motif(sq_obj=self, ct=ct, ids=ids, figsize=figsize, save_path=save_path)
+
+    def plot_fp_heatmap(self,
+                        fp_df: pd.DataFrame,
+                        figsize: tuple = (7, 5),
+                        save_path: Optional[str] = None,
+                        title: Optional[str] = None,
+                        cmap: str = 'GnBu'):
+        """
+        Plot a heatmap showing the distribution of cell types in frequent patterns.
+
+        Parameter
+        ---------
+        fp_df:
+            DataFrame containing frequent pattern results with two columns:
+                - support: frequency of the pattern (proportion of points with this pattern)
+                - itemsets: frozenset of cell types in the frequent pattern
+            This is typically the output from find_fp_knn or find_fp_dist methods.
+        figsize:
+            Figure size, default is (7, 5)
+        save_path:
+            Path to save the figure. If None, the figure will not be saved.
+        title:
+            Figure title. If None, will use a default title.
+        cmap:
+            Colormap for the heatmap, default is 'GnBu'
+
+        Return
+        ------
+        None
+            Displays a heatmap showing the cell type distribution across frequent patterns.
+            Rows represent cell types, columns represent pattern groups (sorted by support),
+            and cell values show the support frequency.
+        """
+        return plotting.plot_fp_heatmap(fp_df=fp_df, figsize=figsize,
+                                        save_path=save_path, title=title, cmap=cmap)
 
     def plot_motif_enrichment_heatmap(self,
                                        enrich_df: pd.DataFrame,

@@ -126,7 +126,10 @@ class spatial_query_multi:
 
         Return
         ------
-        Frequent patterns in the neighborhood of certain cell type.
+        pd.DataFrame
+            DataFrame with frequent pattern results. Columns include:
+                - support: frequency of the pattern (proportion of transactions with this pattern)
+                - itemsets: list of cell types in the frequent pattern
         """
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
         # start = time.time()
@@ -201,7 +204,7 @@ class spatial_query_multi:
                      max_dist: float = 20,
                      min_size: int = 0,
                      min_support: float = 0.5,
-                     ):
+                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the radius of certain cell type in multiple fields of view.
 
@@ -221,7 +224,10 @@ class spatial_query_multi:
 
         Return
         ------
-        Frequent patterns in the neighborhood of certain cell type.
+        pd.DataFrame
+            DataFrame with frequent pattern results. Columns include:
+                - support: frequency of the pattern (proportion of transactions with this pattern)
+                - itemsets: list of cell types in the frequent pattern
         """
         # Search transactions for each field of view, find the frequent patterns of integrated transactions
         if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
@@ -295,7 +301,7 @@ class spatial_query_multi:
                              min_support: float = 0.5,
                              max_dist: float = 20,
                              return_cellID: bool = False,
-                             ) -> pd.DataFrame:
+                             ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN) in multiple fields of view.
 
@@ -314,9 +320,6 @@ class spatial_query_multi:
             Number of nearest neighbors to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        dis_duplicates:
-            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
-            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         max_dist:
             Maximum distance for neighbors (default: 20).
         return_cellID:
@@ -325,15 +328,26 @@ class spatial_query_multi:
 
         Return
         ------
-        If return_cellID is False:
-            pd.DataFrame containing statistical measures for motif enrichment.
-        If return_cellID is True:
-            A tuple with three elements:
-            - The original DataFrame output
-            - Dictionary with cell IDs of motifs in center cell's neighborhood in each dataset for each motif:
-              {'motif_1': {'dataset_1': [ids]}}
-            - Dictionary with cell IDs of center cell type with given motif in their neighborhood:
-              {'motif_1': {'dataset_1': [ids]}}
+        Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]
+            If return_cellID is False:
+                pd.DataFrame with motif enrichment results. Columns include:
+                    - center: center cell type name
+                    - motifs: list of cell types in the motif
+                    - n_center_motif: number of center cells with motif in neighborhood
+                    - n_center: total number of center cells
+                    - n_motif: total number of cells with motif in neighborhood
+                    - expectation: expected number under hypergeometric distribution
+                    - p-values: p-value from hypergeometric test
+                    - adj_pvals: FDR-corrected p-values (when multiple motifs tested)
+                    - if_significant: whether the enrichment is significant
+
+            If return_cellID is True:
+                Tuple containing:
+                    - pd.DataFrame: enrichment results as described above
+                    - Dict: cell IDs of motifs in center cell's neighborhood
+                      Format: {'motif_str': {'dataset_name': [cell_ids]}}
+                    - Dict: cell IDs of center cells with motif in neighborhood
+                      Format: {'motif_str': {'dataset_name': [cell_ids]}}
         """
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
@@ -483,7 +497,7 @@ class spatial_query_multi:
                               min_size: int = 0,
                               min_support: float = 0.5,
                               return_cellID: bool = False
-                              ):
+                              ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood in multiple fields of view.
 
@@ -503,23 +517,32 @@ class spatial_query_multi:
             Minimum neighborhood size for each point to consider.
         min_support:
             Threshold of frequency to consider a pattern as a frequent pattern.
-        dis_duplicates:
-            Distinguish duplicates in patterns if dis_duplicates=True. This will consider transactions within duplicates
-            like (A, A, A, B, C) otherwise only patterns with unique cell types will be considered like (A, B, C).
         return_cellID:
-            Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
+            Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cells.
             By defaults do not return cell ID.
-        Returns
-        -------
-        If return_cellID is False:
-            pd.DataFrame containing statistical measures for motif enrichment.
-        If return_cellID is True:
-            A tuple with three elements:
-            - The original DataFrame output
-            - Dictionary with cell IDs of motifs in center cell's neighborhood in each dataset for each motif:
-              {'motif_1': {'dataset_1': [ids]}}
-            - Dictionary with cell IDs of center cell type with given motif in their neighborhood:
-              {'motif_1': {'dataset_1': [ids]}}
+
+        Return
+        ------
+        Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]
+            If return_cellID is False:
+                pd.DataFrame with motif enrichment results. Columns include:
+                    - center: center cell type name
+                    - motifs: list of cell types in the motif
+                    - n_center_motif: number of center cells with motif in neighborhood
+                    - n_center: total number of center cells
+                    - n_motif: total number of cells with motif in neighborhood
+                    - expectation: expected number under hypergeometric distribution
+                    - p-values: p-value from hypergeometric test
+                    - adj_pvals: FDR-corrected p-values (when multiple motifs tested)
+                    - if_significant: whether the enrichment is significant
+
+            If return_cellID is True:
+                Tuple containing:
+                    - pd.DataFrame: enrichment results as described above
+                    - Dict: cell IDs of motifs in center cell's neighborhood
+                      Format: {'motif_str': {'dataset_name': [cell_ids]}}
+                    - Dict: cell IDs of center cells with motif in neighborhood
+                      Format: {'motif_str': {'dataset_name': [cell_ids]}}
         """
         if dataset is None:
             dataset = [s.dataset.split('_')[0] for s in self.spatial_queries]
@@ -704,7 +727,10 @@ class spatial_query_multi:
 
         Return
         ------
-            Frequent patterns in the neighborhood of certain cell type.
+        pd.DataFrame
+            DataFrame with frequent pattern results. Columns include:
+                - support: frequency of the pattern
+                - itemsets: frozenset of cell types in the frequent pattern
         """
         if dataset_i not in self.datasets:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
@@ -738,7 +764,7 @@ class spatial_query_multi:
                          max_dist: float = 20,
                          min_size: int = 0,
                          min_support: float = 0.5,
-                         ):
+                         ) -> pd.DataFrame:
         """
         Find frequent patterns within the radius-based neighborhood of specific cell type of interest
         in single field of view.
@@ -758,7 +784,10 @@ class spatial_query_multi:
 
         Return
         ------
-            Frequent patterns in the neighborhood of certain cell type.
+        pd.DataFrame
+            DataFrame with frequent pattern results. Columns include:
+                - support: frequency of the pattern
+                - itemsets: frozenset of cell types in the frequent pattern
         """
         if dataset_i not in self.datasets:
             raise ValueError(f"Found no {dataset_i.split('_')[0]} in any datasets.")
@@ -792,37 +821,45 @@ class spatial_query_multi:
                                   k: int = 30,
                                   min_support: float = 0.5,
                                   max_dist: float = 20,
-                                  ):
+                                  ) -> dict:
         """
-        Explore the differences in cell types and frequent patterns of cell types in spatial KNN neighborhood of cell
-        type of interest. Perform differential analysis of frequent patterns in specified datasets.
+        Perform differential analysis of spatial motif patterns between two datasets using KNN neighborhood.
+
+        This function identifies motif patterns that are differentially enriched in the KNN neighborhood
+        of a center cell type between two conditions (e.g., disease vs control). It supports two modes:
+        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both 
+           datasets, then tests for differential enrichment.
+        2. Hypothesis-driven mode (motifs specified): Tests user-specified motifs for differential
+           enrichment, allowing validation of known or hypothesized spatial patterns.
 
         Parameter
         ---------
         ct:
             Cell type of interest as center point.
         datasets:
-            Dataset names used to perform differential analysis
+            List of exactly 2 dataset names to compare (e.g., ['Disease', 'Control']).
         motifs:
             Optional user-specified motif(s) to test. Can be:
             - Single cell type: 'CellTypeA'
             - Single motif: ['CellTypeA', 'CellTypeB']
             - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
-            If None, automatically discover frequent patterns first.
+            If None, performs unbiased discovery of frequent patterns first.
         k:
-            Number of nearest neighbors.
+            Number of nearest neighbors to consider.
         min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern (only used when motifs=None).
+            Threshold of frequency to consider a pattern as frequent (only used when motifs=None
+            for unbiased discovery mode).
         max_dist:
             Maximum distance for considering a cell as a neighbor.
 
         Return
         ------
-            Dict with keys as dataset names, values as DataFrames with significant enriched patterns.
-            Each DataFrame contains:
-                - itemsets: the motif pattern (as tuple)
-                - adj_pvals: FDR-corrected p-value
-            Only significant patterns (adj_p_value < 0.05) for each dataset are included.
+        dict
+            Dictionary with dataset names as keys and DataFrames as values.
+            Each DataFrame contains motif patterns significantly enriched in that dataset:
+                - itemsets: the motif pattern (as tuple of cell types)
+                - adj_pvals: FDR-corrected p-value for differential enrichment
+            Only patterns with adj_pvals < 0.05 are included for each dataset.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -882,37 +919,46 @@ class spatial_query_multi:
                                    max_dist: float = 20,
                                    min_support: float = 0.5,
                                    min_size: int = 0,
-                                   ):
+                                   ) -> dict:
         """
-        Explore the differences in cell types and frequent patterns of cell types in spatial radius-based neighborhood
-        of cell type of interest. Perform differential analysis of frequent patterns in specified datasets.
+        Perform differential analysis of spatial motif patterns between two datasets using radius-based neighborhood.
+
+        This function identifies motif patterns that are differentially enriched in the radius-based
+        neighborhood of a center cell type between two conditions (e.g., disease vs control). It supports
+        two modes:
+        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both 
+           datasets, then tests for differential enrichment.
+        2. Hypothesis-driven mode (motifs specified): Tests user-specified motifs for differential
+           enrichment, allowing validation of known or hypothesized spatial patterns.
 
         Parameter
         ---------
         ct:
             Cell type of interest as center point.
         datasets:
-            Dataset names used to perform differential analysis
+            List of exactly 2 dataset names to compare (e.g., ['Disease', 'Control']).
         motifs:
             Optional user-specified motif(s) to test. Can be:
             - Single cell type: 'CellTypeA'
             - Single motif: ['CellTypeA', 'CellTypeB']
             - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
-            If None, automatically discover frequent patterns first.
+            If None, performs unbiased discovery of frequent patterns first.
         max_dist:
             Maximum distance for considering a cell as a neighbor.
         min_support:
-            Threshold of frequency to consider a pattern as a frequent pattern (only used when motifs=None).
+            Threshold of frequency to consider a pattern as frequent (only used when motifs=None
+            for unbiased discovery mode).
         min_size:
-            Minimum neighborhood size for each point to consider.
+            Minimum neighborhood size for each center cell to be considered.
 
         Return
         ------
-            Dict with keys as dataset names, values as DataFrames with significant enriched patterns.
-            Each DataFrame contains:
-                - itemsets: the motif pattern (as tuple)
-                - adj_pvals: FDR-corrected p-value
-            Only significant patterns (adj_p_value < 0.05) for each dataset are included.
+        dict
+            Dictionary with dataset names as keys and DataFrames as values.
+            Each DataFrame contains motif patterns significantly enriched in that dataset:
+                - itemsets: the motif pattern (as tuple of cell types)
+                - adj_pvals: FDR-corrected p-value for differential enrichment
+            Only patterns with adj_pvals < 0.05 are included for each dataset.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -1001,7 +1047,13 @@ class spatial_query_multi:
         Returns
         -------
         pd.DataFrame
-            DataFrame containing differential expression results.
+            DataFrame with differential expression results. Columns include:
+                - gene: gene name
+                - proportion_1: proportion of cells expressing the gene in group 1
+                - proportion_2: proportion of cells expressing the gene in group 2
+                - p_value: p-value from statistical test
+                - adj_p_value: FDR-corrected p-value
+                - de_in: which group the gene is differentially expressed in ('group1' or 'group2')
         """
         if self.build_gene_index:
             # Use scfind index-based method with Fisher's exact test
@@ -1718,42 +1770,54 @@ class spatial_query_multi:
         background: Literal['Overlapping', 'Significant'] = 'Significant'
         ) -> pd.DataFrame:
         """
-        Test whether gene-pairs have significantly different correlation scores between two groups.
+        Identify gene pairs with large score differences between two covariation pattern results.
+
+        This function compares covariation scores between two groups (e.g., disease vs control,
+        treatment vs baseline, covarying gene pairs by distinct motif types) and identifies gene 
+        pairs with the largest score differences using percentile-based ranking. Gene pairs in the 
+        top percentile_threshold% and bottom (100 - percentile_threshold)% of score differences are 
+        flagged as emperical significant ones.
 
         Parameters
         ----------
         result_A : pd.DataFrame
-            Results from compute_gene_gene_correlation/_by_type for condition A
-            Must contain columns: gene_center, gene_motif, combined_score, if_significant
+            Results from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type
+            for condition A. Must contain columns: gene_center, gene_motif, combined_score, if_significant.
         result_B : pd.DataFrame
-            Results from compute_gene_gene_correlation/_by_type for condition B
-            Must contain the same columns as result_A
+            Results from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type
+            for condition B. Must contain the same columns as result_A.
         score_col : str, default='combined_score'
-            Name of the column containing correlation scores to compare
+            Name of the column containing covariation scores to compare.
         significance_col : str, default='if_significant'
-            Name of the column indicating whether a pair is significant
+            Name of the column indicating whether a gene pair is significant.
         gene_center_col : str, default='gene_center'
-            Name of the column containing center gene names
+            Name of the column containing center gene names.
         gene_motif_col : str, default='gene_motif'
-            Name of the column containing motif gene names
+            Name of the column containing motif gene names.
         percentile_threshold : float, default=95.0
-            Percentile threshold for identifying outliers (e.g., 95 means top/bottom 5%)
+            Percentile threshold for identifying outliers. Gene pairs with score_diff in the
+            top percentile_threshold% (e.g., >95th percentile) or bottom (100 - percentile_threshold)%
+            (e.g., <5th percentile) are flagged as outliers.
+        background : Literal['Overlapping', 'Significant'], default='Significant'
+            Defines the background gene pairs for comparison:
+            - 'Significant': Only gene pairs significant in at least one condition are considered.
+            - 'Overlapping': All overlapping gene pairs between both conditions are considered.
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with columns:
-            - gene_center: center gene name
-            - gene_motif: motif gene name
-            - score_A: score in condition A
-            - score_B: score in condition B
-            - score_diff: score_A - score_B
-            - percentile: percentile rank of score_diff in the distribution
-            - is_outlier: whether this pair is an outlier (percentile > 95 or < 5)
-            - significant_in_A: whether pair is significant in condition A
-            - significant_in_B: whether pair is significant in condition B
-            - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
-
+            DataFrame with gene pair comparison results. Columns include:
+                - gene_center: center gene name
+                - gene_motif: motif gene name
+                - score_A: covariation score in condition A
+                - score_B: covariation score in condition B
+                - score_diff: score difference (score_A - score_B)
+                - percentile: percentile rank of score_diff in the distribution
+                - is_outlier: True if percentile > percentile_threshold or < (100 - percentile_threshold)
+                - significant_in_A: whether the gene pair is significant in condition A
+                - significant_in_B: whether the gene pair is significant in condition B
+                - outlier_direction: 'higher_in_A' (top percentile), 'higher_in_B' (bottom percentile),
+                  or 'not_outlier'
         """
         
         return spatial_gene_covarying.test_score_difference(result_A, result_B, score_col, significance_col, gene_center_col, gene_motif_col, percentile_threshold, background)

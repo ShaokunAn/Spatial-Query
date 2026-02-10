@@ -2287,42 +2287,54 @@ def test_score_difference(
         background: Literal['Overlapping', 'Significant'] = 'Significant'
         ) -> pd.DataFrame:
     """
-    Test whether gene-pairs have significantly different correlation scores between two groups.
+    Identify gene pairs with large score differences between two covariation pattern results.
+
+    This function compares covariation scores between two groups (e.g., disease vs control,
+    treatment vs baseline, covarying gene pairs by distinct motif types) and identifies gene 
+    pairs with the largest score differences using percentile-based ranking. Gene pairs in the 
+    top percentile_threshold% and bottom (100 - percentile_threshold)% of score differences are 
+    flagged as emperical significant ones.
 
     Parameters
     ----------
     result_A : pd.DataFrame
-        Results from compute_gene_gene_correlation/_by_type for condition A
-        Must contain columns: gene_center, gene_motif, combined_score, if_significant
+        Results from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type
+        for condition A. Must contain columns: gene_center, gene_motif, combined_score, if_significant.
     result_B : pd.DataFrame
-        Results from compute_gene_gene_correlation/_by_type for condition B
-        Must contain the same columns as result_A
+        Results from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type
+        for condition B. Must contain the same columns as result_A.
     score_col : str, default='combined_score'
-        Name of the column containing correlation scores to compare
+        Name of the column containing covariation scores to compare.
     significance_col : str, default='if_significant'
-        Name of the column indicating whether a pair is significant
+        Name of the column indicating whether a gene pair is significant.
     gene_center_col : str, default='gene_center'
-        Name of the column containing center gene names
+        Name of the column containing center gene names.
     gene_motif_col : str, default='gene_motif'
-        Name of the column containing motif gene names
+        Name of the column containing motif gene names.
     percentile_threshold : float, default=95.0
-        Percentile threshold for identifying outliers (e.g., 95 means top/bottom 5%)
+        Percentile threshold for identifying outliers. Gene pairs with score_diff in the
+        top percentile_threshold% (e.g., >95th percentile) or bottom (100 - percentile_threshold)%
+        (e.g., <5th percentile) are flagged as outliers.
+    background : Literal['Overlapping', 'Significant'], default='Significant'
+        Defines the background gene pairs for comparison:
+        - 'Significant': Only gene pairs significant in at least one condition are considered.
+        - 'Overlapping': All overlapping gene pairs between both conditions are considered.
 
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns:
-        - gene_center: center gene name
-        - gene_motif: motif gene name
-        - score_A: score in condition A
-        - score_B: score in condition B
-        - score_diff: score_A - score_B
-        - percentile: percentile rank of score_diff in the distribution
-        - is_outlier: whether this pair is an outlier (percentile > 95 or < 5)
-        - significant_in_A: whether pair is significant in condition A
-        - significant_in_B: whether pair is significant in condition B
-        - outlier_direction: 'higher_in_A' (>95th), 'lower_in_A' (<5th), or 'not_outlier'
-
+        DataFrame with gene pair comparison results. Columns include:
+            - gene_center: center gene name
+            - gene_motif: motif gene name
+            - score_A: covariation score in condition A
+            - score_B: covariation score in condition B
+            - score_diff: score difference (score_A - score_B)
+            - percentile: percentile rank of score_diff in the distribution
+            - is_outlier: True if percentile > percentile_threshold or < (100 - percentile_threshold)
+            - significant_in_A: whether the gene pair is significant in condition A
+            - significant_in_B: whether the gene pair is significant in condition B
+            - outlier_direction: 'higher_in_A' (top percentile), 'higher_in_B' (bottom percentile),
+              or 'not_outlier'
     """
 
     # Validate inputs
