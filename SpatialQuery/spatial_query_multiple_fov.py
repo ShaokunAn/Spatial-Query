@@ -824,6 +824,8 @@ class spatial_query_multi:
                                   ) -> dict:
         """
         Perform differential analysis of spatial motif patterns between two datasets using KNN neighborhood.
+        Mann-Whitney U test is used to compare the support values of each motif pattern across FOVs of two datasets, 
+        and FDR correction is applied for multiple testing.
 
         This function identifies motif patterns that are differentially enriched in the KNN neighborhood
         of a center cell type between two conditions (e.g., disease vs control). It supports two modes:
@@ -858,6 +860,8 @@ class spatial_query_multi:
             Dictionary with dataset names as keys and DataFrames as values.
             Each DataFrame contains motif patterns significantly enriched in that dataset:
                 - itemsets: the motif pattern (as tuple of cell types)
+                - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
+                - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
                 - adj_pvals: FDR-corrected p-value for differential enrichment
             Only patterns with adj_pvals < 0.05 are included for each dataset.
         """
@@ -922,6 +926,8 @@ class spatial_query_multi:
                                    ) -> dict:
         """
         Perform differential analysis of spatial motif patterns between two datasets using radius-based neighborhood.
+        Mann-Whitney U test is used to compare the support values of each motif pattern across FOVs of two datasets, 
+        and FDR correction is applied for multiple testing.
 
         This function identifies motif patterns that are differentially enriched in the radius-based
         neighborhood of a center cell type between two conditions (e.g., disease vs control). It supports
@@ -957,6 +963,8 @@ class spatial_query_multi:
             Dictionary with dataset names as keys and DataFrames as values.
             Each DataFrame contains motif patterns significantly enriched in that dataset:
                 - itemsets: the motif pattern (as tuple of cell types)
+                - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
+                - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
                 - adj_pvals: FDR-corrected p-value for differential enrichment
             Only patterns with adj_pvals < 0.05 are included for each dataset.
         """
