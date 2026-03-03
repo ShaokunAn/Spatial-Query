@@ -25,48 +25,66 @@ from . import spatial_utils, spatial_gene_covarying, plotting
 
 class spatial_query:
     """
-    Class for spatial query of single FOV
+    Spatial Query Analysis for Single Field of View (FOV)
 
-    Parameter
-    ---------
-    adata:
-        AnnData object
-    dataset:
-        Dataset name, default is 'ST' of single FOV
-    spatial_key:
-        Key of spatial coordinates in adata.obsm, default is 'X_spatial'.
-    label_key:
-        Key of cell type label in adata.obs, default is 'predicted_label'
-    leaf_size:
-        Leaf size for KDTree, default is 10
-    build_gene_index:
-        Whether to build scfind index of expression data, default is False. If expression data is required for query,
-        set this parameter to True
-    feature_name:
-        The label or key in the AnnData object's variables (var) that corresponds to the feature names. This is
-        only used if build_gene_index is True
-    if_lognorm:
-        Whether to log normalize the expression data, default is True
+    A class for performing spatial query analysis on spatial transcriptomics data of a single field of view,
+    including pattern discovery, enrichment analysis, differential analysis, and gene-gene covariation assessment.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data object containing expression matrix and metadata.
+    dataset : str, default='ST'
+        Dataset identifier.
+    spatial_key : str, default='X_spatial'
+        Key in adata.obsm containing spatial coordinates (n_obs, 2).
+    label_key : str, default='cell_type'
+        Key in adata.obs containing cell type annotations.
+    leaf_size : int, default=10
+        Leaf size parameter for KDTree construction. Larger values reduce tree depth
+        but increase computation per query.
+    build_gene_index : bool, default=False
+        If True, constructs SCFind index by compressing original data to binary format to save memory.
+        If False, uses original expression matrix from adata.X directly.
+    feature_name : str, default='gene'
+        Column name in adata.var containing feature identifiers.
+    if_lognorm : bool, default=True
+        If True, applies log1p transformation after library size normalization.
+        Set to False if expression data is already normalized and no more transformation is required.
+    if_normalize_spatial_coord : bool, default=True
+        If True, normalizes spatial coordinates so mean nearest neighbor distance equals 1.
+        This makes max_dist parameter interpretable as "number of cell diameters."
+        Set to False if original spatial units (e.g., micrometers) are required and
+        should be preserved for downstream analysis.
+
+    Notes
+    -----
+    When if_normalize_spatial_coord=True, the max_dist parameter in query functions
+    represents relative spatial scale (in units of mean nearest neighbor distance).
+    When if_normalize_spatial_coord=False, max_dist uses original coordinate units.
     """
     def __init__(
         self,
         adata: AnnData,
         dataset: str = 'ST',
         spatial_key: str = 'X_spatial',
-        label_key: str = 'predicted_label',
+        label_key: str = 'cell_type',
         leaf_size: int = 10,
         build_gene_index: bool = False,
-        feature_name: str = None,
+        feature_name: str = 'gene',
         if_lognorm: bool = True,
+        if_normalize_spatial_coord: bool = True
         ):
         if spatial_key not in adata.obsm.keys() or label_key not in adata.obs.keys():
             raise ValueError(f"The Anndata object must contain {spatial_key} in obsm and {label_key} in obs.")
         
         self.spatial_key = spatial_key
+        self.feature_name = feature_name
 
         # Standardize spatial position
         self.spatial_pos = np.array(adata.obsm[self.spatial_key])
-        self.spatial_pos = spatial_utils._auto_normalize_spatial_coords(self.spatial_pos)
+        if if_normalize_spatial_coord:
+            self.spatial_pos = spatial_utils._auto_normalize_spatial_coords(self.spatial_pos)
         
         self.dataset = dataset
         self.label_key = label_key
