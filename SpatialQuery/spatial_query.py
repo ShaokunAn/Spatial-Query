@@ -17,6 +17,8 @@ from statsmodels.stats.multitest import multipletests
 
 from time import time
 
+import zarr
+
 from .scfind4sp import SCFind
 import scanpy as sc
 from . import spatial_utils, spatial_gene_covarying, plotting
@@ -1501,3 +1503,128 @@ class spatial_query:
             cmap=cmap,
             save_path=save_path,
         )
+        
+def interactive_motif(
+    sp,
+    zarr_path: str,
+    spatialSpotRadius: float = 1,
+):
+    """
+    Create an interactive Vitessce widget to explore spatial motifs.
+
+    Builds a minimal AnnData containing only cell type labels and spatial
+    coordinates from the SpatialQuery object, writes it to a Zarr store,
+    and launches the Vitessce widget with the SpatialQueryPlugin.
+
+    Parameters
+    ----------
+    sp : spatial_query
+        An initialized SpatialQuery instance.
+    zarr_path : str
+        Path where the Zarr store will be written.
+    spatialSpotRadius : float, optional
+        Radius for spatial spots in the visualization, by default 1.
+    """
+    import os
+    import warnings
+    import anndata
+    import scipy.sparse as ssp
+    from vitessce import (
+        VitessceConfig,
+        AnnDataWrapper,
+        CoordinationLevel as CL,
+        hconcat, vconcat,
+    )
+    from vitessce.widget_plugins import SpatialQueryPlugin
+
+    label_key = sp.label_key
+    spatial_key = sp.spatial_key
+
+    has_expression = not sp.build_gene_index and sp.adata is not None
+
+    # Build minimal AnnData: obs (cell type), obsm (coordinates), var (features)
+    obs = sp.labels.to_frame()
+    n_obs = obs.shape[0]
+    var = pd.DataFrame({sp.feature_name: sp.genes}, index=sp.genes)
+    n_var = len(sp.genes)
+
+    if has_expression:
+        X = sp.adata.X  # already normalized
+    else:
+        X = ssp.csr_matrix((n_obs, n_var))
+
+    mini_adata = anndata.AnnData(X=X, obs=obs, var=var)
+    mini_adata.obsm[spatial_key] = sp.spatial_pos
+
+    if os.path.exists(zarr_path):
+        warnings.warn(f"Zarr store already exists at '{zarr_path}'. Its contents will be overwritten.")
+    else:
+        os.makedirs(zarr_path)
+
+    print(f"Writing zarr to {zarr_path} ...")
+    mini_adata.write_zarr(zarr_path)
+
+    plugin = SpatialQueryPlugin(
+        mini_adata,
+        spatial_key=spatial_key,
+        label_key=label_key,
+        feature_name=sp.feature_name,
+        if_lognorm=False,
+    )
+
+    vc = VitessceConfig(schema_version="1.0.16", name="SpatialQuery")
+
+    wrapper_kwargs = dict(
+        adata_path=zarr_path,
+        obs_set_paths=[f"obs/{label_key}"],
+        obs_set_names=["Cell Type"],
+        obs_spots_path=f"obsm/{spatial_key}",
+    )
+    if has_expression:
+        wrapper_kwargs["obs_feature_matrix_path"] = "X"
+        wrapper_kwargs["feature_labels_path"] = f"var/{sp.feature_name}"
+        wrapper_kwargs["coordination_values"] = {"featureLabelsType": "Gene symbol"}
+
+    dataset = vc.add_dataset("Query results").add_object(AnnDataWrapper(**wrapper_kwargs))
+
+    spatial_view = vc.add_view("spatialBeta", dataset=dataset)
+    lc_view = vc.add_view("layerControllerBeta", dataset=dataset)
+    sets_view = vc.add_view("obsSets", dataset=dataset)
+    sq_view = vc.add_view("spatialQuery", dataset=dataset)
+    sq_heatmap_view = vc.add_view("spatialQueryHeatmap", dataset=dataset)
+
+    initial_obs_set_selection = [
+        ["Cell Type", ct] for ct in sp.labels.unique().tolist()
+    ]
+
+    linked_views = [spatial_view, lc_view, sets_view, sq_view]
+    if has_expression:
+        features_view = vc.add_view("featureList", dataset=dataset)
+        linked_views.append(features_view)
+
+    vc.link_views(
+        linked_views,
+        ["additionalObsSets", "obsSetColor", "obsSetSelection", "obsColorEncoding"],
+        [plugin.additional_obs_sets, plugin.obs_set_color, initial_obs_set_selection, "cellSetSelection"],
+    )
+
+    vc.link_views_by_dict([spatial_view, lc_view], {
+        "spotLayer": CL([{"obsType": "cell", "spatialSpotRadius": spatialSpotRadius}]),
+    })
+
+    if has_expression:
+        vc.layout(
+            vconcat(
+                hconcat(spatial_view, vconcat(lc_view, features_view)),
+                hconcat(sets_view, sq_heatmap_view, sq_view),
+            )
+        )
+    else:
+        vc.layout(
+            vconcat(
+                hconcat(spatial_view, lc_view),
+                hconcat(sets_view, sq_heatmap_view, sq_view),
+            )
+        )
+
+    return vc.widget(height=900, plugins=[plugin], remount_on_uid_change=False)
