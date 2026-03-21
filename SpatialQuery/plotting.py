@@ -691,7 +691,7 @@ def plot_differential_pattern_heatmap(
     diff_motif : dict
         Dictionary containing differential analysis results from differential_analysis_dist.
         Keys are dataset names (e.g., 'CLR', 'DII'), values are DataFrames with columns:
-        'itemsets' (motifs), 'adj_pvals' (adjusted p-values)
+        'itemsets' (motifs), 'adj-pval' (adjusted p-values)
     ct : str
         Center cell type name (used in the title)
     figsize : tuple, optional
@@ -725,14 +725,14 @@ def plot_differential_pattern_heatmap(
     for dataset_name, df in diff_motif.items():
         df_copy = df.copy()
         df_copy['dataset'] = dataset_name
-        df_copy['-log10(adj_pvals)'] = -np.log10(df_copy['adj_pvals'])
+        df_copy['-log10(adj-pval)'] = -np.log10(df_copy['adj-pval'])
         combined_dfs.append(df_copy)
 
     diff_combined = pd.concat(combined_dfs, ignore_index=True)
 
-    # Sort by dataset, then by -log10(adj_pvals)
+    # Sort by dataset, then by -log10(adj-pval)
     diff_combined = diff_combined.sort_values(
-        by=['dataset', '-log10(adj_pvals)'],
+        by=['dataset', '-log10(adj-pval)'],
         ascending=[True, True]
     ).reset_index(drop=True)
 
@@ -748,7 +748,7 @@ def plot_differential_pattern_heatmap(
     heatmap_data = diff_expanded.pivot_table(
         index='itemsets',
         columns='motif_group',
-        values='-log10(adj_pvals)',
+        values='-log10(adj-pval)',
         aggfunc='first'
     )
 

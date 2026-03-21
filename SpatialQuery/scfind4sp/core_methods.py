@@ -953,13 +953,13 @@ class SCFind:
             print("No significant genes identified between given cell types.")
             return pd.DataFrame(
                 columns=["gene", "proportion_1", "proportion_2", "abs",
-                         "difference", "p_value", "test_used", "adj_p_value", "de_in"
+                         "difference", "p_value", "test_used", "adj-pval", "de_in"
                          ])
         else:
             results_df = pd.DataFrame(results).sort_values('p_value', ignore_index=True)
             adjusted_pvals = multipletests(results_df['p_value'], method='holm')[1]
-            results_df['adj_p_value'] = adjusted_pvals
-            results_df = results_df[results_df['adj_p_value'] < alpha]
+            results_df['adj-pval'] = adjusted_pvals
+            results_df = results_df[results_df['adj-pval'] < alpha]
             results_df['de_in'] = np.where(
                 (results_df['proportion_1'] > results_df['proportion_2']),
                 cell_type1,

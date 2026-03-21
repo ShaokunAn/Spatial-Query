@@ -273,7 +273,7 @@ class spatial_query:
                 - expectation: expected number under hypergeometric distribution
                 - p-values: p-value from hypergeometric test
                 - if_significant: whether the enrichment is significant (p < 0.05)
-                - corrected p-values: FDR-corrected p-values (only when multiple motifs tested)
+                - adj-pval: FDR-corrected p-values (only when multiple motifs tested)
                 - neighbor_id: array of unique neighbor cell indices with motif types (only if return_cellID=True)
                 - center_id: array of center cell indices with motif in neighborhood (only if return_cellID=True)
         """
@@ -394,9 +394,9 @@ class spatial_query:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['adj-pval'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
             return out_pd
 
     def motif_enrichment_dist(self,
@@ -439,7 +439,7 @@ class spatial_query:
                 - expectation: expected number under hypergeometric distribution
                 - p-values: p-value from hypergeometric test
                 - if_significant: whether the enrichment is significant (p < 0.05)
-                - corrected p-values: FDR-corrected p-values (only when multiple motifs tested)
+                - adj-pval: FDR-corrected p-values (only when multiple motifs tested)
                 - neighbor_id: array of unique neighbor cell indices with motif types (only if return_cellID=True)
                 - center_id: array of center cell indices with motif in neighborhood (only if return_cellID=True)
         """
@@ -552,9 +552,9 @@ class spatial_query:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['corrected p-values'] = corrected_p_values
+            out_pd['adj-pval'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='corrected p-values', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
             return out_pd
 
 
@@ -854,12 +854,12 @@ class spatial_query:
             out_df['p_value'] = p_values
 
             adjusted_pvals = multipletests(out_df['p_value'], method='fdr_bh')[1]
-            out_df['adj_p_value'] = adjusted_pvals
+            out_df['adj-pval'] = adjusted_pvals
 
             if alpha is None:
                 alpha = 0.1
 
-            results_df = out_df[out_df['adj_p_value'] < alpha]
+            results_df = out_df[out_df['adj-pval'] < alpha]
             results_df.loc[:, 'de_in'] = np.where(
                 (results_df['proportion_1'] >= results_df['proportion_2']),
                 'group1',
@@ -869,20 +869,20 @@ class spatial_query:
                     None
                 )
             )
-            results_df = results_df[results_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
-            results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'p_value', 'adj_p_value', 'de_in']]
+            results_df = results_df[results_df['adj-pval'] < alpha].sort_values('p_value').reset_index(drop=True)
+            results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'p_value', 'adj-pval', 'de_in']]
         else:
             # Use adata.X directly for DE analysis
             if method == 'fisher':
                 results_df = spatial_utils.de_genes_fisher(
                     self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, alpha
                 )
-                results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'p_value', 'adj_p_value', 'de_in']]
+                results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'p_value', 'adj-pval', 'de_in']]
             elif method == 't-test' or method == 'wilcoxon':
                 results_df = spatial_utils.de_genes_scanpy(
                     self.adata, self.genes, ind_group1, ind_group2, genes, min_fraction, method=method, alpha=alpha
                 )
-                results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'log2fc', 'p_value', 'adj_p_value', 'de_in']]
+                results_df = results_df[['gene', 'proportion_1', 'proportion_2', 'abs_difference', 'log2fc', 'p_value', 'adj-pval', 'de_in']]
             else:
                 raise ValueError(f"Invalid method: {method}. Choose from 'fisher', 't-test', or 'wilcoxon'.")
 

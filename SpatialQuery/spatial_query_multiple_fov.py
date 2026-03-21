@@ -338,7 +338,7 @@ class spatial_query_multi:
                     - n_motif: total number of cells with motif in neighborhood
                     - expectation: expected number under hypergeometric distribution
                     - p-values: p-value from hypergeometric test
-                    - adj_pvals: FDR-corrected p-values (when multiple motifs tested)
+                    - adj-pval: FDR-corrected p-values (when multiple motifs tested)
                     - if_significant: whether the enrichment is significant
 
             If return_cellID is True:
@@ -480,9 +480,9 @@ class spatial_query_multi:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['adj_pvals'] = corrected_p_values
+            out_pd['adj-pval'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='adj_pvals', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
 
         if return_cellID:
             return out_pd, motif_cell_ids, center_cell_ids
@@ -533,7 +533,7 @@ class spatial_query_multi:
                     - n_motif: total number of cells with motif in neighborhood
                     - expectation: expected number under hypergeometric distribution
                     - p-values: p-value from hypergeometric test
-                    - adj_pvals: FDR-corrected p-values (when multiple motifs tested)
+                    - adj-pval: FDR-corrected p-values (when multiple motifs tested)
                     - if_significant: whether the enrichment is significant
 
             If return_cellID is True:
@@ -693,9 +693,9 @@ class spatial_query_multi:
             if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
                                                                alpha=0.05,
                                                                method='poscorr')
-            out_pd['adj_pvals'] = corrected_p_values
+            out_pd['adj-pval'] = corrected_p_values
             out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='adj_pvals', ignore_index=True)
+            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
 
         if return_cellID:
             return out_pd, motif_cell_ids, center_cell_ids
@@ -862,8 +862,8 @@ class spatial_query_multi:
                 - itemsets: the motif pattern (as tuple of cell types)
                 - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
                 - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
-                - adj_pvals: FDR-corrected p-value for differential enrichment
-            Only patterns with adj_pvals < 0.05 are included for each dataset.
+                - adj-pval: FDR-corrected p-value for differential enrichment
+            Only patterns with adj-pval < 0.05 are included for each dataset.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -965,8 +965,8 @@ class spatial_query_multi:
                 - itemsets: the motif pattern (as tuple of cell types)
                 - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
                 - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
-                - adj_pvals: FDR-corrected p-value for differential enrichment
-            Only patterns with adj_pvals < 0.05 are included for each dataset.
+                - adj-pval: FDR-corrected p-value for differential enrichment
+            Only patterns with adj-pval < 0.05 are included for each dataset.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -1060,7 +1060,7 @@ class spatial_query_multi:
                 - proportion_1: proportion of cells expressing the gene in group 1
                 - proportion_2: proportion of cells expressing the gene in group 2
                 - p_value: p-value from statistical test
-                - adj_p_value: FDR-corrected p-value
+                - adj-pval: FDR-corrected p-value
                 - de_in: which group the gene is differentially expressed in ('group1' or 'group2')
         """
         if self.build_gene_index:
@@ -1198,7 +1198,7 @@ class spatial_query_multi:
             print("No genes meet the minimum fraction threshold.")
             return pd.DataFrame(
                 columns=["gene", "proportion_1", "proportion_2", "abs",
-                         "difference", "p_value", "adj_p_value", "de_in"]
+                         "difference", "p_value", "adj-pval", "de_in"]
             )
 
         # Calculate differences
@@ -1245,11 +1245,11 @@ class spatial_query_multi:
         # Multiple testing correction
         if len(filtered_df) > 1:
             adjusted_pvals = multipletests(filtered_df['p_value'], method='fdr_bh')[1]
-            filtered_df['adj_p_value'] = adjusted_pvals
+            filtered_df['adj-pval'] = adjusted_pvals
         else:
-            filtered_df['adj_p_value'] = filtered_df['p_value']
+            filtered_df['adj-pval'] = filtered_df['p_value']
 
-        filtered_df = filtered_df[filtered_df['adj_p_value']<alpha].reset_index(drop=True)
+        filtered_df = filtered_df[filtered_df['adj-pval']<alpha].reset_index(drop=True)
 
         # Add information about which group shows higher expression
         filtered_df['de_in'] = np.where(
@@ -1266,7 +1266,7 @@ class spatial_query_multi:
 
         # Return the final results
         return filtered_df[["gene", "proportion_1", "proportion_2", "abs",
-                            "difference", "p_value", "adj_p_value", "de_in"]]
+                            "difference", "p_value", "adj-pval", "de_in"]]
 
     def _de_genes_adata(self,
                         ind_group1: Dict[str, List[int]],
@@ -1631,7 +1631,7 @@ class spatial_query_multi:
                 - p_value_test2: p-value for test2 (with motif vs without motif)
                 - delta_corr_test1, delta_corr_test2: correlation differences
                 - combined_score: combined significance score
-                - adj_p_value_test1, adj_p_value_test2: FDR-corrected p-values
+                - adj-pval-test1, adj-pval-test2: FDR-corrected p-values
 
         fov_info : Dict
             Dictionary containing FOV-level information:

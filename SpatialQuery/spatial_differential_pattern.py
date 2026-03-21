@@ -114,8 +114,8 @@ def differential_analysis_motif_knn(
         - itemsets: the tested motif pattern (as tuple)
         - support_{datasets_list[0]}_mean: mean support in dataset 0
         - support_{datasets_list[1]}_mean: mean support in dataset 1
-        - adj_pvals: FDR-corrected p-value
-        Only significant motifs (adj_p_value < 0.05) for each dataset are included.
+        - adj-pval: FDR-corrected p-value
+        Only significant motifs (adj-pval < 0.05) for each dataset are included.
     """
     if len(datasets_list) != 2:
         raise ValueError("Require 2 datasets for differential analysis.")
@@ -287,26 +287,26 @@ def differential_analysis_motif_knn(
             alpha=0.05,
             method='poscorr'
         )
-        results_df['adj_pvals'] = corrected_p_values
+        results_df['adj-pval'] = corrected_p_values
         results_df['if_significant'] = if_rejected
     else:
-        results_df['adj_pvals'] = results_df['p_value']
+        results_df['adj-pval'] = results_df['p_value']
         results_df['if_significant'] = results_df['p_value'] < 0.05
 
     # Split results by dataset - only keep significant ones
     dataset0_results = results_df[
         (results_df['dataset_higher_frequency'] == datasets_list[0]) &
         (results_df['if_significant'])
-    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj_pvals']].copy()
+    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj-pval']].copy()
 
     dataset1_results = results_df[
         (results_df['dataset_higher_frequency'] == datasets_list[1]) &
         (results_df['if_significant'])
-    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj_pvals']].copy()
+    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj-pval']].copy()
 
     # Sort by adjusted p-value
-    dataset0_results = dataset0_results.sort_values(by='adj_pvals', ascending=True, ignore_index=True)
-    dataset1_results = dataset1_results.sort_values(by='adj_pvals', ascending=True, ignore_index=True)
+    dataset0_results = dataset0_results.sort_values(by='adj-pval', ascending=True, ignore_index=True)
+    dataset1_results = dataset1_results.sort_values(by='adj-pval', ascending=True, ignore_index=True)
 
     return {datasets_list[0]: dataset0_results, datasets_list[1]: dataset1_results}
 
@@ -349,8 +349,8 @@ def differential_analysis_motif_dist(
         - itemsets: the tested motif pattern (as tuple)
         - support_{datasets_list[0]}_mean: mean support in dataset 0
         - support_{datasets_list[1]}_mean: mean support in dataset 1
-        - adj_pvals: FDR-corrected p-value
-        Only significant motifs (adj_p_value < 0.05) for each dataset are included.
+        - adj-pval: FDR-corrected p-value
+        Only significant motifs (adj-pval < 0.05) for each dataset are included.
     """
     if len(datasets_list) != 2:
         raise ValueError("Require 2 datasets for differential analysis.")
@@ -526,25 +526,25 @@ def differential_analysis_motif_dist(
             alpha=0.05,
             method='poscorr'
         )
-        results_df['adj_pvals'] = corrected_p_values
+        results_df['adj-pval'] = corrected_p_values
         results_df['if_significant'] = if_rejected
     else:
-        results_df['adj_pvals'] = results_df['p_value']
+        results_df['adj-pval'] = results_df['p_value']
         results_df['if_significant'] = results_df['p_value'] < 0.05
 
     # Split results by dataset - only keep significant ones
     dataset0_results = results_df[
         (results_df['dataset_higher_frequency'] == datasets_list[0]) &
         (results_df['if_significant'])
-    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj_pvals']].copy()
+    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj-pval']].copy()
 
     dataset1_results = results_df[
         (results_df['dataset_higher_frequency'] == datasets_list[1]) &
         (results_df['if_significant'])
-    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj_pvals']].copy()
+    ][['itemsets', f'support_{datasets_list[0]}_mean', f'support_{datasets_list[1]}_mean', 'adj-pval']].copy()
 
     # Sort by adjusted p-value
-    dataset0_results = dataset0_results.sort_values(by='adj_pvals', ascending=True, ignore_index=True)
-    dataset1_results = dataset1_results.sort_values(by='adj_pvals', ascending=True, ignore_index=True)
+    dataset0_results = dataset0_results.sort_values(by='adj-pval', ascending=True, ignore_index=True)
+    dataset1_results = dataset1_results.sort_values(by='adj-pval', ascending=True, ignore_index=True)
 
     return {datasets_list[0]: dataset0_results, datasets_list[1]: dataset1_results}

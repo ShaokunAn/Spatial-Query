@@ -349,7 +349,7 @@ def de_genes_scanpy(adata,
     result_df = pd.DataFrame({
         'gene': result['names'].values,
         'p_value': result['pvals'].values,
-        'adj_p_value': result['pvals_adj'].values,
+        'adj-pval': result['pvals_adj'].values,
         'log2fc': result['logfoldchanges'].values,
     })
     
@@ -368,7 +368,7 @@ def de_genes_scanpy(adata,
     # Filter by adjusted p-value and sort
     if alpha is None:
         alpha = 0.05
-    result_df = result_df[result_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
+    result_df = result_df[result_df['adj-pval'] < alpha].sort_values('p_value').reset_index(drop=True)
     
     return result_df
 
@@ -482,7 +482,7 @@ def de_genes_fisher(adata,
         return pd.DataFrame()
     
     # Multiple testing correction (FDR-BH method)
-    result_df['adj_p_value'] = multipletests(result_df['p_value'], method='fdr_bh')[1]
+    result_df['adj-pval'] = multipletests(result_df['p_value'], method='fdr_bh')[1]
     
     # Determine DE direction based on proportion difference
     result_df['de_in'] = np.where(
@@ -499,7 +499,7 @@ def de_genes_fisher(adata,
     if alpha is None:
         alpha = 0.05
 
-    result_df = result_df[result_df['adj_p_value'] < alpha].sort_values('p_value').reset_index(drop=True)
+    result_df = result_df[result_df['adj-pval'] < alpha].sort_values('p_value').reset_index(drop=True)
     
     return result_df
 

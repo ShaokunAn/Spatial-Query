@@ -2519,7 +2519,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
             - p_value_test2: p-value for test2 (with motif vs without motif)
             - delta_corr_test1, delta_corr_test2: correlation differences
             - combined_score: combined significance score
-            - adj_p_value_test1, adj_p_value_test2: FDR-corrected p-values
+            - adj-pval-test1, adj-pval-test2: FDR-corrected p-values
     """
 
     # Validate parameters
@@ -2994,12 +2994,12 @@ def compute_gene_gene_correlation_adata_multi_fov(
             adj_p_test1 = adj_p_values[:n_consistent]
             adj_p_test2 = adj_p_values[n_consistent:]
 
-            results_df['adj_p_value_test1'] = np.nan
-            results_df['adj_p_value_test2'] = np.nan
+            results_df['adj-pval-test1'] = np.nan
+            results_df['adj-pval-test2'] = np.nan
             results_df['if_significant'] = False
 
-            results_df.loc[same_direction, 'adj_p_value_test1'] = adj_p_test1
-            results_df.loc[same_direction, 'adj_p_value_test2'] = adj_p_test2
+            results_df.loc[same_direction, 'adj-pval-test1'] = adj_p_test1
+            results_df.loc[same_direction, 'adj-pval-test2'] = adj_p_test2
 
             sig_mask = same_direction.copy()
             sig_indices = np.where(same_direction)[0]
@@ -3010,14 +3010,14 @@ def compute_gene_gene_correlation_adata_multi_fov(
 
             print(f"Significant gene pairs (both tests, FDR < {alpha}): {sig_mask.sum()}")
         else:
-            results_df['adj_p_value_test1'] = np.nan
-            results_df['adj_p_value_test2'] = np.nan
+            results_df['adj-pval-test1'] = np.nan
+            results_df['adj-pval-test2'] = np.nan
             results_df['if_significant'] = False
     else:
         # Only test1 available
         rejected, adj_p_values = multipletests(results_df['p_value_test1'], method='fdr_bh')[:2]
-        results_df['adj_p_value_test1'] = adj_p_values
-        results_df['adj_p_value_test2'] = np.nan
+        results_df['adj-pval-test1'] = adj_p_values
+        results_df['adj-pval-test2'] = np.nan
         results_df['if_significant'] = rejected
         print(f"Significant gene pairs (test1, FDR < {alpha}): {rejected.sum()}")
 
@@ -3025,7 +3025,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
     if corr_matrix_no_motif is not None and 'combined_score' in results_df.columns:
         results_df = results_df.sort_values('combined_score', ascending=False, ignore_index=True)
     else:
-        results_df = results_df.sort_values('adj_p_value_test1', ignore_index=True)
+        results_df = results_df.sort_values('adj-pval-test1', ignore_index=True)
 
     print("\n" + "="*80)
     print("Analysis completed!")
@@ -3096,7 +3096,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
             - p_value_test2: p-value for test2 (with motif vs without motif)
             - delta_corr_test1, delta_corr_test2: correlation differences
             - combined_score: combined significance score
-            - adj_p_value_test1, adj_p_value_test2: FDR-corrected p-values
+            - adj-pval-test1, adj-pval-test2: FDR-corrected p-values
     """
 
     # Validate parameters
@@ -3569,12 +3569,12 @@ def compute_gene_gene_correlation_binary_multi_fov(
             adj_p_test1 = adj_p_values[:n_consistent]
             adj_p_test2 = adj_p_values[n_consistent:]
 
-            results_df['adj_p_value_test1'] = np.nan
-            results_df['adj_p_value_test2'] = np.nan
+            results_df['adj-pval-test1'] = np.nan
+            results_df['adj-pval-test2'] = np.nan
             results_df['if_significant'] = False
 
-            results_df.loc[same_direction, 'adj_p_value_test1'] = adj_p_test1
-            results_df.loc[same_direction, 'adj_p_value_test2'] = adj_p_test2
+            results_df.loc[same_direction, 'adj-pval-test1'] = adj_p_test1
+            results_df.loc[same_direction, 'adj-pval-test2'] = adj_p_test2
 
             sig_mask = same_direction.copy()
             sig_indices = np.where(same_direction)[0]
@@ -3585,14 +3585,14 @@ def compute_gene_gene_correlation_binary_multi_fov(
 
             print(f"Significant gene pairs (both tests, FDR < {alpha}): {sig_mask.sum()}")
         else:
-            results_df['adj_p_value_test1'] = np.nan
-            results_df['adj_p_value_test2'] = np.nan
+            results_df['adj-pval-test1'] = np.nan
+            results_df['adj-pval-test2'] = np.nan
             results_df['if_significant'] = False
     else:
         # Only test1 available
         rejected, adj_p_values = multipletests(results_df['p_value_test1'], method='fdr_bh')[:2]
-        results_df['adj_p_value_test1'] = adj_p_values
-        results_df['adj_p_value_test2'] = np.nan
+        results_df['adj-pval-test1'] = adj_p_values
+        results_df['adj-pval-test2'] = np.nan
         results_df['if_significant'] = rejected
         print(f"Significant gene pairs (test1, FDR < {alpha}): {rejected.sum()}")
 
@@ -3600,7 +3600,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
     if corr_matrix_no_motif is not None and 'combined_score' in results_df.columns:
         results_df = results_df.sort_values('combined_score', ascending=False, ignore_index=True)
     else:
-        results_df = results_df.sort_values('adj_p_value_test1', ignore_index=True)
+        results_df = results_df.sort_values('adj-pval-test1', ignore_index=True)
 
     print("\n" + "="*80)
     print("Analysis completed!")
