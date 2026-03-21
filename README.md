@@ -25,7 +25,7 @@ cd Spatial-Query
 pip install .
 
 # Or install directly from GitHub
-pip install git+https://github.com/ShaokunAn/Spatial-Query.git@dev
+pip install git+https://github.com/ShaokunAn/Spatial-Query.git@main
 ```
 
 ### Dependencies
