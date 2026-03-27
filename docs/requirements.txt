@@ -1,0 +1,18 @@
+# Sphinx and docs toolchain
+sphinx>=5.3
+sphinx-rtd-theme
+sphinx-autodoc-typehints
+sphinx-copybutton
+myst-parser
+
+# Runtime dependencies needed for autodoc to import the package source
+anndata>=0.8.0
+pandas>=2.0.3
+scipy
+matplotlib>=3.7.5
+mlxtend>=0.23.1
+seaborn>=0.13.2
+scikit-learn>=1.3.2
+statsmodels>=0.14.0
+scanpy>=1.9.5
+zarr
