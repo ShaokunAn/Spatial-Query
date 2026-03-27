@@ -1,0 +1,4 @@
+/* Widen the content area slightly */
+.wy-nav-content {
+    max-width: 900px;
+}
