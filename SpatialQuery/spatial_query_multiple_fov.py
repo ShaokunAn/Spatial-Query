@@ -829,13 +829,14 @@ class spatial_query_multi:
 
         This function identifies motif patterns that are differentially enriched in the KNN neighborhood
         of a center cell type between two conditions (e.g., disease vs control). It supports two modes:
-        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both 
+        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both
            datasets, then tests for differential enrichment.
+
         2. Hypothesis-driven mode (motifs specified): Tests user-specified motifs for differential
            enrichment, allowing validation of known or hypothesized spatial patterns.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         ct:
             Cell type of interest as center point.
         datasets:
@@ -845,6 +846,7 @@ class spatial_query_multi:
             - Single cell type: 'CellTypeA'
             - Single motif: ['CellTypeA', 'CellTypeB']
             - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
+
             If None, performs unbiased discovery of frequent patterns first.
         k:
             Number of nearest neighbors to consider.
@@ -854,8 +856,8 @@ class spatial_query_multi:
         max_dist:
             Maximum distance for considering a cell as a neighbor.
 
-        Return
-        ------
+        Returns
+        -------
         dict
             Dictionary with dataset names as keys and DataFrames as values.
             Each DataFrame contains motif patterns significantly enriched in that dataset:
@@ -863,6 +865,7 @@ class spatial_query_multi:
                 - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
                 - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
                 - adj-pval: FDR-corrected p-value for differential enrichment
+
             Only patterns with adj-pval < 0.05 are included for each dataset.
         """
         if len(datasets) != 2:
@@ -932,13 +935,14 @@ class spatial_query_multi:
         This function identifies motif patterns that are differentially enriched in the radius-based
         neighborhood of a center cell type between two conditions (e.g., disease vs control). It supports
         two modes:
-        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both 
+        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both
            datasets, then tests for differential enrichment.
+
         2. Hypothesis-driven mode (motifs specified): Tests user-specified motifs for differential
            enrichment, allowing validation of known or hypothesized spatial patterns.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         ct:
             Cell type of interest as center point.
         datasets:
@@ -948,6 +952,7 @@ class spatial_query_multi:
             - Single cell type: 'CellTypeA'
             - Single motif: ['CellTypeA', 'CellTypeB']
             - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
+
             If None, performs unbiased discovery of frequent patterns first.
         max_dist:
             Maximum distance for considering a cell as a neighbor.
@@ -957,8 +962,8 @@ class spatial_query_multi:
         min_size:
             Minimum neighborhood size for each center cell to be considered.
 
-        Return
-        ------
+        Returns
+        -------
         dict
             Dictionary with dataset names as keys and DataFrames as values.
             Each DataFrame contains motif patterns significantly enriched in that dataset:
@@ -966,6 +971,7 @@ class spatial_query_multi:
                 - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
                 - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
                 - adj-pval: FDR-corrected p-value for differential enrichment
+
             Only patterns with adj-pval < 0.05 are included for each dataset.
         """
         if len(datasets) != 2:
@@ -1376,13 +1382,14 @@ class spatial_query_multi:
         """
         Visualize the distribution of cell types across datasets using a stacked bar plot.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         dataset:
             Datasets for searching.
         data_type:
             Plot bar plot by number of cells or by the proportions of datasets in each cell type.
             Default is 'number' otherwise 'proportion' is used.
+
         Returns
         -------
         Stacked bar plot
@@ -1488,13 +1495,15 @@ class spatial_query_multi:
             ):
         """
         Visualize the distribution of cell types across FOVs in the dataset using a stacked bar plot.
-        Parameter
-        ---------
+
+        Parameters
+        ----------
         dataset:
             Dataset of searching.
         data_type:
             Plot bar plot by number of cells or by the proportions of cell types in each FOV.
             Default is 'number' otherwise 'proportion' is used.
+
         Returns
         -------
         Stacked bar plot

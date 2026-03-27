@@ -818,16 +818,17 @@ class spatial_query:
         """
         Identify differential genes between two groups of cells.
 
-        Paramaters
-        ---------
+        Parameters
+        ----------
         ind_group1: List of indices of cells in group 1.
         ind_group2: List of indices of cells in group 2.
         genes: List of gene names to query. If None, all genes will be used.
         min_fraction: The minimum fraction of cells that express a gene for it to be considered differentially expressed.
         method: The method to use for DE analysis. Please choose from fisher, t-test, or wilcoxon. If build_gene_index=True, only Fisher's exact test is supported.
         alpha: Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
-        Return  
-        ------
+
+        Returns
+        -------
         pd.DataFrame containing the differentially expressed genes between the two groups.
         """
         if self.build_gene_index:
@@ -1288,8 +1289,8 @@ class spatial_query:
         """
         Plot the cell type distribution of single fov.
 
-        Parameter
-        --------
+        Parameters
+        ----------
         center:
             Center cell type.
 
@@ -1326,12 +1327,13 @@ class spatial_query:
         """
         Plot a heatmap showing the distribution of cell types in frequent patterns.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         fp_df:
             DataFrame containing frequent pattern results with two columns:
                 - support: frequency of the pattern (proportion of points with this pattern)
                 - itemsets: frozenset of cell types in the frequent pattern
+
             This is typically the output from find_fp_knn or find_fp_dist methods.
         figsize:
             Figure size, default is (7, 5)
