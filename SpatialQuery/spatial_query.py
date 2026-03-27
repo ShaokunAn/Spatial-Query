@@ -905,13 +905,12 @@ class spatial_query:
         non-neighbor groups. For Pearson correlation, uses shifted correlation (subtract cell type mean) to enable
         comparison across different niches/motifs.
 
-        This function calculates cross correlation between gene expression in:
-        1. Motif cells that are neighbors of center cell type (excluding center type cells in neighbor group)
-        2. Motif cells that are NOT neighbors of center cell type (excluding center type cells)
-        3. Neighboring cells of center cell type without nearby motif
+        This function calculates cross correlation between gene expression in motif cells that are
+        neighbors of the center type, motif cells that are not neighbors, and neighboring cells
+        without nearby motif. Center type cells are excluded from neighbor groups in all cases.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         ct:
             Cell type as the center cells.
         motif:
@@ -929,45 +928,17 @@ class spatial_query:
         alpha: 
             Significance threshold.
 
-        Return
-        ------
-        Tuple[pd.DataFrame, dict]
-            A tuple containing:
-
-            results_df : DataFrame
-                DataFrame with correlation results between neighbor and non-neighbor groups.
-                Columns include:
-                    - gene_center, gene_motif: gene pairs
-                    - corr_neighbor: correlation in neighbor group
-                    - corr_non_neighbor: correlation in non-neighbor group
-                    - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
-                    - delta_corr_test1: difference in correlation for test1
-                    - corr_center_no_motif: correlation for centers without motif (NaN if not available)
-                    - p_value_test2: p-value for test2 (neighbor vs no_motif)
-                    - delta_corr_test2: difference in correlation for test2
-                    - q_value_test1: FDR-corrected q-value for test1
-                    - q_value_test2: FDR-corrected q-value for test2
-                    - reject_test1_fdr: whether test1 passes FDR threshold
-                    - reject_test2_fdr: whether test2 passes FDR threshold
-                    - combined_score: combined significance score
-                    - abs_combined_score: absolute value of combined score
-                    - if_significant: whether both tests pass FDR threshold
-
-            cell_groups : dict
-                Dictionary containing cell pairing information for correlations:
-                    - 'center_neighbor_motif_pair': array of shape (n_pairs, 2) containing
-                      center-neighbor pairs for Correlation 1 (center with motif vs neighboring motif).
-                      Each row is [center_cell_idx, neighbor_cell_idx].
-                    - 'non-neighbor_motif_cells': array of cell indices for distant motif cells
-                      used in Correlation 2 (center with motif vs distant motif).
-                      Correlation 2 uses all combinations of center cells (from corr1) × these cells.
-                    - 'non_motif_center_neighbor_pair': array of shape (n_pairs, 2) containing
-                      center-neighbor pairs for Correlation 3 (center without motif vs neighbors).
-                      Each row is [center_cell_idx, neighbor_cell_idx]. Empty if insufficient pairs.
-
-                Note: Individual cell IDs can be extracted from pairs using np.unique() like:
-                    - center_cells = np.unique(center_neighbor_motif_pair[:, 0])
-                    - neighbor_cells = np.unique(center_neighbor_motif_pair[:, 1])
+        Returns
+        -------
+        results_df : pd.DataFrame
+            DataFrame with correlation results. Columns: gene_center, gene_motif, corr_neighbor,
+            corr_non_neighbor, p_value_test1, delta_corr_test1, corr_center_no_motif,
+            p_value_test2, delta_corr_test2, q_value_test1, q_value_test2, reject_test1_fdr,
+            reject_test2_fdr, combined_score, abs_combined_score, if_significant.
+        cell_groups : dict
+            Cell pairing info. Keys: 'center_neighbor_motif_pair' (array of [center, neighbor]
+            index pairs), 'non-neighbor_motif_cells' (distant motif cell indices),
+            'non_motif_center_neighbor_pair' (pairs for centers without motif).
         """
         if not self.build_gene_index:
             print('Computing covarying genes using expression data...')
@@ -1037,27 +1008,14 @@ class spatial_query:
         alpha:      
             Significance threshold.
 
-        Return
-        ------
-        results_df : DataFrame
-            DataFrame with correlation results for each cell type and gene pair.
-            Columns include:
-                - cell_type: the non-center cell type in motif
-                - gene_center, gene_motif: gene pairs
-                - corr_neighbor: correlation with neighboring cells of this type
-                - corr_non_neighbor: correlation with distant cells of this type
-                - corr_center_no_motif: correlation with neighbors when no motif present
-                - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
-                - p_value_test2: p-value for test2 (neighbor vs no_motif)
-                - q_value_test1: FDR-corrected q-value for test1
-                - q_value_test2: FDR-corrected q-value for test2
-                - delta_corr_test1: difference in correlation (neighbor - non_neighbor)
-                - delta_corr_test2: difference in correlation (neighbor - no_motif)
-                - reject_test1_fdr: whether test1 passes FDR threshold
-                - reject_test2_fdr: whether test2 passes FDR threshold
-                - combined_score: combined significance score
-                - abs_combined_score: absolute value of combined score
-                - if_significant: whether both tests pass FDR threshold
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with correlation results per cell type and gene pair. Columns: cell_type,
+            gene_center, gene_motif, corr_neighbor, corr_non_neighbor, corr_center_no_motif,
+            p_value_test1, p_value_test2, q_value_test1, q_value_test2, delta_corr_test1,
+            delta_corr_test2, reject_test1_fdr, reject_test2_fdr, combined_score,
+            abs_combined_score, if_significant.
         """
         if not self.build_gene_index:
             print('Computing covarying genes using expression data...')
@@ -1459,10 +1417,10 @@ class spatial_query:
             Figure size for each gene pair plot (width, height), default (20, 5).
         vmin:
             Minimum value for color normalization. If None, automatically computed as
-            -max(|shifted_expression|) to ensure symmetric colormap.
+            ``-max(abs(shifted_expression))`` to ensure symmetric colormap.
         vmax:
             Maximum value for color normalization. If None, automatically computed as
-            max(|shifted_expression|) to ensure symmetric colormap.
+            ``max(abs(shifted_expression))`` to ensure symmetric colormap.
         cmap:
             Colormap name, default "RdYlBu_r".
         save_path:

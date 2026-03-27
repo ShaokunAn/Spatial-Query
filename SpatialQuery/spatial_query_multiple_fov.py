@@ -829,11 +829,11 @@ class spatial_query_multi:
 
         This function identifies motif patterns that are differentially enriched in the KNN neighborhood
         of a center cell type between two conditions (e.g., disease vs control). It supports two modes:
-        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both
-           datasets, then tests for differential enrichment.
 
-        2. Hypothesis-driven mode (motifs specified): Tests user-specified motifs for differential
-           enrichment, allowing validation of known or hypothesized spatial patterns.
+        - **Unbiased discovery** (``motifs=None``): Automatically discovers frequent patterns in each
+          FOV of both datasets, then tests for differential enrichment.
+        - **Hypothesis-driven** (``motifs`` specified): Tests user-specified motifs for differential
+          enrichment, allowing validation of known or hypothesized spatial patterns.
 
         Parameters
         ----------
@@ -859,14 +859,10 @@ class spatial_query_multi:
         Returns
         -------
         dict
-            Dictionary with dataset names as keys and DataFrames as values.
-            Each DataFrame contains motif patterns significantly enriched in that dataset:
-                - itemsets: the motif pattern (as tuple of cell types)
-                - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
-                - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
-                - adj-pval: FDR-corrected p-value for differential enrichment
-
-            Only patterns with adj-pval < 0.05 are included for each dataset.
+            Dictionary with dataset names as keys and DataFrames as values. Each DataFrame
+            contains motif patterns significantly enriched in that dataset, with columns:
+            itemsets (motif as tuple), support_{datasets[0]}_mean, support_{datasets[1]}_mean,
+            adj-pval. Only patterns with adj-pval < 0.05 are included.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -935,11 +931,11 @@ class spatial_query_multi:
         This function identifies motif patterns that are differentially enriched in the radius-based
         neighborhood of a center cell type between two conditions (e.g., disease vs control). It supports
         two modes:
-        1. Unbiased discovery mode (motifs=None): Automatically discovers frequent patterns of each FOV in both
-           datasets, then tests for differential enrichment.
 
-        2. Hypothesis-driven mode (motifs specified): Tests user-specified motifs for differential
-           enrichment, allowing validation of known or hypothesized spatial patterns.
+        - **Unbiased discovery** (``motifs=None``): Automatically discovers frequent patterns in each
+          FOV of both datasets, then tests for differential enrichment.
+        - **Hypothesis-driven** (``motifs`` specified): Tests user-specified motifs for differential
+          enrichment, allowing validation of known or hypothesized spatial patterns.
 
         Parameters
         ----------
@@ -965,14 +961,10 @@ class spatial_query_multi:
         Returns
         -------
         dict
-            Dictionary with dataset names as keys and DataFrames as values.
-            Each DataFrame contains motif patterns significantly enriched in that dataset:
-                - itemsets: the motif pattern (as tuple of cell types)
-                - support_{datasets[0]}_mean: mean support value of the motif pattern across FOVs in dataset 1
-                - support_{datasets[1]}_mean: mean support value of the motif pattern across FOVs in dataset 2
-                - adj-pval: FDR-corrected p-value for differential enrichment
-
-            Only patterns with adj-pval < 0.05 are included for each dataset.
+            Dictionary with dataset names as keys and DataFrames as values. Each DataFrame
+            contains motif patterns significantly enriched in that dataset, with columns:
+            itemsets (motif as tuple), support_{datasets[0]}_mean, support_{datasets[1]}_mean,
+            adj-pval. Only patterns with adj-pval < 0.05 are included.
         """
         if len(datasets) != 2:
             raise ValueError("Require 2 datasets for differential analysis.")
@@ -1601,13 +1593,12 @@ class spatial_query_multi:
         - Uses FOV-specific cell type means for centering (NOT global means)
         - Computes correlations by accumulating statistics across FOVs
 
-        This function calculates cross correlation between gene expression in:
-        1. Motif cells that are neighbors of center cell type (paired data across FOVs)
-        2. Motif cells that are NOT neighbors of center cell type (all-to-all across FOVs)
-        3. Neighboring cells of center cell type without nearby motif (paired data across FOVs)
+        This function calculates cross correlation between gene expression in motif cells that are
+        neighbors of the center type, motif cells that are not neighbors, and neighboring cells
+        without nearby motif. Aggregation is performed across all FOVs in the specified dataset.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         ct:
             Cell type as the center cells.
         motif:
@@ -1627,28 +1618,15 @@ class spatial_query_multi:
         alpha: 
             Significance threshold.
 
-        Return
-        ------
+        Returns
+        -------
         results_df : pd.DataFrame
-            DataFrame with correlation results between neighbor and non-neighbor groups.
-            Columns include:
-                - gene_center, gene_motif: gene pairs
-                - corr_neighbor: correlation in neighbor group
-                - corr_non_neighbor: correlation in non-neighbor group
-                - corr_center_no_motif: correlation for centers without motif
-                - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
-                - p_value_test2: p-value for test2 (with motif vs without motif)
-                - delta_corr_test1, delta_corr_test2: correlation differences
-                - combined_score: combined significance score
-                - adj-pval-test1, adj-pval-test2: FDR-corrected p-values
-
-        fov_info : Dict
-            Dictionary containing FOV-level information:
-                - 'fov_statistics': detailed statistics from each FOV
-                - 'total_pairs_neighbor': total number of neighbor pairs
-                - 'total_pairs_non_neighbor': total number of non-neighbor pairs
-                - 'total_pairs_no_motif': total number of no-motif pairs
-                - 'n_fovs_analyzed': number of FOVs included
+            DataFrame with correlation results. Columns: gene_center, gene_motif, corr_neighbor,
+            corr_non_neighbor, corr_center_no_motif, p_value_test1, p_value_test2,
+            delta_corr_test1, delta_corr_test2, combined_score, adj-pval-test1, adj-pval-test2.
+        fov_info : dict
+            FOV-level information with keys: fov_statistics, total_pairs_neighbor,
+            total_pairs_non_neighbor, total_pairs_no_motif, n_fovs_analyzed.
         """
         if not self.build_gene_index:
             print('Computing covarying genes using expression data ...')
@@ -1727,22 +1705,10 @@ class spatial_query_multi:
         -------
         pd.DataFrame
             DataFrame with correlation results for each cell type and gene pair.
-            Columns include:
-                - cell_type: the non-center cell type in motif
-                - gene_center, gene_motif: gene pairs
-                - corr_neighbor: correlation with neighboring cells of this type
-                - corr_non_neighbor: correlation with distant cells of this type
-                - corr_center_no_motif: correlation with neighbors when no motif present
-                - p_value_test1: p-value for test1 (neighbor vs non-neighbor)
-                - p_value_test2: p-value for test2 (neighbor vs no_motif)
-                - q_value_test1: FDR-corrected q-value for test1
-                - q_value_test2: FDR-corrected q-value for test2
-                - delta_corr_test1: difference in correlation (neighbor - non_neighbor)
-                - delta_corr_test2: difference in correlation (neighbor - no_motif)
-                - reject_test1_fdr: whether test1 passes FDR threshold
-                - reject_test2_fdr: whether test2 passes FDR threshold
-                - combined_score: combined significance score
-                - abs_combined_score: absolute value of combined score
+            Columns: cell_type, gene_center, gene_motif, corr_neighbor, corr_non_neighbor,
+            corr_center_no_motif, p_value_test1, p_value_test2, q_value_test1, q_value_test2,
+            delta_corr_test1, delta_corr_test2, reject_test1_fdr, reject_test2_fdr,
+            combined_score, abs_combined_score.
         """
         if not self.build_gene_index:
             print('Computing covarying genes using expression data ...')
