@@ -35,6 +35,15 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/ShaokunAn/Spatial-Query"
 
+[project.optional-dependencies]
+docs = [
+    "sphinx>=5.3",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints",
+    "sphinx-copybutton",
+    "myst-parser",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["SpatialQuery*"]
