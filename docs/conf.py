@@ -22,6 +22,7 @@ extensions = [
 autodoc_mock_imports = ['SpatialQueryEliasFanoDB']
 
 autosummary_generate = True
+autosummary_generate_overwrite = True
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False
 autodoc_typehints = 'description'
