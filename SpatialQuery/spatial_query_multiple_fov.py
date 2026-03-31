@@ -42,6 +42,7 @@ class spatial_query_multi:
         build_gene_index: bool = False,
         feature_name: str = None,
         if_lognorm: bool = True,
+        if_normalize_spatial_coord: bool = True,
         ):
         """
         Initiate models, including setting attributes and building kd-tree for each field of view.
@@ -61,9 +62,12 @@ class spatial_query_multi:
         build_gene_index:
             Whether to build scfind index or use adata.X directly. If set True, build scfind index otherwise use adata.X directly.
         feature_name:
-            The label or key in the AnnData object's variables (var) that corresponds to the feature names. 
+            The label or key in the AnnData object's variables (var) that corresponds to the feature names.
         if_lognorm:
             Whether to log normalize the expression data, default is True
+        if_normalize_spatial_coord:
+            If True, normalizes spatial coordinates so mean nearest neighbor distance equals 1.
+            Set to False if original spatial units should be preserved.
         """
         # Each element in self.spatial_queries stores a spatial_query object
         self.spatial_key = spatial_key
@@ -97,6 +101,7 @@ class spatial_query_multi:
             build_gene_index=build_gene_index,
             feature_name=feature_name,
             if_lognorm=if_lognorm,
+            if_normalize_spatial_coord=if_normalize_spatial_coord,
             ) for i, adata in enumerate(adatas)]
         
 
