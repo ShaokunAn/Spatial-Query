@@ -16,7 +16,15 @@ extensions = [
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
     'myst_parser',
+    'sphinx_design',
+    'nbsphinx',
 ]
+
+myst_enable_extensions = [
+    'colon_fence',
+]
+
+nbsphinx_execute = 'never'
 
 # Mock C++ extension so autodoc can import the package without compiling it
 autodoc_mock_imports = ['SpatialQueryEliasFanoDB']
@@ -25,7 +33,7 @@ autosummary_generate = True
 autosummary_generate_overwrite = True
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False
-autodoc_typehints = 'description'
+autodoc_typehints = 'none'
 autodoc_member_order = 'bysource'
 
 autodoc_default_options = {
@@ -45,6 +53,11 @@ intersphinx_mapping = {
 }
 
 html_theme = 'sphinx_rtd_theme'
+html_logo = '_static/img/logo.png'
+html_theme_options = {
+    'logo_only': True,
+    'navigation_depth': 4,
+}
 html_static_path = ['_static']
 html_css_files = ['custom.css']
 

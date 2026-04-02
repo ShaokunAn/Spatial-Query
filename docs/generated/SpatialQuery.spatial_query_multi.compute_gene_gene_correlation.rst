@@ -1,5 +1,5 @@
-SpatialQuery.spatial_query_multi.compute_gene_gene_correlation
-==============================================================
+﻿SpatialQuery.spatial\_query\_multi.compute\_gene\_gene\_correlation
+===================================================================
 
 .. currentmodule:: SpatialQuery
 

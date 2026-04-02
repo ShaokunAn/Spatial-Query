@@ -1,6 +1,13 @@
-from setuptools import Extension
+import platform
+from setuptools import Extension, setup
 from pybind11.setup_helpers import build_ext
 import pybind11
+
+# Platform-specific C++ compile flags
+if platform.system() == "Windows":
+    extra_compile_args = ["/std:c++14"]
+else:
+    extra_compile_args = ["-std=c++11"]
 
 # C++ extension must be defined here because pyproject.toml does not support ext_modules
 cpp_extension = Extension(
@@ -14,9 +21,8 @@ cpp_extension = Extension(
     ],
     include_dirs=["SpatialQuery/scfind4sp/cpp_src"] + [pybind11.get_include()],
     language="c++",
-    extra_compile_args=["-std=c++11"],
+    extra_compile_args=extra_compile_args,
 )
 
 # Metadata lives in pyproject.toml; only ext_modules is specified here
-from setuptools import setup
-setup(ext_modules=[cpp_extension])
+setup(ext_modules=[cpp_extension], cmdclass={"build_ext": build_ext})

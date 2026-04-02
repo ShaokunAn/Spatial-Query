@@ -13,16 +13,17 @@ def maximal_patterns(fp,
     """
     Retrieve the maximal patterns in provided frequent patterns.
 
-    Parameter
-    ---------
-    fp:
-        DataFrame with frequent patterns
-    key:
+    Parameters
+    ----------
+    fp : pd.DataFrame
+        DataFrame with frequent patterns.
+    key : str
         Column name representing the patterns.
 
-    Return
-    ------
-    A dataframe with the maximal patterns.
+    Returns
+    -------
+    pd.DataFrame
+        A dataframe with the maximal patterns.
     """
     itemsets = fp[key].apply(frozenset)
 
@@ -46,18 +47,21 @@ def retrieve_niche_pattern_freq(fp, sp, ct, max_dist):
     Retrieve frequency of each cell type in frequent pattern (fp) around
     central cell type (ct) from single FOV (sp).
 
-    Parameters:
-    fp: List[str]
-        list of cell types
-    sp: spatial_query object
-        spatial query object for single FOV
-    ct: str
-        central cell type
-    max_dist: float
-        radius of neighborhood
+    Parameters
+    ----------
+    fp : List[str]
+        List of cell types.
+    sp : spatial_query
+        Spatial query object for single FOV.
+    ct : str
+        Central cell type.
+    max_dist : float
+        Radius of neighborhood.
 
-    Return:
-        pd.DataFrame with frequency of each cell type in fp around the central cell type
+    Returns
+    -------
+    pd.DataFrame
+        Frequency of each cell type in fp around the central cell type.
     """
     if ct not in sp.labels.unique():
         print(f"{ct} does not exist in FOV.")
@@ -108,9 +112,10 @@ def plot_niche_pattern_freq(freqs):
     """
     Heatmap plot of frequency of patterns (cell type compositions) in niche.
 
-    Parameter
-    ---------
-    freqs: Output of retrieve_niche_pattern_freq method.
+    Parameters
+    ----------
+    freqs : dict
+        Output of retrieve_niche_pattern_freq method.
     """
 
     for i, freq in freqs.items():

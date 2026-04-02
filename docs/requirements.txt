@@ -3,7 +3,9 @@ sphinx>=5.3
 sphinx-rtd-theme
 sphinx-autodoc-typehints
 sphinx-copybutton
+sphinx-design
 myst-parser
+nbsphinx
 
 # Runtime dependencies needed for autodoc to import the package source
 anndata>=0.8.0

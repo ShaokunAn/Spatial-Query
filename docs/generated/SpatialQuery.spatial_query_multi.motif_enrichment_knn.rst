@@ -1,5 +1,5 @@
-SpatialQuery.spatial_query_multi.motif_enrichment_knn
-=====================================================
+﻿SpatialQuery.spatial\_query\_multi.motif\_enrichment\_knn
+=========================================================
 
 .. currentmodule:: SpatialQuery
 

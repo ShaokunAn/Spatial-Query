@@ -26,13 +26,23 @@ def fisher_z_test(r1, n1, r2, n2):
     Vectorized Fisher Z-test for comparing correlation matrices.
     Two-tailed test: H0: r1 = r2, H1: r1 != r2
 
-    Parameters:
-    r1, r2: correlation matrices (can be 2D arrays)
-    n1, n2: effective sample sizes (scalars)
+    Parameters
+    ----------
+    r1 : array
+        Correlation matrix for group 1 (can be 2D array).
+    n1 : int
+        Effective sample size for group 1.
+    r2 : array
+        Correlation matrix for group 2 (can be 2D array).
+    n2 : int
+        Effective sample size for group 2.
 
-    Returns:
-    z_stat: Z statistic matrix
-    p_value: two-tailed p-value matrix
+    Returns
+    -------
+    z_stat : array
+        Z statistic matrix.
+    p_value : array
+        Two-tailed p-value matrix.
     """
     z1 = fisher_z_transform(r1)
     z2 = fisher_z_transform(r2)
@@ -594,15 +604,15 @@ def get_anchor_motif_cell_ids(sq_obj,
 
     Parameters
     ----------
-    sq_obj :
+    sq_obj : spatial_query
         A spatial_query object.
     ct : str
         Cell type as the center cells.
-    motif : Union[str, List[str]]
+    motif : str or List[str]
         Motif (names of cell types) to be analyzed.
-    max_dist : Optional[float], default=None
+    max_dist : float, optional
         Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-    k : Optional[int], default=None
+    k : int, optional
         Number of nearest neighbors. Use either max_dist or k.
     min_size : int, default=0
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
@@ -678,28 +688,28 @@ def compute_gene_gene_correlation_adata(sq_obj,
     2. Motif cells that are NOT neighbors of center cell type (excluding center type cells)
     3. Neighboring cells of center cell type without nearby motif
 
-    Parameter
-    ---------
-    ct:
+    Parameters
+    ----------
+    ct : str
         Cell type as the center cells.
-    motif:
+    motif : str or List[str]
         Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
-    genes:
+    genes : str or List[str], optional
         List of genes to analyze. If None, all genes will be used.
-    max_dist:
+    max_dist : float, optional
         Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-    k:
+    k : int, optional
         Number of nearest neighbors. Use either max_dist or k.
-    min_size:
+    min_size : int, default=0
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
-    min_nonzero:
+    min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha:
-        Significance threshold
+    alpha : float, optional
+        Significance threshold.
 
-    Return
-    ------
-    results_df : DataFrame
+    Returns
+    -------
+    results_df : pd.DataFrame
         DataFrame with correlation results between neighbor and non-neighbor groups.
         Columns include:
             - gene_center, gene_motif: gene pairs
@@ -1128,7 +1138,7 @@ def compute_gene_gene_correlation_binary(sq_obj,
         Minimum neighborhood size for each center cell.
     min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha: 
+    alpha : float, optional
         Significance threshold.
 
     Returns
@@ -1479,28 +1489,28 @@ def compute_gene_gene_correlation_by_type_adata(sq_obj,
 
     Only analyzes motifs with >= 2 cell types besides the center type.
 
-    Parameter
-    ---------
-    ct:
+    Parameters
+    ----------
+    ct : str
         Cell type as the center cells.
-    motif:
+    motif : str or List[str]
         Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
-    genes:
+    genes : str or List[str], optional
         List of genes to analyze. If None, all genes will be used.
-    max_dist:
+    max_dist : float, optional
         Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-    k:
+    k : int, optional
         Number of nearest neighbors. Use either max_dist or k.
-    min_size:
+    min_size : int, default=0
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
-    min_nonzero:
+    min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha:
-        Significance threshold
+    alpha : float, optional
+        Significance threshold.
 
-    Return
-    ------
-    results_df : DataFrame
+    Returns
+    -------
+    results_df : pd.DataFrame
         DataFrame with correlation results for each cell type and gene pair.
         Columns include:
             - cell_type: the non-center cell type in motif
@@ -1944,7 +1954,7 @@ def compute_gene_gene_correlation_by_type_binary(sq_obj,
         Minimum neighborhood size for each center cell.
     min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha:
+    alpha : float, optional
         Significance threshold.
 
     Returns
@@ -2565,29 +2575,29 @@ def compute_gene_gene_correlation_adata_multi_fov(
     2. Motif cells that are NOT neighbors of center cell type (all-to-all across FOVs)
     3. Neighboring cells of center cell type without nearby motif (paired data across FOVs)
 
-    Parameter
-    ---------
-    ct:
+    Parameters
+    ----------
+    ct : str
         Cell type as the center cells.
-    motif:
+    motif : str or List[str]
         Motif (names of cell types) to be analyzed.
-    dataset:
+    dataset : str or List[str], optional
         Datasets to include in analysis. If None, use all datasets.
-    genes:
+    genes : str or List[str], optional
         List of genes to analyze. If None, uses intersection of genes across all FOVs.
-    max_dist:
+    max_dist : float, optional
         Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-    k:
+    k : int, optional
         Number of nearest neighbors. Use either max_dist or k.
-    min_size:
+    min_size : int, default=0
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
-    min_nonzero:
+    min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha: 
+    alpha : float, optional
         Significance threshold.
 
-    Return
-    ------
+    Returns
+    -------
     results_df : pd.DataFrame
         DataFrame with correlation results between neighbor and non-neighbor groups.
         Columns include:
@@ -2605,7 +2615,7 @@ def compute_gene_gene_correlation_adata_multi_fov(
     # Validate parameters
     if (max_dist is None and k is None) or (max_dist is not None and k is not None):
         raise ValueError("Please specify either max_dist or k, but not both.")
-    
+
     if alpha is None:
         alpha = 0.05
 
@@ -3142,29 +3152,29 @@ def compute_gene_gene_correlation_binary_multi_fov(
     2. Motif cells that are NOT neighbors of center cell type (all-to-all across FOVs)
     3. Neighboring cells of center cell type without nearby motif (paired data across FOVs)
 
-    Parameter
-    ---------
-    ct:
+    Parameters
+    ----------
+    ct : str
         Cell type as the center cells.
-    motif:
+    motif : str or List[str]
         Motif (names of cell types) to be analyzed.
-    dataset:
+    dataset : str or List[str], optional
         Datasets to include in analysis. If None, use all datasets.
-    genes:
+    genes : str or List[str], optional
         List of genes to analyze. If None, uses intersection of genes across all FOVs.
-    max_dist:
+    max_dist : float, optional
         Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-    k:
+    k : int, optional
         Number of nearest neighbors. Use either max_dist or k.
-    min_size:
+    min_size : int, default=0
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
-    min_nonzero:
+    min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha: 
+    alpha : float, optional
         Significance threshold.
 
-    Return
-    ------
+    Returns
+    -------
     results_df : pd.DataFrame
         DataFrame with correlation results between neighbor and non-neighbor groups.
         Columns include:
@@ -3182,7 +3192,7 @@ def compute_gene_gene_correlation_binary_multi_fov(
     # Validate parameters
     if (max_dist is None and k is None) or (max_dist is not None and k is not None):
         raise ValueError("Please specify either max_dist or k, but not both.")
-    
+
     if alpha is None:
         alpha = 0.1
 
@@ -3731,7 +3741,7 @@ def compute_gene_gene_correlation_by_type_adata_multi_fov(
         Minimum neighborhood size for each center cell (only used when max_dist is specified).
     min_nonzero : int, default=10
         Minimum number of non-zero expression values required for a gene to be included.
-    alpha:
+    alpha : float, optional
         Significance threshold.
 
     Returns
@@ -4350,7 +4360,7 @@ def compute_gene_gene_correlation_by_type_binary_multi_fov(
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
-        alpha:
+        alpha : float, optional
             Significance threshold.
 
         Returns

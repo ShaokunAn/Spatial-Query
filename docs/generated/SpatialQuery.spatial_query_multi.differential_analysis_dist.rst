@@ -1,5 +1,5 @@
-SpatialQuery.spatial_query_multi.differential_analysis_dist
-===========================================================
+﻿SpatialQuery.spatial\_query\_multi.differential\_analysis\_dist
+===============================================================
 
 .. currentmodule:: SpatialQuery
 

@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python >= 3.8
+- Python >= 3.10
 - A C++ compiler (for the bundled C++ extension)
 
 ## Install from GitHub

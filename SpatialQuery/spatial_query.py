@@ -158,20 +158,21 @@ class spatial_query:
         """
         Find frequent patterns within the KNNs of certain cell type.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type name.
-        k:
+        k : int, default=30
             Number of nearest neighbors.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
 
-        Return
-        ------
-        Frequent patterns in the neighborhood of certain cell type.
+        Returns
+        -------
+        pd.DataFrame
+            Frequent patterns in the neighborhood of certain cell type.
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
@@ -200,20 +201,21 @@ class spatial_query:
         """
         Find frequent patterns within the radius of certain cell type.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type name.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each point to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
 
-        Return
-        ------
-        Frequent patterns in the neighborhood of certain cell type.
+        Returns
+        -------
+        pd.DataFrame
+            Frequent patterns in the neighborhood of certain cell type.
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
@@ -244,25 +246,25 @@ class spatial_query:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN).
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             The cell type of the center cell.
-        motifs:
+        motifs : str or List[str] or List[List[str]], optional
             Specified motifs to be tested.
             If motifs=None, find the frequent patterns as motifs within the neighborhood of center cell type.
-        k:
+        k : int, default=30
             Number of nearest neighbors to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_dist:
-            Maximum distance for neighbors (default: 20).
-        return_cellID:
+        max_dist : float, default=20
+            Maximum distance for neighbors.
+        return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
             By defaults do not return cell ID.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with motif enrichment results. Columns include:
                 - center: center cell type name
@@ -417,25 +419,25 @@ class spatial_query:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type as the center cells.
-        motifs:
+        motifs : str or List[str] or List[List[str]], optional
             Specified motifs to be tested.
             If motifs=None, find the frequent patterns as motifs within the neighborhood of center cell type.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each point to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        return_cellID:
+        return_cellID : bool, default=False
             Indicate whether return cell IDs for each motif within the neighborhood of central cell type.
             By defaults do not return cell ID.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with motif enrichment results. Columns include:
                 - center: center cell type name
@@ -584,27 +586,27 @@ class spatial_query:
         """
         Create a grid and use it to find surrounding patterns in spatial data.
 
-        Parameter
-        ---------
-        max_dist:
+        Parameters
+        ----------
+        max_dist : float, default=20
             Maximum distance to consider a cell as a neighbor. Also used as grid spacing.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each grid point to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        if_display:
+        if_display : bool, default=True
             Display the grid points with nearby frequent patterns if if_display=True.
-        figsize:
+        figsize : tuple, default=(10, 5)
             Tuple of figure size for the display plot.
-        return_cellID:
+        return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
             By default do not return cell ID.
-        return_grid:
+        return_grid : bool, default=False
             Indicate whether return the grid points. By default, do not return grid points.
             If True, will return a tuple (fp_df, grid).
 
-        Return
-        ------
+        Returns
+        -------
         Union[pd.DataFrame, Tuple[pd.DataFrame, np.ndarray]]
             If return_grid=False (default):
                 pd.DataFrame with frequent pattern results. Columns include:
@@ -717,28 +719,28 @@ class spatial_query:
         """
         Randomly generate points and use them to find surrounding patterns in spatial data.
 
-        Parameter
-        ---------
-        max_dist:
+        Parameters
+        ----------
+        max_dist : float, default=20
             Maximum distance to consider a cell as a neighbor.
-        n_points:
+        n_points : int, default=1000
             Number of random points to generate.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each random point to consider.
-        if_display:
+        if_display : bool, default=True
             Display the random points with nearby frequent patterns if if_display=True.
-        figsize:
+        figsize : tuple, default=(10, 5)
             Tuple of figure size for the display plot.
-        return_cellID:
+        return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of random points.
             By default do not return cell ID.
-        seed:
+        seed : int, default=2023
             Random seed for reproducibility.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with frequent pattern results. Columns include:
                 - itemsets: frozenset of cell types in the frequent pattern
@@ -834,12 +836,18 @@ class spatial_query:
 
         Parameters
         ----------
-        ind_group1: List of indices of cells in group 1.
-        ind_group2: List of indices of cells in group 2.
-        genes: List of gene names to query. If None, all genes will be used.
-        min_fraction: The minimum fraction of cells that express a gene for it to be considered differentially expressed.
-        method: The method to use for DE analysis. Please choose from fisher, t-test, or wilcoxon. If build_gene_index=True, only Fisher's exact test is supported.
-        alpha: Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
+        ind_group1 : List[int]
+            List of indices of cells in group 1.
+        ind_group2 : List[int]
+            List of indices of cells in group 2.
+        genes : str or List[str], optional
+            List of gene names to query. If None, all genes will be used.
+        min_fraction : float, default=0.05
+            The minimum fraction of cells that express a gene for it to be considered differentially expressed.
+        method : {'fisher', 't-test', 'wilcoxon'}, default='fisher'
+            The method to use for DE analysis. If build_gene_index=True, only Fisher's exact test is supported.
+        alpha : float, optional
+            Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
 
         Returns
         -------
@@ -915,15 +923,15 @@ class spatial_query:
 
         Parameters
         ----------
-        ct:
+        ct : str
             Cell type as the center cells.
-        motif:
+        motif : str or List[str]
             Motif (names of cell types) to be analyzed.
-        max_dist:
+        max_dist : float, optional
             Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k:
+        k : int, optional
             Number of nearest neighbors. Use either max_dist or k.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
 
         Returns
@@ -965,21 +973,21 @@ class spatial_query:
 
         Parameters
         ----------
-        ct:
+        ct : str
             Cell type as the center cells.
-        motif:
+        motif : str or List[str]
             Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
-        genes:
+        genes : str or List[str], optional
             List of genes to analyze. If None, all genes will be used.
-        max_dist:
+        max_dist : float, optional
             Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k:
+        k : int, optional
             Number of nearest neighbors. Use either max_dist or k.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
-        min_nonzero:
+        min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
-        alpha: 
+        alpha : float, optional
             Significance threshold.
 
         Returns
@@ -1043,23 +1051,23 @@ class spatial_query:
 
         Only analyzes motifs with >= 2 cell types besides the center type.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type as the center cells.
-        motif:
+        motif : str or List[str]
             Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
-        genes:
+        genes : str or List[str], optional
             List of genes to analyze. If None, all genes will be used.
-        max_dist:
+        max_dist : float, optional
             Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k:
+        k : int, optional
             Number of nearest neighbors. Use either max_dist or k.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
-        min_nonzero:
+        min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
-        alpha:      
+        alpha : float, optional
             Significance threshold.
 
         Returns
@@ -1175,20 +1183,20 @@ class spatial_query:
         """
         Plot the cell type distribution of a single field of view (FOV).
 
-        Parameter
-        ---------
-        min_cells_label:
+        Parameters
+        ----------
+        min_cells_label : int, default=50
             Minimum number of cells required for a cell type to be displayed in the plot.
             Cell types with fewer cells will be excluded from the legend.
-        title:
+        title : str, default='Spatial distribution of cell types'
             Title of the figure.
-        figsize:
+        figsize : tuple, default=(10, 5)
             Figure size as (width, height) tuple.
-        save_path:
+        save_path : str, optional
             Path to save the figure. If None, the figure will not be saved.
 
-        Return
-        ------
+        Returns
+        -------
         None
             Displays a scatter plot showing spatial distribution of cell types,
             with each cell type colored differently. The legend shows cell types
@@ -1205,21 +1213,21 @@ class spatial_query:
         """
         Display the distribution of each motif around grid points.
 
-        Parameter
-        ---------
-        motif:
-            Motif (names of cell types) to be colored
-        max_dist:
-            Spacing distance for building grid.
-        figsize:
+        Parameters
+        ----------
+        motif : str or List[str]
+            Motif (names of cell types) to be colored.
+        figsize : tuple, default=(10, 5)
             Figure size.
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
+        max_dist : float, default=20
+            Spacing distance for building grid.
+        save_path : str, optional
+            Path to save the figure. If None, the figure will not be saved.
 
-        Return
-        ------
-        A figure.
+        Returns
+        -------
+        None
+            Displays a figure.
         """
         return plotting.plot_motif_grid(sq_obj=self, motif=motif, figsize=figsize, max_dist=max_dist, save_path=save_path)
 
@@ -1235,25 +1243,25 @@ class spatial_query:
         Display the random sampled points with motif in radius-based neighborhood,
         and cell types of motif in the neighborhood of these random points.
 
-        Parameter
-        ---------
-        motif:
-            Motif (names of cell types) to be colored
-        max_dist:
+        Parameters
+        ----------
+        motif : str or List[str]
+            Motif (names of cell types) to be colored.
+        max_dist : float, default=100
             Radius for neighborhood search.
-        n_points:
+        n_points : int, default=1000
             Number of random points to generate.
-        figsize:
+        figsize : tuple, default=(10, 5)
             Figure size.
-        seed:
-            Set random seed for reproducible.
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
+        seed : int, default=2023
+            Random seed for reproducibility.
+        save_path : str, optional
+            Path to save the figure. If None, the figure will not be saved.
 
-        Return
-        ------
-        A figure.
+        Returns
+        -------
+        None
+            Displays a figure.
         """
         return plotting.plot_motif_rand(sq_obj=self, motif=motif, max_dist=max_dist, n_points=n_points, figsize=figsize, seed=seed, save_path=save_path)
 
@@ -1271,23 +1279,23 @@ class spatial_query:
         or `motif_enrichment_knn()`, or customized motifs by users.
 
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type as the center cells.
-        motif:
+        motif : str or List[str]
             Motif (names of cell types) to be colored.
-        max_dist:
+        max_dist : float, default=20
             Spacing distance for building grid. Make sure using the same value as that in find_patterns_grid.
-        figsize:
+        figsize : tuple, default=(5, 5)
             Figure size.
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
+        save_path : str, optional
+            Path to save the figure. If None, the figure will not be saved.
 
-        Return
-        ------
-        A figure.
+        Returns
+        -------
+        None
+            Displays a figure.
         """
         return plotting.plot_motif_celltype(sq_obj=self, ct=ct, motif=motif, max_dist=max_dist, figsize=figsize, save_path=save_path)
 
@@ -1303,9 +1311,8 @@ class spatial_query:
 
         Parameters
         ----------
-        center:
+        ct : str
             Center cell type.
-
         ids : dict
             Dictionary containing cell pairing information for correlations:
                 - 'center_neighbor_motif_pair': array of shape (n_pairs, 2) containing
@@ -1317,16 +1324,15 @@ class spatial_query:
                 - 'non_motif_center_neighbor_pair': array of shape (n_pairs, 2) containing
                   center-neighbor pairs for Correlation 3 (center without motif vs neighbors).
                   Each row is [center_cell_idx, neighbor_cell_idx]. Empty if insufficient pairs.
-        figsize: tuple
+        figsize : tuple, default=(6, 6)
             Figure size.
+        save_path : str, optional
+            Path to save the figure. If None, the figure will not be saved.
 
-        save_path:
-            Path to save the figure.
-            If None, the figure will not be saved.
-
-        Return
-        ------
-        A figure.
+        Returns
+        -------
+        None
+            Displays a figure.
         """
         return plotting.plot_all_center_motif(sq_obj=self, ct=ct, ids=ids, figsize=figsize, save_path=save_path)
 
@@ -1341,23 +1347,23 @@ class spatial_query:
 
         Parameters
         ----------
-        fp_df:
+        fp_df : pd.DataFrame
             DataFrame containing frequent pattern results with two columns:
                 - support: frequency of the pattern (proportion of points with this pattern)
                 - itemsets: frozenset of cell types in the frequent pattern
 
             This is typically the output from find_fp_knn or find_fp_dist methods.
-        figsize:
-            Figure size, default is (7, 5)
-        save_path:
+        figsize : tuple, default=(7, 5)
+            Figure size.
+        save_path : str, optional
             Path to save the figure. If None, the figure will not be saved.
-        title:
+        title : str, optional
             Figure title. If None, will use a default title.
-        cmap:
-            Colormap for the heatmap, default is 'GnBu'
+        cmap : str, default='GnBu'
+            Colormap for the heatmap.
 
-        Return
-        ------
+        Returns
+        -------
         None
             Displays a heatmap showing the cell type distribution across frequent patterns.
             Rows represent cell types, columns represent pattern groups (sorted by support),
@@ -1375,22 +1381,23 @@ class spatial_query:
         """
         Plot a heatmap showing the distribution of cell types in enriched motifs.
 
-        Parameter
-        ---------
-        enrich_df:
-            Output DataFrame from motif_enrichment_dist or motif_enrichment_knn
-        figsize:
-            Figure size, default is (7, 5)
-        save_path:
+        Parameters
+        ----------
+        enrich_df : pd.DataFrame
+            Output DataFrame from motif_enrichment_dist or motif_enrichment_knn.
+        figsize : tuple, default=(7, 5)
+            Figure size.
+        save_path : str, optional
             Path to save the figure. If None, the figure will not be saved.
-        title:
+        title : str, optional
             Figure title. If None, will use a default title based on center cell type.
-        cmap:
-            Colormap for the heatmap, default is 'GnBu'
+        cmap : str, default='GnBu'
+            Colormap for the heatmap.
 
-        Return
-        ------
-        A figure showing the heatmap of motif cell type distribution.
+        Returns
+        -------
+        None
+            Displays a heatmap of motif cell type distribution.
         """
         return plotting.plot_motif_enrichment_heatmap(enrich_df=enrich_df, figsize=figsize,
                                                        save_path=save_path, title=title, cmap=cmap)
@@ -1404,21 +1411,21 @@ class spatial_query:
         """
         Plot a heatmap showing the cross-varying gene pairs and return cluster assignments.
 
-        Parameter
-        ---------
-        gene_pair_df:
+        Parameters
+        ----------
+        gene_pair_df : pd.DataFrame
             Output DataFrame from compute_gene_gene_correlation or compute_gene_gene_correlation_by_type.
-        figsize:
-            Figure size, default is (7, 5)
-        save_path:
+        figsize : tuple, default=(7, 5)
+            Figure size.
+        save_path : str, optional
             Path to save the figure. If None, the figure will not be saved.
-        title:
+        title : str, optional
             Figure title. If None, will use a default title based on center cell type.
-        cmap:
-            Colormap for the heatmap, default is 'GnBu'
+        cmap : str, default='GnBu'
+            Colormap for the heatmap.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             Displays a biclustered heatmap of gene pairs and returns a DataFrame with
             cluster assignments. Columns: gene_center, gene_motif, combined_score,
@@ -1450,42 +1457,42 @@ class spatial_query:
         3. Center gene expression in center cells without motif
         4. Motif gene expression in non-motif neighbors
 
-        Parameter
-        ---------
-        gene_pairs:
+        Parameters
+        ----------
+        gene_pairs : List[tuple]
             List of gene pairs to plot, e.g., [('gene1', 'gene2'), ('gene3', 'gene4')]. First gene
             in the pair is the center gene, second is the motif gene.
-        gene_pair_df:
+        gene_pair_df : pd.DataFrame
             DataFrame containing gene pair correlation results with columns:
             'gene_center', 'gene_motif', 'combined_score'.
             This is typically the output from compute_gene_gene_correlation.
-        ids:
+        ids : dict
             Dictionary containing cell pairing information from compute_gene_gene_correlation:
             - 'center_neighbor_motif_pair': array of [center_idx, neighbor_idx] pairs
             - 'non_motif_center_neighbor_pair': array of [center_idx, neighbor_idx] pairs
-        ct:
+        ct : str
             Center cell type name.
-        motif:
+        motif : List[str]
             List of cell types in the motif.
-        motif_ct:
+        motif_ct : str, optional
             Specific motif cell type to filter for plotting. If None, all motif cell types
             are used (suitable for compute_gene_gene_correlation results where motif types
             are pooled together).
-        figsize:
-            Figure size for each gene pair plot (width, height), default (20, 5).
-        vmin:
+        figsize : tuple, default=(20, 5)
+            Figure size for each gene pair plot (width, height).
+        vmin : float, optional
             Minimum value for color normalization. If None, automatically computed as
             ``-max(abs(shifted_expression))`` to ensure symmetric colormap.
-        vmax:
+        vmax : float, optional
             Maximum value for color normalization. If None, automatically computed as
             ``max(abs(shifted_expression))`` to ensure symmetric colormap.
-        cmap:
-            Colormap name, default "RdYlBu_r".
-        save_path:
+        cmap : str, default='RdYlBu_r'
+            Colormap name.
+        save_path : str, optional
             Directory path to save figures. If None, figures are displayed but not saved.
             Each gene pair will be saved as '{save_path}/{gene1}_{gene2}_spatial.pdf'.
 
-        Return
+        Returns
         ------
         None
             Displays and optionally saves spatial expression plots for each gene pair.

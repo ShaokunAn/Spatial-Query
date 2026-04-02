@@ -47,25 +47,25 @@ class spatial_query_multi:
         """
         Initiate models, including setting attributes and building kd-tree for each field of view.
 
-        Parameter
-        ---------
-        adatas:
-            List of adata
-        datasets:
-            List of dataset names
-        spatial_key:
-            Spatial coordination name in AnnData.obsm object
-        label_key:
-            Label name in AnnData.obs object
-        leaf_size:
+        Parameters
+        ----------
+        adatas : List[AnnData]
+            List of AnnData objects.
+        datasets : List[str]
+            List of dataset names.
+        spatial_key : str
+            Spatial coordination name in AnnData.obsm object.
+        label_key : str
+            Label name in AnnData.obs object.
+        leaf_size : int, default=10
             The largest number of points stored in each leaf node.
-        build_gene_index:
-            Whether to build scfind index or use adata.X directly. If set True, build scfind index otherwise use adata.X directly.
-        feature_name:
+        build_gene_index : bool, default=False
+            Whether to build scfind index or use adata.X directly.
+        feature_name : str, optional
             The label or key in the AnnData object's variables (var) that corresponds to the feature names.
-        if_lognorm:
-            Whether to log normalize the expression data, default is True
-        if_normalize_spatial_coord:
+        if_lognorm : bool, default=True
+            Whether to log normalize the expression data.
+        if_normalize_spatial_coord : bool, default=True
             If True, normalizes spatial coordinates so mean nearest neighbor distance equals 1.
             Set to False if original spatial units should be preserved.
         """
@@ -115,22 +115,22 @@ class spatial_query_multi:
         """
         Find frequent patterns within the KNNs of certain cell type in multiple fields of view.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type name.
-        dataset:
+        dataset : str or List[str], optional
             Datasets for searching for frequent patterns.
             Use all datasets if dataset=None.
-        k:
+        k : int, default=30
             Number of nearest neighbors.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_dist:
+        max_dist : float, default=20
             The maximum distance at which points are considered neighbors.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with frequent pattern results. Columns include:
                 - support: frequency of the pattern (proportion of transactions with this pattern)
@@ -213,22 +213,22 @@ class spatial_query_multi:
         """
         Find frequent patterns within the radius of certain cell type in multiple fields of view.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type name.
-        dataset:
+        dataset : str or List[str], optional
             Datasets for searching for frequent patterns.
             Use all datasets if dataset=None.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each point to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with frequent pattern results. Columns include:
                 - support: frequency of the pattern (proportion of transactions with this pattern)
@@ -310,29 +310,29 @@ class spatial_query_multi:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN) in multiple fields of view.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             The cell type of the center cell.
-        motifs:
+        motifs : str or List[str] or List[List[str]], optional
             Specified motifs to be tested.
             If motifs=None, find the frequent patterns as motifs within
             the neighborhood of center cell type in each fov.
-        dataset:
+        dataset : str or List[str], optional
             Datasets for searching for frequent patterns and performing enrichment analysis.
             Use all datasets if dataset=None.
-        k:
+        k : int, default=30
             Number of nearest neighbors to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_dist:
-            Maximum distance for neighbors (default: 20).
-        return_cellID:
+        max_dist : float, default=20
+            Maximum distance for neighbors.
+        return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cell type and center cells.
             By defaults do not return cell ID.
 
-        Return
-        ------
+        Returns
+        -------
         Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]
             If return_cellID is False:
                 pd.DataFrame with motif enrichment results. Columns include:
@@ -514,28 +514,28 @@ class spatial_query_multi:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood in multiple fields of view.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type of the center cell.
-        motifs:
+        motifs : str or List[str] or List[List[str]], optional
             Specified motifs to be tested.
             If motifs=None, find the frequent patterns as motifs within the neighborhood of center cell type.
-        dataset:
+        dataset : str or List[str], optional
             Datasets for searching for frequent patterns and performing enrichment analysis.
             Use all datasets if dataset=None.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each point to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        return_cellID:
+        return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cells.
             By defaults do not return cell ID.
 
-        Return
-        ------
+        Returns
+        -------
         Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]
             If return_cellID is False:
                 pd.DataFrame with motif enrichment results. Columns include:
@@ -725,21 +725,21 @@ class spatial_query_multi:
         """
         Find frequent patterns within the KNNs of specific cell type of interest in single field of view.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type name.
-        dataset_i:
-            Datasets for searching for frequent patterns in dataset_i format.
-        k:
+        dataset_i : str
+            Dataset name in dataset_i format.
+        k : int, default=30
             Number of nearest neighbors.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with frequent pattern results. Columns include:
                 - support: frequency of the pattern
@@ -782,21 +782,21 @@ class spatial_query_multi:
         Find frequent patterns within the radius-based neighborhood of specific cell type of interest
         in single field of view.
 
-        Parameter
-        ---------
-        ct:
+        Parameters
+        ----------
+        ct : str
             Cell type name.
-        dataset_i:
-            Datasets for searching for frequent patterns in dataset_i format.
-        max_dist:
+        dataset_i : str
+            Dataset name in dataset_i format.
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each point to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
 
-        Return
-        ------
+        Returns
+        -------
         pd.DataFrame
             DataFrame with frequent pattern results. Columns include:
                 - support: frequency of the pattern
@@ -850,23 +850,23 @@ class spatial_query_multi:
 
         Parameters
         ----------
-        ct:
+        ct : str
             Cell type of interest as center point.
-        datasets:
+        datasets : List[str]
             List of exactly 2 dataset names to compare (e.g., ['Disease', 'Control']).
-        motifs:
+        motifs : str or List[str] or List[List[str]], optional
             Optional user-specified motif(s) to test. Can be:
             - Single cell type: 'CellTypeA'
             - Single motif: ['CellTypeA', 'CellTypeB']
             - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
 
             If None, performs unbiased discovery of frequent patterns first.
-        k:
+        k : int, default=30
             Number of nearest neighbors to consider.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as frequent (only used when motifs=None
             for unbiased discovery mode).
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
 
         Returns
@@ -952,23 +952,23 @@ class spatial_query_multi:
 
         Parameters
         ----------
-        ct:
+        ct : str
             Cell type of interest as center point.
-        datasets:
+        datasets : List[str]
             List of exactly 2 dataset names to compare (e.g., ['Disease', 'Control']).
-        motifs:
+        motifs : str or List[str] or List[List[str]], optional
             Optional user-specified motif(s) to test. Can be:
             - Single cell type: 'CellTypeA'
             - Single motif: ['CellTypeA', 'CellTypeB']
             - Multiple motifs: [['CellTypeA'], ['CellTypeB', 'CellTypeC']]
 
             If None, performs unbiased discovery of frequent patterns first.
-        max_dist:
+        max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
-        min_support:
+        min_support : float, default=0.5
             Threshold of frequency to consider a pattern as frequent (only used when motifs=None
             for unbiased discovery mode).
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each center cell to be considered.
 
         Returns
@@ -1051,17 +1051,18 @@ class spatial_query_multi:
 
         Parameters
         ----------
-        ind_group1: defaultdict[str, List[int]]
+        ind_group1 : defaultdict[str, List[int]]
             A defaultdict with keys as modified dataset names and values as lists of indices in corresponding group.
-        ind_group2: defaultdict[str, List[int]]
+        ind_group2 : defaultdict[str, List[int]]
             A defaultdict with keys as modified dataset names and values as lists of indices in corresponding group.
-        genes: Optional[Union[str, List[str]]]
+        genes : str or List[str], optional
             Genes to be searched in the gene index.
-        min_fraction: float, default=0.05
+        min_fraction : float, default=0.05
             The minimum fraction of cells that express a gene for it to be considered differentially expressed.
-        method: Literal['fisher', 't-test', 'wilcoxon'], default='fisher'
+        method : {'fisher', 't-test', 'wilcoxon'}, default='fisher'
             The method to use for DE analysis. If build_gene_index=True, only Fisher's exact test is supported.
-        alpha: Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
+        alpha : float, optional
+            Significance threshold for adjusted p-values. If None, defaults to 0.1 when using Fisher's exact test and 0.05 otherwise.
 
         Returns
         -------
@@ -1389,15 +1390,19 @@ class spatial_query_multi:
 
         Parameters
         ----------
-        dataset:
+        dataset : str or List[str], optional
             Datasets for searching.
-        data_type:
-            Plot bar plot by number of cells or by the proportions of datasets in each cell type.
-            Default is 'number' otherwise 'proportion' is used.
+        data_type : {'number', 'proportion'}, default='proportion'
+            Plot bar plot by number of cells or by proportions.
+        colormap : str, default='tab20c'
+            Matplotlib colormap name.
+        save_path : str, optional
+            Path to save the figure.
 
         Returns
         -------
-        Stacked bar plot
+        None
+            Displays a stacked bar plot.
         """
         if data_type not in ['number', 'proportion']:
             raise ValueError("Invalid data_type. It should be one of 'number' or 'proportion'.")
@@ -1503,15 +1508,19 @@ class spatial_query_multi:
 
         Parameters
         ----------
-        dataset:
-            Dataset of searching.
-        data_type:
-            Plot bar plot by number of cells or by the proportions of cell types in each FOV.
-            Default is 'number' otherwise 'proportion' is used.
+        dataset : str
+            Dataset name.
+        data_type : {'number', 'proportion'}, default='number'
+            Plot bar plot by number of cells or by proportions.
+        colormap : str, default='tab20c'
+            Matplotlib colormap name.
+        save_path : str, optional
+            Path to save the figure.
 
         Returns
         -------
-        Stacked bar plot
+        None
+            Displays a stacked bar plot.
         """
          
         if data_type not in ['number', 'proportion']:
@@ -1612,23 +1621,23 @@ class spatial_query_multi:
 
         Parameters
         ----------
-        ct:
+        ct : str
             Cell type as the center cells.
-        motif:
+        motif : str or List[str]
             Motif (names of cell types) to be analyzed.
-        dataset:
+        dataset : str or List[str], optional
             Datasets to include in analysis. If None, use all datasets.
-        genes:
+        genes : str or List[str], optional
             List of genes to analyze. If None, uses intersection of genes across all FOVs.
-        max_dist:
+        max_dist : float, optional
             Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k:
+        k : int, optional
             Number of nearest neighbors. Use either max_dist or k.
-        min_size:
+        min_size : int, default=0
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
-        min_nonzero:
+        min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
-        alpha: 
+        alpha : float, optional
             Significance threshold.
 
         Returns
@@ -1694,21 +1703,21 @@ class spatial_query_multi:
         ----------
         ct : str
             Cell type as the center cells.
-        motif : Union[str, List[str]]
+        motif : str or List[str]
             Motif (names of cell types) to be analyzed. Include all cell types for neighbor finding.
-        dataset : Union[str, List[str]], optional
+        dataset : str or List[str], optional
             Datasets to include in analysis. If None, use all datasets.
-        genes : Optional[Union[str, List[str]]], optional
+        genes : str or List[str], optional
             List of genes to analyze. If None, uses intersection of genes across all FOVs.
-        max_dist : Optional[float], optional
+        max_dist : float, optional
             Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
-        k : Optional[int], optional
+        k : int, optional
             Number of nearest neighbors. Use either max_dist or k.
         min_size : int, default=0
             Minimum neighborhood size for each center cell (only used when max_dist is specified).
         min_nonzero : int, default=10
             Minimum number of non-zero expression values required for a gene to be included.
-        alpha
+        alpha : float, optional
             Significance threshold.
 
         Returns

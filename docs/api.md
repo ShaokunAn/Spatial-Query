@@ -1,8 +1,8 @@
-# API Reference
+# API
 
 ```{toctree}
-:maxdepth: 1
+:maxdepth: 2
 
-api/spatial_query
-api/spatial_query_multi
+api/single_data
+api/multi_data
 ```

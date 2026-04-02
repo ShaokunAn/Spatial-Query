@@ -1,4 +1,117 @@
-/* Widen the content area slightly */
+/* Widen the content area */
 .wy-nav-content {
     max-width: 900px;
+}
+
+/* ── Logo area ── */
+.wy-side-nav-search {
+    background-color: #ffffff;
+    border-bottom: 2px solid #2A8C82;
+}
+
+.wy-side-nav-search input[type="text"] {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* ── Sidebar navigation ── */
+.wy-nav-side {
+    background-color: #f5f7f9;
+    border-right: 1px solid #dde3e8;
+}
+
+/* Top-level links */
+.wy-menu-vertical a {
+    color: #2c3e50;
+}
+
+.wy-menu-vertical a:hover {
+    background-color: #e8edf2;
+    color: #1B2A4A;
+}
+
+/* Active top-level item */
+.wy-menu-vertical li.toctree-l1.current > a {
+    background-color: #2A8C82;
+    color: #ffffff;
+    font-weight: 600;
+    border: none;
+}
+
+.wy-menu-vertical li.toctree-l1.current > a:hover {
+    background-color: #238075;
+    color: #ffffff;
+}
+
+/* Expanded section background */
+.wy-menu-vertical li.current ul {
+    background-color: #eef2f5;
+}
+
+/* Child links inside expanded section */
+.wy-menu-vertical li.current li a {
+    color: #34495e;
+    background-color: #eef2f5;
+}
+
+.wy-menu-vertical li.current li a:hover {
+    background-color: #dce4ea;
+    color: #1B2A4A;
+}
+
+/* Active child item */
+.wy-menu-vertical li.current li.current > a {
+    background-color: #dce4ea;
+    color: #1B2A4A;
+    font-weight: 600;
+    border-left: 3px solid #2A8C82;
+}
+
+/* Deeper nesting (l3, l4) */
+.wy-menu-vertical li.current li.current li a {
+    color: #4a6274;
+    background-color: #e6ecf0;
+}
+
+.wy-menu-vertical li.current li.current li.current > a {
+    color: #1B2A4A;
+    background-color: #d5dfe6;
+    border-left: 3px solid #7FB847;
+}
+
+/* Section headers (GENERAL, GALLERY) */
+.wy-menu-vertical p.caption {
+    color: #2A8C82;
+    font-weight: 700;
+    font-size: 0.85em;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #d0dce3;
+    padding-bottom: 4px;
+    margin-top: 12px;
+}
+
+/* ── Cards ── */
+.sd-card {
+    border: 1px solid #dde3e8;
+    border-radius: 6px;
+    transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.sd-card:hover {
+    border-color: #2A8C82;
+    box-shadow: 0 2px 8px rgba(42, 140, 130, 0.15);
+}
+
+.sd-card .sd-card-title {
+    color: #1B2A4A;
+}
+
+/* ── Content links ── */
+.wy-nav-content a {
+    color: #2A8C82;
+}
+
+.wy-nav-content a:hover {
+    color: #1B6B63;
 }
