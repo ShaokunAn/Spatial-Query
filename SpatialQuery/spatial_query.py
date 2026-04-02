@@ -90,7 +90,7 @@ class spatial_query:
         
         self.dataset = dataset
         self.label_key = label_key
-        self.labels = adata.obs[self.label_key]
+        self.labels = adata.obs[self.label_key].reset_index(drop=True)
         self.labels = self.labels.astype('category')
         self.kd_tree = KDTree(self.spatial_pos, leafsize=leaf_size)
         self.build_gene_index = build_gene_index
@@ -100,7 +100,7 @@ class spatial_query:
         self.index = None
 
         # filter features with NA
-        valid_features = adata.var[feature_name].isna()
+        valid_features = adata.var[feature_name].isna().values
         adata = adata[:, ~valid_features]
         # filter duplicated features
         duplicated = adata.var.duplicated(subset=[feature_name], keep='first')
