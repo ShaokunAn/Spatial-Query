@@ -1537,18 +1537,54 @@ def interactive_motif(
     """
     Create an interactive Vitessce widget to explore spatial motifs.
 
-    Builds a minimal AnnData containing only cell type labels and spatial
-    coordinates from the SpatialQuery object, writes it to a Zarr store,
-    and launches the Vitessce widget with the SpatialQueryPlugin.
+    Builds a minimal AnnData containing cell type labels, spatial coordinates,
+    and (optionally) gene expression from the SpatialQuery object, writes it
+    to a Zarr store, and launches a Vitessce widget with the SpatialQueryPlugin.
+    The widget provides interactive panels for spatial visualization, cell type
+    selection, motif enrichment analysis, and gene expression exploration.
 
     Parameters
     ----------
     sp : spatial_query
-        An initialized SpatialQuery instance.
+        An initialized SpatialQuery instance. If ``build_gene_index=False``
+        and ``sp.adata`` is not None, gene expression data will be included
+        in the widget for feature-level exploration.
     zarr_path : str
-        Path where the Zarr store will be written.
-    spatialSpotRadius : float, optional
-        Radius for spatial spots in the visualization, by default 1.
+        Path where the Zarr store will be written. If the path already exists,
+        its contents will be overwritten with a warning.
+    spatialSpotRadius : float, default=1
+        Radius for spatial spots in the Vitessce visualization. Adjust based
+        on data density and spatial coordinate scale.
+
+    Returns
+    -------
+    ipywidgets.Widget
+        A Vitessce widget that can be displayed in a Jupyter notebook.
+        The widget contains the following views:
+
+        - **Spatial view**: scatter plot of cells colored by cell type
+        - **Layer controller**: toggle visibility and appearance of layers
+        - **Cell sets**: browse and select cell types
+        - **SpatialQuery**: interactive motif enrichment query panel
+        - **SpatialQuery Heatmap**: heatmap of motif enrichment results
+        - **Feature list**: gene selection panel (only when expression data is available)
+
+    Notes
+    -----
+    This function requires the ``vitessce`` Python package (with the
+    ``SpatialQueryPlugin``) to be installed. Install it via::
+
+        pip install vitessce[all]
+
+    The generated widget is designed for use in Jupyter notebooks
+    (JupyterLab or Jupyter Notebook).
+
+    Examples
+    --------
+    >>> from SpatialQuery.spatial_query import spatial_query, interactive_motif
+    >>> sq = spatial_query(adata, spatial_key='X_spatial', label_key='cell_type')
+    >>> widget = interactive_motif(sq, zarr_path='./my_data.zarr')
+    >>> widget
     """
     import os
     import warnings
