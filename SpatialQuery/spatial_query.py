@@ -889,6 +889,46 @@ class spatial_query:
 
         return results_df
 
+    def get_anchor_motif_cell_ids(self,
+                        ct: str,
+                        motif: Union[str, List[str]],
+                        max_dist: Optional[float] = None,
+                        k: Optional[int] = None,
+                        min_size: int = 0,
+                        ) -> dict:
+        """
+        Get cell grouping information for correlation analysis without computing correlations.
+
+        Parameters
+        ----------
+        ct:
+            Cell type as the center cells.
+        motif:
+            Motif (names of cell types) to be analyzed.
+        max_dist:
+            Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
+        k:
+            Number of nearest neighbors. Use either max_dist or k.
+        min_size:
+            Minimum neighborhood size for each center cell (only used when max_dist is specified).
+
+        Returns
+        -------
+        cell_groups : dict
+            Dictionary containing cell pairing information:
+                - 'center_neighbor_motif_pair': array of [center, neighbor] index pairs.
+                - 'non-neighbor_motif_cells': distant motif cell indices.
+                - 'non_motif_center_neighbor_pair': pairs for centers without nearby motif.
+        """
+        return spatial_gene_covarying.get_anchor_motif_cell_ids(
+            sq_obj=self,
+            ct=ct,
+            motif=motif,
+            max_dist=max_dist,
+            k=k,
+            min_size=min_size,
+        )
+
     def compute_gene_gene_correlation(self,
                                       ct: str,
                                       motif: Union[str, List[str]],

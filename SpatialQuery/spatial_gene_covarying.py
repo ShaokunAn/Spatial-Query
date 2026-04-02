@@ -577,6 +577,86 @@ def compute_covariance_statistics_all_to_all(expr_genes,
     return cov_sum, center_ss, neighbor_ss, n_pairs, n_eff
 
 
+def get_anchor_motif_cell_ids(sq_obj,
+                    ct: str,
+                    motif: Union[str, List[str]],
+                    max_dist: Optional[float] = None,
+                    k: Optional[int] = None,
+                    min_size: int = 0,
+                    ) -> dict:
+    """
+    Get cell grouping information for correlation analysis without computing correlations.
+
+    Identifies three groups of cells:
+    1. Center-neighbor pairs where neighbors belong to the specified motif
+    2. Non-neighbor motif cells (distant motif cells)
+    3. Center-neighbor pairs for centers without nearby motif
+
+    Parameters
+    ----------
+    sq_obj :
+        A spatial_query object.
+    ct : str
+        Cell type as the center cells.
+    motif : Union[str, List[str]]
+        Motif (names of cell types) to be analyzed.
+    max_dist : Optional[float], default=None
+        Maximum distance for considering a cell as a neighbor. Use either max_dist or k.
+    k : Optional[int], default=None
+        Number of nearest neighbors. Use either max_dist or k.
+    min_size : int, default=0
+        Minimum neighborhood size for each center cell (only used when max_dist is specified).
+
+    Returns
+    -------
+    cell_groups : dict
+        Dictionary containing cell pairing information:
+            - 'center_neighbor_motif_pair': array of shape (n_pairs, 2) with
+                [center_cell_idx, neighbor_cell_idx] pairs for centers with motif neighbors.
+            - 'non-neighbor_motif_cells': array of cell indices for distant motif cells.
+            - 'non_motif_center_neighbor_pair': array of shape (n_pairs, 2) with
+                [center_cell_idx, neighbor_cell_idx] pairs for centers without nearby motif.
+                Empty array if fewer than 10 pairs found.
+    """
+    motif = motif if isinstance(motif, list) else [motif]
+
+    # Step 1: Get center-neighbor pairs for motif
+    neighbor_result = spatial_utils.get_motif_neighbor_cells(
+        sq_obj=sq_obj, ct=ct, motif=motif, max_dist=max_dist, k=k, min_size=min_size
+    )
+    center_neighbor_pairs = neighbor_result['center_neighbor_pairs']
+    ct_in_motif = neighbor_result['ct_in_motif']
+
+    # Step 2: Derive unique cell sets from pairs
+    center_cells = np.unique(center_neighbor_pairs[:, 0])
+    neighbor_cells = np.unique(center_neighbor_pairs[:, 1])
+
+    # Step 3: Get non-neighbor motif cells
+    motif_mask = np.isin(np.array(sq_obj.labels), motif)
+    all_motif_cells = np.where(motif_mask)[0]
+    non_neighbor_cells = np.setdiff1d(all_motif_cells, neighbor_cells)
+
+    # Remove center type from non-neighbor group for inter-cell-type focus
+    if ct_in_motif:
+        center_cell_mask_non = sq_obj.labels[non_neighbor_cells] == ct
+        non_neighbor_cells = non_neighbor_cells[~center_cell_mask_non]
+
+    # Step 4: Get pairs for centers without nearby motif
+    no_motif_result = spatial_utils.get_all_neighbor_cells(
+        sq_obj=sq_obj, ct=ct, max_dist=max_dist, k=k, min_size=min_size,
+        exclude_centers=center_cells, exclude_neighbors=neighbor_cells,
+    )
+    center_no_motif_pairs = no_motif_result['center_neighbor_pairs']
+
+    cell_groups = {
+        'center_neighbor_motif_pair': center_neighbor_pairs,
+        'non-neighbor_motif_cells': non_neighbor_cells,
+        'non_motif_center_neighbor_pair': center_no_motif_pairs if len(center_no_motif_pairs) >= 10 else np.array([]).reshape(0, 2),
+    }
+
+    return cell_groups
+
+
 def compute_gene_gene_correlation_adata(sq_obj,
                                         ct: str,
                                         motif: Union[str, List[str]],
