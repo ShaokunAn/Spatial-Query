@@ -300,7 +300,7 @@ class spatial_query_multi:
 
     def motif_enrichment_knn(self,
                              ct: str,
-                             motifs: Union[str, List[str]] = None,
+                             motifs: Union[str, List[str], List[List[str]]] = None,
                              dataset: Union[str, List[str]] = None,
                              k: int = 30,
                              min_support: float = 0.5,
@@ -374,15 +374,23 @@ class spatial_query_multi:
             motifs = fp['itemsets'].tolist()
         else:
             if isinstance(motifs, str):
+                motifs = [[motifs]]
+            elif isinstance(motifs, list) and all(isinstance(m, str) for m in motifs):
                 motifs = [motifs]
+            # else: List[List[str]], keep as is
 
-            motifs_exc = [m for m in motifs if m not in labels_unique_all]
-            if len(motifs_exc) != 0:
-                print(f"Found no {motifs_exc} in {dataset}. Ignoring them.")
-            motifs = [m for m in motifs if m not in motifs_exc]
-            if len(motifs) == 0:
+            filtered_motifs = []
+            for motif in motifs:
+                motif_exc = [m for m in motif if m not in labels_unique_all]
+                if len(motif_exc) > 0:
+                    print(f"Found no {motif_exc} in {dataset}. Ignoring them.")
+                valid_motif = [m for m in motif if m in labels_unique_all]
+                if len(valid_motif) > 0:
+                    filtered_motifs.append(valid_motif)
+
+            if len(filtered_motifs) == 0:
                 raise ValueError(f"All cell types in motifs are missed in {self.label_key}.")
-            motifs = [motifs]
+            motifs = filtered_motifs
 
         # Initialize dictionaries to store cell IDs if requested
         motif_cell_ids = {}
