@@ -57,7 +57,7 @@ def retrieve_niche_pattern_freq(fp, sp, ct, max_dist):
         radius of neighborhood
 
     Return:
-        AnnData with central cell type and neighboring cells in fp
+        pd.DataFrame with frequency of each cell type in fp around the central cell type
     """
     if ct not in sp.labels.unique():
         print(f"{ct} does not exist in FOV.")

@@ -1348,8 +1348,8 @@ class spatial_query:
                                title: Optional[str] = None,
                                cmap: str = 'GnBu'):
         """
-        Plot a heatmap showing the cross-varying gene pairs.
-        
+        Plot a heatmap showing the cross-varying gene pairs and return cluster assignments.
+
         Parameter
         ---------
         gene_pair_df:
@@ -1362,10 +1362,14 @@ class spatial_query:
             Figure title. If None, will use a default title based on center cell type.
         cmap:
             Colormap for the heatmap, default is 'GnBu'
-        
+
         Return
         ------
-        A figure showing the heatmap of motif cell type distribution.
+        pd.DataFrame
+            Displays a biclustered heatmap of gene pairs and returns a DataFrame with
+            cluster assignments. Columns: gene_center, gene_motif, combined_score,
+            cluster_type, cluster_row, cluster_col. If input has 'cell_type' column,
+            it will also be included.
         """
         return plotting.plot_gene_pair_heatmap(gene_pair_df=gene_pair_df, figsize=figsize,
                                                        save_path=save_path)

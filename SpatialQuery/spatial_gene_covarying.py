@@ -1,5 +1,5 @@
 
-from typing import List, Union, Optional, Literal, Dict
+from typing import List, Union, Optional, Literal, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -586,9 +586,9 @@ def compute_gene_gene_correlation_adata(sq_obj,
                                         min_size: int = 0,
                                         min_nonzero: int = 10,
                                         alpha: Optional[float] = None
-                                        ) -> pd.DataFrame:
+                                        ) -> Tuple[pd.DataFrame, dict]:
     """
-    Compute gene-gene cross correlation between anchor and neighboring motif cells. Only considers inter-cell-type interactions. 
+    Compute gene-gene cross correlation between anchor and neighboring motif cells. Only considers inter-cell-type interactions.
     After finding neighbors using the full motif, removes all cells of the center cell type from both neighbor and
     non-neighbor groups. For Pearson correlation, uses shifted correlation (subtract cell type mean) to enable
     comparison across different niches/motifs.
@@ -1017,7 +1017,7 @@ def compute_gene_gene_correlation_binary(sq_obj,
                                          min_size: int = 0,
                                          min_nonzero: int = 10,
                                          alpha: Optional[float] = None
-                                         ) -> pd.DataFrame:
+                                         ) -> Tuple[pd.DataFrame, dict]:
     """
     Compute gene-gene correlation using deviation from global binary mean for binary expression data.
 

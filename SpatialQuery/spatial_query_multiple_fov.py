@@ -1629,9 +1629,6 @@ class spatial_query_multi:
             DataFrame with correlation results. Columns: gene_center, gene_motif, corr_neighbor,
             corr_non_neighbor, corr_center_no_motif, p_value_test1, p_value_test2,
             delta_corr_test1, delta_corr_test2, combined_score, adj-pval-test1, adj-pval-test2.
-        fov_info : dict
-            FOV-level information with keys: fov_statistics, total_pairs_neighbor,
-            total_pairs_non_neighbor, total_pairs_no_motif, n_fovs_analyzed.
         """
         if not self.build_gene_index:
             print('Computing covarying genes using expression data ...')
