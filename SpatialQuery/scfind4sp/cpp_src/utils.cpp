@@ -1,5 +1,10 @@
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
+#include <iterator>
+#include <numeric>
+#include <sstream>
 #include <vector>
 #include "utils.h"
 #include <pybind11/stl.h>

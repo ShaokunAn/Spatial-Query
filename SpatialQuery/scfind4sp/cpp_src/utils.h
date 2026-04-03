@@ -1,9 +1,8 @@
 #pragma once
 
-
+#include <cmath>
 #include <map>
 #include <set>
-
 
 #include "const.h"
 #include "typedef.h"
