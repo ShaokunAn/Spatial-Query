@@ -5,18 +5,10 @@
 - Python >= 3.10
 - A C++ compiler (for the bundled C++ extension)
 
-## Install from GitHub
+## Install via pip
 
 ```bash
-pip install git+https://github.com/ShaokunAn/Spatial-Query.git@main
-```
-
-## Install in development mode
-
-```bash
-git clone https://github.com/ShaokunAn/Spatial-Query.git
-cd Spatial-Query
-pip install -e .
+pip install SpatialQuery
 ```
 
 ## Dependencies
