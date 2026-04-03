@@ -1,6 +1,19 @@
 # SpatialQuery
 
-A Python package for spatial query and analysis of spatial transcriptomics data, including spatial motif discovery, motif enrichment analysis, motif-associated differential expression, and cross-cell gene-gene covariation analysis.
+SpatialQuery is a Python package for systematic spatial analysis of single-cell resolution spatial omics data. It provides a unified framework to discover, quantify, and compare recurring spatial cell type patterns — termed *motifs* — across single or multiple fields of view (FOVs).
+
+Starting from annotated spatial omics datasets (spatial transcriptomics and spatial proteomics data), SpatialQuery constructs cell neighborhoods using KNN or distance-based approaches and mines frequent cell type co-occurrence patterns via the FP-Growth algorithm. It then tests whether these motifs are statistically enriched beyond what is expected by chance, and supports comparison of motif compositions across biological conditions (e.g., healthy vs. disease) through differential motif analysis.
+
+Beyond spatial structure, SpatialQuery links motifs to molecular phenotypes. For cells participating in a given motif, it performs motif-associated differential expression analysis to identify genes whose expression differs between motif-positive and motif-negative cells or across conditions. It further detects cross-cell gene-gene covariation — spatially dependent correlations between gene expression in anchor cells and their neighbors — to reveal intercellular signaling relationships that are specific to particular spatial contexts.
+
+Key capabilities include:
+
+- **Spatial motif discovery**: Identify frequent cell type patterns in local neighborhoods
+- **Motif enrichment analysis**: Statistically test whether motifs occur more than expected
+- **Differential motif analysis**: Compare spatial compositions across conditions
+- **Motif-associated differential expression**: Find DE genes linked to specific motifs
+- **Cross-cell gene-gene covariation**: Detect spatially dependent intercellular gene correlations
+- **Multi-FOV support**: Pool and compare results across multiple tissue sections or samples
 
 ## Installation
 
@@ -10,8 +23,7 @@ pip install SpatialQuery
 
 ## Documentation
 
-Full documentation, tutorials, and API reference:
-**[https://spatial-query.readthedocs.io](https://spatial-query.readthedocs.io)**
+Full documentation, tutorials, and API reference: **[https://spatialquery.readthedocs.io/en/latest/](https://spatialquery.readthedocs.io/en/latest/)**
 
 ## Quick Start
 
@@ -19,8 +31,8 @@ Full documentation, tutorials, and API reference:
 from SpatialQuery import spatial_query
 
 # Single FOV analysis
-sq = spatial_query(adata, spatial_key="X_spatial", label_key="cell_type")
-fp = sq.find_fp_knn(ct="T_cell", k=30, min_support=0.5)
+sq = spatial_query(adata, spatial_key="X_spatial", label_key="cell_type", feature_name="gene")
+enrich_motif = sq.motif_enrichment_dist(ct="T_cell", max_dist=10, min_support=0.5)
 ```
 
 ```python
@@ -28,8 +40,8 @@ from SpatialQuery import spatial_query_multi
 
 # Multi-FOV analysis
 spm = spatial_query_multi(adatas=adatas, datasets=datasets,
-                          spatial_key="X_spatial", label_key="cell_type")
-fp = spm.find_fp_knn(ct="T_cell", dataset="healthy", k=30, min_support=0.5)
+                          spatial_key="X_spatial", label_key="cell_type", feature_name="gene")
+enrich_motif = spm.motif_enrichment_dist(ct="T_cell", dataset="healthy", max_dist=10, min_support=0.5)
 ```
 
 ## License
