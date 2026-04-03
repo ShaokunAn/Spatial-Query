@@ -27,10 +27,11 @@ jobs:
           # macOS: build both Intel and Apple Silicon
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_LINUX: "x86_64"
-          # Build dependencies (pybind11 is needed at compile time)
           CIBW_BUILD_FRONTEND: "pip"
           # Test the built wheel
           CIBW_TEST_COMMAND: "python -c \"import SpatialQueryEliasFanoDB; print('C++ extension OK')\""
+          # Skip testing cross-compiled wheels (x86_64 on arm64 macOS runner)
+          CIBW_TEST_SKIP: "*-macosx_x86_64"
 
       - uses: actions/upload-artifact@v4
         with:
