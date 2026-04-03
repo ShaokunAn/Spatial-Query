@@ -27,6 +27,8 @@ jobs:
           # macOS: build both Intel and Apple Silicon
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_LINUX: "x86_64"
+          # Use manylinux_2_28 so test deps (h5py, numba) have pre-built wheels
+          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_28"
           CIBW_BUILD_FRONTEND: "pip"
           # Test the built wheel
           CIBW_TEST_COMMAND: "python -c \"import SpatialQueryEliasFanoDB; print('C++ extension OK')\""
