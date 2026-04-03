@@ -37,6 +37,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/ShaokunAn/Spatial-Query"
+Documentation = "https://spatial-query.readthedocs.io"
 
 [project.optional-dependencies]
 docs = [
