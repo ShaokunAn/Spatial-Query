@@ -1,7 +1,11 @@
 #pragma once
+#include <cstdint>
+#include <string>
+#include <utility>
 #include <vector>
 #include <bitset>
 #include <map>
+#include <set>
 #include <deque>
 #include <unordered_map>
 #include <iostream>
