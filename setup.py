@@ -7,7 +7,7 @@ import pybind11
 if platform.system() == "Windows":
     extra_compile_args = ["/std:c++14"]
 else:
-    extra_compile_args = ["-std=c++11"]
+    extra_compile_args = ["-std=c++14"]
 
 # C++ extension must be defined here because pyproject.toml does not support ext_modules
 cpp_extension = Extension(

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "SpatialQuery"
-version = "0.0.2"
+version = "0.0.3"
 description = "Spatial query tools for analyzing spatial transcriptomics data"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
 authors = [
     { name = "Shaokun An", email = "shan12@bwh.harvard.edu" }
 ]
@@ -19,7 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
     "numpy>=1.23.0",
