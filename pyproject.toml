@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "SpatialQuery"
-version = "0.0.2"
+version = "0.0.3"
 description = "Spatial query tools for analyzing spatial transcriptomics data"
 readme = "README.md"
 license = "MIT"
