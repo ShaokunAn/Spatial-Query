@@ -1652,7 +1652,6 @@ def interactive_motif(
     dataset = vc.add_dataset("Query results").add_object(AnnDataWrapper(**wrapper_kwargs))
 
     spatial_view = vc.add_view("spatialBeta", dataset=dataset)
-    lc_view = vc.add_view("layerControllerBeta", dataset=dataset)
     sets_view = vc.add_view("obsSets", dataset=dataset)
     sq_view = vc.add_view("spatialQuery", dataset=dataset)
     sq_heatmap_view = vc.add_view("spatialQueryHeatmap", dataset=dataset)
@@ -1661,7 +1660,7 @@ def interactive_motif(
         ["Cell Type", ct] for ct in sp.labels.unique().tolist()
     ]
 
-    linked_views = [spatial_view, lc_view, sets_view, sq_view]
+    linked_views = [spatial_view, sets_view, sq_view]
     if has_expression:
         features_view = vc.add_view("featureList", dataset=dataset)
         linked_views.append(features_view)
@@ -1672,21 +1671,21 @@ def interactive_motif(
         [plugin.additional_obs_sets, plugin.obs_set_color, initial_obs_set_selection, "cellSetSelection"],
     )
 
-    vc.link_views_by_dict([spatial_view, lc_view], {
+    vc.link_views_by_dict([spatial_view], {
         "spotLayer": CL([{"obsType": "cell", "spatialSpotRadius": spatialSpotRadius}]),
     })
 
     if has_expression:
         vc.layout(
             vconcat(
-                hconcat(spatial_view, vconcat(lc_view, features_view)),
+                hconcat(spatial_view, features_view),
                 hconcat(sets_view, sq_heatmap_view, sq_view),
             )
         )
     else:
         vc.layout(
             vconcat(
-                hconcat(spatial_view, lc_view),
+                spatial_view,
                 hconcat(sets_view, sq_heatmap_view, sq_view),
             )
         )
