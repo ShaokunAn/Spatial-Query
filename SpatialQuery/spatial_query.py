@@ -1678,7 +1678,7 @@ def interactive_motif(
     if has_expression:
         vc.layout(
             vconcat(
-                hconcat(spatial_view, features_view),
+                hconcat(spatial_view, features_view, split=[2, 1]),
                 hconcat(sets_view, sq_heatmap_view, sq_view),
             )
         )
