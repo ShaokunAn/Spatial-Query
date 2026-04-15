@@ -25,6 +25,15 @@ pip install SpatialQuery
 
 Full documentation, tutorials, and API reference: **[https://spatialquery.readthedocs.io/en/latest/](https://spatialquery.readthedocs.io/en/latest/)**
 
+## Reproducibility
+
+The following tutorials reproduce the main analyses presented in our manuscript:
+
+- [Mouse organogenesis — single-FOV analysis (seqFISH)](https://spatialquery.readthedocs.io/en/latest/tutorials/tutorial_1.html)
+- [Kidney disease atlas — multi-condition analysis (MERFISH)](https://spatialquery.readthedocs.io/en/latest/tutorials/tutorial_2.html)
+- [Colorectal cancer microenvironment — spatial proteomics (CODEX)](https://spatialquery.readthedocs.io/en/latest/tutorials/tutorial_3.html)
+- [Whole-brain atlas — large-scale analysis (MERFISH)](https://spatialquery.readthedocs.io/en/latest/tutorials/tutorial_4.html)
+
 ## Quick Start
 
 ```python
