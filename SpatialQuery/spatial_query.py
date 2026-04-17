@@ -1639,7 +1639,8 @@ def interactive_motif(
     vc = VitessceConfig(schema_version="1.0.16", name="SpatialQuery")
 
     wrapper_kwargs = dict(
-        adata_path=zarr_path,
+        # adata_path=zarr_path,
+        adata_store=zarr_path,
         obs_set_paths=[f"obs/{label_key}"],
         obs_set_names=["Cell Type"],
         obs_spots_path=f"obsm/{spatial_key}",
