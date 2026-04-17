@@ -1536,6 +1536,7 @@ def interactive_motif(
     sp,
     zarr_path: str,
     spatialSpotRadius: float = 1,
+    use_adata_store: bool = False,
 ):
     """
     Create an interactive Vitessce widget to explore spatial motifs.
@@ -1558,6 +1559,9 @@ def interactive_motif(
     spatialSpotRadius : float, default=1
         Radius for spatial spots in the Vitessce visualization. Adjust based
         on data density and spatial coordinate scale.
+    use_adata_store : bool, default=False
+        If True, pass the zarr path via ``adata_store`` (for HubMAP workspace).
+        If False, pass via ``adata_path`` (for local usage).
 
     Returns
     -------
@@ -1638,8 +1642,9 @@ def interactive_motif(
 
     vc = VitessceConfig(schema_version="1.0.16", name="SpatialQuery")
 
+    _adata_key = "adata_store" if use_adata_store else "adata_path"
     wrapper_kwargs = dict(
-        adata_path=zarr_path,
+        **{_adata_key: zarr_path},
         obs_set_paths=[f"obs/{label_key}"],
         obs_set_names=["Cell Type"],
         obs_spots_path=f"obsm/{spatial_key}",
