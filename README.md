@@ -53,6 +53,12 @@ spm = spatial_query_multi(adatas=adatas, datasets=datasets,
 enrich_motif = spm.motif_enrichment_dist(ct="T_cell", dataset="healthy", max_dist=10, min_support=0.5)
 ```
 
+## Citation
+
+If you use SpatialQuery in your research, please cite:
+
+> An, S. et al. [SpatialQuery: scalable discovery and molecular characterization of multicellular motifs from spatial omics data](https://www.biorxiv.org/content/10.64898/2026.04.22.720136v1). *bioRxiv* (2026).
+
 ## License
 
 MIT
