@@ -112,7 +112,7 @@ Full API documentation for all modules.
 
 If you use SpatialQuery in your research, please cite:
 
-> *Citation placeholder — to be updated with publication details.*
+> An, S. et al. [SpatialQuery: scalable discovery and molecular characterization of multicellular motifs from spatial omics data](https://www.biorxiv.org/content/10.64898/2026.04.22.720136v1). *bioRxiv* (2026).
 
 ```{toctree}
 :hidden:
