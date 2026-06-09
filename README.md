@@ -21,13 +21,15 @@ Key capabilities include:
 pip install SpatialQuery
 ```
 
+> **Note:** Installation typically takes ~5 minutes depending on your environment.
+
 ## Documentation
 
 Full documentation, tutorials, and API reference: **[https://spatialquery.readthedocs.io/en/latest/](https://spatialquery.readthedocs.io/en/latest/)**
 
 ## Reproducibility
 
-The following tutorials reproduce the main analyses presented in our manuscript:
+The following tutorials reproduce the main analyses presented in our manuscript. Each tutorial takes approximately 5–20 minutes to run depending on dataset size and hardware.
 
 - [Mouse organogenesis — single-FOV analysis (seqFISH)](https://spatialquery.readthedocs.io/en/latest/tutorials/tutorial_1.html)
 - [Kidney disease atlas — multi-condition analysis (MERFISH)](https://spatialquery.readthedocs.io/en/latest/tutorials/tutorial_2.html)
