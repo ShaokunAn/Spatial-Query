@@ -86,10 +86,11 @@ def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
             subsets.update(frozenset(s) for s in combinations(itemset, r))
 
     # Identify maximal patterns (itemsets that are not subsets of any other)
-    maximal_patterns = [itemset for itemset in itemsets if itemset not in subsets]
+    maximal_patterns = set(itemset for itemset in itemsets if itemset not in subsets)
 
-    # Filter the original DataFrame to keep only the maximal patterns
-    return fp[fp['itemsets'].isin(maximal_patterns)].reset_index(drop=True)
+    # Filter using the normalized itemsets, so the result does not depend on whether the
+    # caller stores itemsets as frozensets, lists or tuples.
+    return fp[itemsets.isin(maximal_patterns)].reset_index(drop=True)
 
 
 def build_fptree_dist(kd_tree,
