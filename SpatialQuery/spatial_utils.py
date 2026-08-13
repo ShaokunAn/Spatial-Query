@@ -13,6 +13,7 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from mlxtend.frequent_patterns import fpgrowth
 from scipy.stats import fisher_exact, percentileofscore
 from statsmodels.stats.multitest import multipletests
+import statsmodels.stats.multitest as mt
 from scipy.sparse import csr_matrix
 from scipy import sparse
 import scanpy as sc
@@ -91,6 +92,174 @@ def find_maximal_patterns(fp: pd.DataFrame) -> pd.DataFrame:
     # Filter using the normalized itemsets, so the result does not depend on whether the
     # caller stores itemsets as frozensets, lists or tuples.
     return fp[itemsets.isin(maximal_patterns)].reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------------------
+# Nested motif testing
+# --------------------------------------------------------------------------------------
+#
+# The maximal-pattern reduction happens BEFORE the hypergeometric test, so a sub-pattern
+# of a non-significant maximal pattern never enters the tested set at all. When a maximal
+# pattern is diluted by one abundant, unrelated cell type, the whole pattern fails the
+# test and the informative core inside it is never examined.
+#
+# Nested testing walks into those patterns:
+#
+#   1. Test every maximal pattern, exactly as the maximal mode does.
+#   2. A maximal pattern that IS significant is a finding in its own right -- stop, and do
+#      not test its sub-patterns.
+#   3. A maximal pattern that is NOT significant is expanded into its immediate (k-1)
+#      sub-patterns, which are then tested.
+#   4. Descent continues only along branches that stay non-significant. A branch ends when
+#      it becomes significant or reaches length 1.
+#   5. A sub-pattern reachable from several parents is tested once.
+#   6. Multiple-testing correction is applied over every pattern actually tested.
+#   7. A child whose support equals its parent's marks the same neighborhoods as the
+#      parent, so it carries no extra information and is not reported.
+
+_NESTED_SUPPORT_TOL = 1e-9
+_NESTED_MAX_TESTED_PATTERNS = 5000
+_NESTED_MAX_EXPANSION_FACTOR = 50.0
+
+
+def canonical_motif(motif) -> tuple:
+    """Canonical, hashable motif key: the sorted tuple of cell type names.
+
+    Enrichment results report ``sorted(motif)``, so sorting here keeps keys aligned with
+    the rows they describe.
+    """
+    return tuple(sorted(motif))
+
+
+def apply_fdr_correction(out_pd: pd.DataFrame) -> pd.DataFrame:
+    """Apply the FDR correction that closes every motif enrichment method.
+
+    Kept in one place because the single-motif case is easy to get wrong: it reports
+    significance straight from the raw p-value and adds no ``adj-pval`` column at all.
+    """
+    if len(out_pd) == 0:
+        return pd.DataFrame(columns=['center', 'motifs', 'n_center_motif', 'n_center',
+                                     'n_motif', 'expectation', 'p-values',
+                                     'if_significant'])
+
+    # Drop any correction carried over from an earlier, smaller batch before redoing it,
+    # so a stale 'adj-pval' cannot survive into the single-motif branch.
+    out_pd = out_pd.drop(columns=[c for c in ('adj-pval', 'if_significant')
+                                  if c in out_pd.columns])
+
+    if len(out_pd) == 1:
+        out_pd['if_significant'] = True if out_pd['p-values'].iloc[0] < 0.05 else False
+        return out_pd.reset_index(drop=True)
+
+    if_rejected, corrected_p_values = mt.fdrcorrection(out_pd['p-values'].tolist(),
+                                                       alpha=0.05, method='poscorr')
+    out_pd['adj-pval'] = corrected_p_values
+    out_pd['if_significant'] = if_rejected
+    return out_pd.sort_values(by='adj-pval', ignore_index=True)
+
+
+def nested_motif_descent(test_motifs,
+                         maximal_motifs,
+                         support_of: dict = None,
+                         support_tol: float = _NESTED_SUPPORT_TOL,
+                         max_tested_patterns: int = _NESTED_MAX_TESTED_PATTERNS,
+                         max_expansion_factor: float = _NESTED_MAX_EXPANSION_FACTOR,
+                         ) -> pd.DataFrame:
+    """Run the nested descent and return the corrected table over everything tested.
+
+    Parameters
+    ----------
+    test_motifs : callable
+        ``test_motifs(motifs) -> DataFrame`` running the hypergeometric test plus FDR over
+        exactly ``motifs`` (a list of lists of cell type names). The per-motif statistics
+        it returns must not depend on which other motifs were in the same call -- true of
+        every enrichment method here, whose accumulators are per-motif.
+    maximal_motifs : list
+        The maximal patterns, already tested by the caller to seed level 0.
+    support_of : dict, optional
+        Canonical pattern -> support, used for the redundancy filter in rule 7. Without it
+        no child is treated as redundant.
+    support_tol : float
+        A child is dropped when ``|support(child) - support(parent)| <= support_tol``.
+    max_tested_patterns, max_expansion_factor
+        Guard rails. Descent stops early rather than letting the tested set explode; the
+        table returned then covers whatever was reached, and a warning is printed.
+
+    Returns
+    -------
+    pd.DataFrame
+        Enrichment results over every pattern tested, corrected once across the whole set,
+        with redundant sub-patterns removed.
+    """
+    support_of = support_of or {}
+    maximal = [canonical_motif(m) for m in maximal_motifs]
+
+    # Level 0 is the maximal patterns; gating them decides where the descent starts.
+    gate_res = test_motifs([list(m) for m in maximal]) if maximal else pd.DataFrame()
+    if len(gate_res) == 0:
+        return apply_fdr_correction(gate_res)
+
+    gate_sig = {canonical_motif(m): bool(s)
+                for m, s in zip(gate_res['motifs'], gate_res['if_significant'])}
+
+    # `tested` records every pattern the descent touches, significant or not: correction
+    # in rule 6 must cover them all. A dict keeps insertion order, so the final table is
+    # reproducible.
+    tested = {m: None for m in maximal}
+    parent_of = {}
+    level_tables = [gate_res]
+    frontier = [m for m in maximal if not gate_sig.get(m, False)]
+
+    while frontier:
+        children = []
+        for parent in frontier:
+            if len(parent) <= 1:
+                continue
+            for sub in combinations(parent, len(parent) - 1):
+                child = canonical_motif(sub)
+                if child in tested:
+                    # Reachable from an earlier parent already: test it once, and keep the
+                    # shallowest parent, which breadth-first order guarantees is this one.
+                    continue
+                tested[child] = None
+                parent_of[child] = parent
+                children.append(child)
+        if not children:
+            break
+
+        if (len(tested) > max_tested_patterns
+                or len(tested) > max_expansion_factor * max(len(maximal), 1)):
+            print(f"Nested descent stopped early at {len(tested)} tested patterns "
+                  f"(limits: max_tested_patterns={max_tested_patterns}, "
+                  f"max_expansion_factor={max_expansion_factor} x {len(maximal)} maximal "
+                  f"patterns). Reported results cover the patterns reached so far.")
+            break
+
+        level_res = test_motifs([list(c) for c in children])
+        level_tables.append(level_res)
+        level_sig = {canonical_motif(m): bool(s)
+                     for m, s in zip(level_res['motifs'], level_res['if_significant'])}
+        frontier = [c for c in children if not level_sig.get(c, False)]
+
+    # Every column except the two FDR ones depends only on the motif and the data, so the
+    # rows computed level by level are reused; only the correction is redone over the union.
+    combined = pd.concat([t for t in level_tables if len(t) > 0], ignore_index=True)
+    keys = combined['motifs'].apply(canonical_motif)
+    combined = combined[~keys.duplicated()].reset_index(drop=True)
+
+    # Rule 7: a child marking the same neighborhoods as its parent adds nothing. It stays
+    # in the correction above -- it was tested -- but is not reported.
+    redundant = set()
+    for child, parent in parent_of.items():
+        s_c, s_p = support_of.get(child), support_of.get(parent)
+        if s_c is not None and s_p is not None and abs(s_c - s_p) <= support_tol:
+            redundant.add(child)
+
+    corrected = apply_fdr_correction(combined)
+    if redundant:
+        keep = [canonical_motif(m) not in redundant for m in corrected['motifs']]
+        corrected = corrected[keep].reset_index(drop=True)
+    return corrected
 
 
 def build_fptree_dist(kd_tree,

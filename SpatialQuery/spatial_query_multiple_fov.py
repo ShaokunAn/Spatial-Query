@@ -25,6 +25,9 @@ from .spatial_utils import (
     build_fptree_dist,
     de_genes_scanpy,
     de_genes_fisher,
+    nested_motif_descent,
+    canonical_motif,
+    apply_fdr_correction,
     )
 import anndata as ad
 
@@ -110,7 +113,8 @@ class spatial_query_multi:
                     dataset: Union[str, List[str]] = None,
                     k: int = 30,
                     min_support: float = 0.5,
-                    max_dist: float = 20
+                    max_dist: float = 20,
+                    if_max: bool = True
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type in multiple fields of view.
@@ -128,6 +132,9 @@ class spatial_query_multi:
             Threshold of frequency to consider a pattern as a frequent pattern.
         max_dist : float, default=20
             The maximum distance at which points are considered neighbors.
+        if_max : bool, default=True
+            Return only maximal patterns. Set to False to return every frequent pattern,
+            which nested motif enrichment needs to look up sub-pattern supports.
 
         Returns
         -------
@@ -194,7 +201,8 @@ class spatial_query_multi:
         # end = time.time()
         # print(f"time for find fp_growth: {end-start} seconds, {len(fp)} frequent patterns.")
         # start = time.time()
-        fp = find_maximal_patterns(fp=fp)
+        if if_max:
+            fp = find_maximal_patterns(fp=fp)
         # end = time.time()
         # print(f"time for identify maximal patterns: {end - start} seconds")
 
@@ -209,6 +217,7 @@ class spatial_query_multi:
                      max_dist: float = 20,
                      min_size: int = 0,
                      min_support: float = 0.5,
+                     if_max: bool = True,
                      ) -> pd.DataFrame:
         """
         Find frequent patterns within the radius of certain cell type in multiple fields of view.
@@ -226,6 +235,9 @@ class spatial_query_multi:
             Minimum neighborhood size for each point to consider.
         min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
+        if_max : bool, default=True
+            Return only maximal patterns. Set to False to return every frequent pattern,
+            which nested motif enrichment needs to look up sub-pattern supports.
 
         Returns
         -------
@@ -289,7 +301,8 @@ class spatial_query_multi:
         # print(f"time for find fp_growth: {end - start} seconds, {len(fp)} frequent patterns.")
 
         # start = time.time()
-        fp = find_maximal_patterns(fp=fp)
+        if if_max:
+            fp = find_maximal_patterns(fp=fp)
         # end = time.time()
         # print(f"time for identify maximal patterns: {end - start} seconds")
 
@@ -306,6 +319,7 @@ class spatial_query_multi:
                              min_support: float = 0.5,
                              max_dist: float = 20,
                              return_cellID: bool = False,
+                             mode: str = 'nested',
                              ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN) in multiple fields of view.
@@ -330,6 +344,16 @@ class spatial_query_multi:
         return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cell type and center cells.
             By defaults do not return cell ID.
+        mode : {'nested', 'maximal'}, default='nested'
+            How the motifs to test are chosen when motifs=None. Ignored when motifs is given.
+
+            'nested'
+                Test the maximal patterns, then descend into the sub-patterns of any that
+                are not significant, stopping a branch as soon as it becomes significant or
+                reaches length 1. Finds cores that a maximal pattern hides when one abundant
+                cell type dilutes it. Multiple-testing correction covers everything tested.
+            'maximal'
+                Test the maximal patterns only.
 
         Returns
         -------
@@ -363,6 +387,30 @@ class spatial_query_multi:
         if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
+
+        if mode not in ('nested', 'maximal'):
+            raise ValueError(f"mode must be 'nested' or 'maximal', got {mode!r}")
+
+        # Nested descent only decides WHICH motifs get tested; each batch is scored by this
+        # same method, so the statistics are identical to the maximal mode's.
+        if mode == 'nested' and motifs is None:
+            if return_cellID:
+                raise ValueError("return_cellID is not supported with mode='nested'. "
+                                 "Use mode='maximal', or re-run with the motifs of "
+                                 "interest passed explicitly.")
+            fp_all = self.find_fp_knn(ct=ct, k=k, dataset=dataset,
+                                      min_support=min_support, max_dist=max_dist,
+                                      if_max=False)
+            if len(fp_all) == 0:
+                return apply_fdr_correction(pd.DataFrame())
+            return nested_motif_descent(
+                test_motifs=lambda ms: self.motif_enrichment_knn(
+                    ct=ct, motifs=ms, dataset=dataset, k=k, min_support=min_support,
+                    max_dist=max_dist, return_cellID=False, mode='maximal'),
+                maximal_motifs=find_maximal_patterns(fp_all)['itemsets'],
+                support_of={canonical_motif(i): s
+                            for i, s in zip(fp_all['itemsets'], fp_all['support'])},
+            )
 
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
@@ -509,7 +557,8 @@ class spatial_query_multi:
                               max_dist: float = 20,
                               min_size: int = 0,
                               min_support: float = 0.5,
-                              return_cellID: bool = False
+                              return_cellID: bool = False,
+                              mode: str = 'nested'
                               ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood in multiple fields of view.
@@ -533,6 +582,16 @@ class spatial_query_multi:
         return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cells.
             By defaults do not return cell ID.
+        mode : {'nested', 'maximal'}, default='nested'
+            How the motifs to test are chosen when motifs=None. Ignored when motifs is given.
+
+            'nested'
+                Test the maximal patterns, then descend into the sub-patterns of any that
+                are not significant, stopping a branch as soon as it becomes significant or
+                reaches length 1. Finds cores that a maximal pattern hides when one abundant
+                cell type dilutes it. Multiple-testing correction covers everything tested.
+            'maximal'
+                Test the maximal patterns only.
 
         Returns
         -------
@@ -566,6 +625,31 @@ class spatial_query_multi:
         if_exist_label = [ct in s.labels.unique() for s in self.spatial_queries]
         if not any(if_exist_label):
             raise ValueError(f"Found no {self.label_key} in any datasets!")
+
+        if mode not in ('nested', 'maximal'):
+            raise ValueError(f"mode must be 'nested' or 'maximal', got {mode!r}")
+
+        # Nested descent only decides WHICH motifs get tested; each batch is scored by this
+        # same method, so the statistics are identical to the maximal mode's.
+        if mode == 'nested' and motifs is None:
+            if return_cellID:
+                raise ValueError("return_cellID is not supported with mode='nested'. "
+                                 "Use mode='maximal', or re-run with the motifs of "
+                                 "interest passed explicitly.")
+            fp_all = self.find_fp_dist(ct=ct, dataset=dataset, max_dist=max_dist,
+                                       min_size=min_size, min_support=min_support,
+                                       if_max=False)
+            if len(fp_all) == 0:
+                return apply_fdr_correction(pd.DataFrame())
+            return nested_motif_descent(
+                test_motifs=lambda ms: self.motif_enrichment_dist(
+                    ct=ct, motifs=ms, dataset=dataset, max_dist=max_dist,
+                    min_size=min_size, min_support=min_support, return_cellID=False,
+                    mode='maximal'),
+                maximal_motifs=find_maximal_patterns(fp_all)['itemsets'],
+                support_of={canonical_motif(i): s
+                            for i, s in zip(fp_all['itemsets'], fp_all['support'])},
+            )
 
         # Check whether specify motifs. If not, search frequent patterns among specified datasets
         # and use them as interested motifs
