@@ -311,18 +311,16 @@ class spatial_query:
         # Nested descent only decides WHICH motifs get tested; each batch is scored by this
         # same method, so the statistics are identical to the maximal mode's.
         if mode == 'nested' and motifs is None:
-            if return_cellID:
-                raise ValueError("return_cellID is not supported with mode='nested'. "
-                                 "Use mode='maximal', or re-run with the motifs of "
-                                 "interest passed explicitly.")
             fp_all = self.find_fp_knn(ct=ct, k=k, min_support=min_support,
                                       max_dist=max_dist, if_max=False)
             if len(fp_all) == 0:
                 return spatial_utils.apply_fdr_correction(pd.DataFrame())
+            # Cell IDs are DataFrame columns here, so they travel with the rows and need
+            # no separate merging.
             return spatial_utils.nested_motif_descent(
                 test_motifs=lambda ms: self.motif_enrichment_knn(
                     ct=ct, motifs=ms, k=k, min_support=min_support, max_dist=max_dist,
-                    return_cellID=False, mode='maximal'),
+                    return_cellID=return_cellID, mode='maximal'),
                 maximal_motifs=spatial_utils.find_maximal_patterns(fp_all)['itemsets'],
                 support_of={spatial_utils.canonical_motif(i): s
                             for i, s in zip(fp_all['itemsets'], fp_all['support'])},
@@ -518,18 +516,17 @@ class spatial_query:
         # Nested descent only decides WHICH motifs get tested; each batch is scored by this
         # same method, so the statistics are identical to the maximal mode's.
         if mode == 'nested' and motifs is None:
-            if return_cellID:
-                raise ValueError("return_cellID is not supported with mode='nested'. "
-                                 "Use mode='maximal', or re-run with the motifs of "
-                                 "interest passed explicitly.")
             fp_all = self.find_fp_dist(ct=ct, max_dist=max_dist, min_size=min_size,
                                        min_support=min_support, if_max=False)
             if len(fp_all) == 0:
                 return spatial_utils.apply_fdr_correction(pd.DataFrame())
+            # Cell IDs are DataFrame columns here, so they travel with the rows and need
+            # no separate merging.
             return spatial_utils.nested_motif_descent(
                 test_motifs=lambda ms: self.motif_enrichment_dist(
                     ct=ct, motifs=ms, max_dist=max_dist, min_size=min_size,
-                    min_support=min_support, return_cellID=False, mode='maximal'),
+                    min_support=min_support, return_cellID=return_cellID,
+                    mode='maximal'),
                 maximal_motifs=spatial_utils.find_maximal_patterns(fp_all)['itemsets'],
                 support_of={spatial_utils.canonical_motif(i): s
                             for i, s in zip(fp_all['itemsets'], fp_all['support'])},

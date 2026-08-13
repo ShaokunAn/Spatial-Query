@@ -164,16 +164,19 @@ def nested_motif_descent(test_motifs,
                          support_tol: float = _NESTED_SUPPORT_TOL,
                          max_tested_patterns: int = _NESTED_MAX_TESTED_PATTERNS,
                          max_expansion_factor: float = _NESTED_MAX_EXPANSION_FACTOR,
-                         ) -> pd.DataFrame:
+                         return_cellID: bool = False,
+                         ):
     """Run the nested descent and return the corrected table over everything tested.
 
     Parameters
     ----------
     test_motifs : callable
-        ``test_motifs(motifs) -> DataFrame`` running the hypergeometric test plus FDR over
-        exactly ``motifs`` (a list of lists of cell type names). The per-motif statistics
-        it returns must not depend on which other motifs were in the same call -- true of
-        every enrichment method here, whose accumulators are per-motif.
+        ``test_motifs(motifs)`` running the hypergeometric test plus FDR over exactly
+        ``motifs`` (a list of lists of cell type names). Returns a DataFrame, or, when
+        ``return_cellID`` is True, the ``(DataFrame, motif_cell_ids, center_cell_ids)``
+        triple that the multi-FOV methods return. The per-motif statistics must not depend
+        on which other motifs were in the same call -- true of every enrichment method
+        here, whose accumulators are per-motif.
     maximal_motifs : list
         The maximal patterns, already tested by the caller to seed level 0.
     support_of : dict, optional
@@ -184,20 +187,49 @@ def nested_motif_descent(test_motifs,
     max_tested_patterns, max_expansion_factor
         Guard rails. Descent stops early rather than letting the tested set explode; the
         table returned then covers whatever was reached, and a warning is printed.
+    return_cellID : bool, default=False
+        Set when ``test_motifs`` returns cell ID dictionaries alongside the table. The
+        dictionaries collected level by level are merged and filtered to match the rows
+        actually reported. Single-FOV methods carry cell IDs as DataFrame columns instead,
+        so they ride along with the rows and do not need this.
 
     Returns
     -------
-    pd.DataFrame
+    pd.DataFrame, or (pd.DataFrame, dict, dict) when return_cellID is True
         Enrichment results over every pattern tested, corrected once across the whole set,
         with redundant sub-patterns removed.
     """
     support_of = support_of or {}
     maximal = [canonical_motif(m) for m in maximal_motifs]
 
+    # Cell ID dictionaries are keyed by str(sorted(motif)), and the descent tests each
+    # motif exactly once, so the keys contributed by different levels never collide and a
+    # plain update is enough to merge them.
+    motif_cell_ids, center_cell_ids = {}, {}
+
+    def _run(motifs):
+        out = test_motifs(motifs)
+        if not return_cellID:
+            return out
+        res, m_ids, c_ids = out
+        motif_cell_ids.update(m_ids)
+        center_cell_ids.update(c_ids)
+        return res
+
+    def _finish(table):
+        if not return_cellID:
+            return table
+        # Keep only the motifs that survived into the reported table, so the dictionaries
+        # and the rows describe the same set.
+        kept = {str(sorted(m)) for m in table['motifs']} if len(table) else set()
+        return (table,
+                {k: v for k, v in motif_cell_ids.items() if k in kept},
+                {k: v for k, v in center_cell_ids.items() if k in kept})
+
     # Level 0 is the maximal patterns; gating them decides where the descent starts.
-    gate_res = test_motifs([list(m) for m in maximal]) if maximal else pd.DataFrame()
+    gate_res = _run([list(m) for m in maximal]) if maximal else pd.DataFrame()
     if len(gate_res) == 0:
-        return apply_fdr_correction(gate_res)
+        return _finish(apply_fdr_correction(gate_res))
 
     gate_sig = {canonical_motif(m): bool(s)
                 for m, s in zip(gate_res['motifs'], gate_res['if_significant'])}
@@ -235,7 +267,7 @@ def nested_motif_descent(test_motifs,
                   f"patterns). Reported results cover the patterns reached so far.")
             break
 
-        level_res = test_motifs([list(c) for c in children])
+        level_res = _run([list(c) for c in children])
         level_tables.append(level_res)
         level_sig = {canonical_motif(m): bool(s)
                      for m, s in zip(level_res['motifs'], level_res['if_significant'])}
@@ -259,7 +291,7 @@ def nested_motif_descent(test_motifs,
     if redundant:
         keep = [canonical_motif(m) not in redundant for m in corrected['motifs']]
         corrected = corrected[keep].reset_index(drop=True)
-    return corrected
+    return _finish(corrected)
 
 
 def build_fptree_dist(kd_tree,
