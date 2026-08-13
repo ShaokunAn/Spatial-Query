@@ -319,7 +319,7 @@ class spatial_query_multi:
                              min_support: float = 0.5,
                              max_dist: float = 20,
                              return_cellID: bool = False,
-                             mode: str = 'nested',
+                             mode: str = 'maximal',
                              ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN) in multiple fields of view.
@@ -344,16 +344,16 @@ class spatial_query_multi:
         return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cell type and center cells.
             By defaults do not return cell ID.
-        mode : {'nested', 'maximal'}, default='nested'
+        mode : {'maximal', 'nested'}, default='maximal'
             How the motifs to test are chosen when motifs=None. Ignored when motifs is given.
 
+            'maximal'
+                Test the maximal patterns only.
             'nested'
                 Test the maximal patterns, then descend into the sub-patterns of any that
                 are not significant, stopping a branch as soon as it becomes significant or
                 reaches length 1. Finds cores that a maximal pattern hides when one abundant
                 cell type dilutes it. Multiple-testing correction covers everything tested.
-            'maximal'
-                Test the maximal patterns only.
 
         Returns
         -------
@@ -558,7 +558,7 @@ class spatial_query_multi:
                               min_size: int = 0,
                               min_support: float = 0.5,
                               return_cellID: bool = False,
-                              mode: str = 'nested'
+                              mode: str = 'maximal'
                               ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict, Dict]]:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood in multiple fields of view.
@@ -582,16 +582,16 @@ class spatial_query_multi:
         return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of center cells.
             By defaults do not return cell ID.
-        mode : {'nested', 'maximal'}, default='nested'
+        mode : {'maximal', 'nested'}, default='maximal'
             How the motifs to test are chosen when motifs=None. Ignored when motifs is given.
 
+            'maximal'
+                Test the maximal patterns only.
             'nested'
                 Test the maximal patterns, then descend into the sub-patterns of any that
                 are not significant, stopping a branch as soon as it becomes significant or
                 reaches length 1. Finds cores that a maximal pattern hides when one abundant
                 cell type dilutes it. Multiple-testing correction covers everything tested.
-            'maximal'
-                Test the maximal patterns only.
 
         Returns
         -------
