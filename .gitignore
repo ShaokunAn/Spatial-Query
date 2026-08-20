@@ -161,3 +161,9 @@ cython_debug/
 
 .DS_Store
 data/
+
+# Local development scaffolding -- never publish to the repo
+**/docs/superpowers/
+.claude/
+.idea/
+.vscode/
