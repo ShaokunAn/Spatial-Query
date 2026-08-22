@@ -442,92 +442,126 @@ class spatial_query_multi:
         motif_cell_ids = {}
         center_cell_ids = {}
 
-        for motif in motifs:
-            n_labels = 0
-            n_ct = 0
-            n_motif_labels = 0
-            n_motif_ct = 0
+        # The KD-tree query and the neighbor counts depend only on the FOV, k and max_dist,
+        # never on the motif, so the FOV loop is the outer one: each FOV is queried and
+        # encoded once and then reused for every motif. The per-motif state is only the four
+        # scalar accumulators below, so nothing extra is held across FOVs; the large per-FOV
+        # arrays stay local to one iteration and are released before the next FOV is read.
+        motifs = [list(m) if not isinstance(m, list) else m for m in motifs]
+        sort_motifs = [sorted(m) for m in motifs]
 
-            motif = list(motif) if not isinstance(motif, list) else motif
-            sort_motif = sorted(motif)
+        n_labels = [0] * len(motifs)
+        n_ct = [0] * len(motifs)
+        n_motif_labels = [0] * len(motifs)
+        n_motif_ct = [0] * len(motifs)
 
-            if return_cellID:
-                motif_str = str(sort_motif)
-                motif_cell_ids[motif_str] = {}
-                center_cell_ids[motif_str] = {}
+        if return_cellID:
+            for sort_motif in sort_motifs:
+                motif_cell_ids[str(sort_motif)] = {}
+                center_cell_ids[str(sort_motif)] = {}
 
-            # Calculate statistics of each dataset
-            for fov, s in enumerate(self.spatial_queries):
-                if s.dataset.split('_')[0] not in dataset:
+        # Calculate statistics of each dataset
+        for s in self.spatial_queries:
+            if s.dataset.split('_')[0] not in dataset:
+                continue
+
+            cell_pos = s.spatial_pos
+            labels = np.array(s.labels)
+            labels_unique = np.unique(labels)
+
+            # Motifs whose cell types are all present in this FOV; the rest only contribute
+            # their background counts, exactly as in the original per-motif branch.
+            active = {i for i, motif in enumerate(motifs)
+                      if all(m in labels_unique for m in motif)}
+
+            for i in range(len(motifs)):
+                n_labels[i] += labels.shape[0]
+            if not active:
+                n_ct_fov = np.sum(labels == ct)
+                for i in range(len(motifs)):
+                    n_ct[i] += n_ct_fov
+                continue
+
+            label_encoder = LabelEncoder()
+            int_labels = label_encoder.fit_transform(labels)
+
+            dists, idxs = s.kd_tree.query(cell_pos, k=k + 1, workers=-1)
+            num_cells = idxs.shape[0]
+            num_types = len(label_encoder.classes_)
+
+            valid_neighbors = dists[:, 1:] <= max_dist
+            filtered_idxs = np.where(valid_neighbors, idxs[:, 1:], -1)
+            flat_neighbors = filtered_idxs.flatten()
+            valid_neighbors_flat = valid_neighbors.flatten()
+            neighbor_labels = np.where(valid_neighbors_flat, int_labels[flat_neighbors], -1)
+            valid_mask = neighbor_labels != -1
+
+            neighbor_matrix = np.zeros((num_cells * k, num_types), dtype=int)
+            neighbor_matrix[np.arange(len(neighbor_labels))[valid_mask], neighbor_labels[valid_mask]] = 1
+            neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
+
+            # These are only needed to build the counts; drop them before the motif loop so
+            # they do not stay alive while cell IDs are collected.
+            del dists, idxs, flat_neighbors, valid_neighbors_flat, neighbor_labels
+            del valid_mask, neighbor_matrix
+
+            ct_in_fov = ct in labels_unique
+            if ct_in_fov:
+                int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
+                mask_ct = int_labels == int_ct
+                n_ct_fov = np.sum(mask_ct)
+
+            for i, motif in enumerate(motifs):
+                if i not in active:
+                    # Cell types missing from this FOV: background counts only.
+                    n_ct[i] += np.sum(labels == ct)
                     continue
 
-                cell_pos = s.spatial_pos
-                labels = np.array(s.labels)
-                labels_unique = np.unique(labels)
+                int_motifs = label_encoder.transform(np.array(motif))
 
-                contain_motif = [m in labels_unique for m in motif]
-                if not np.all(contain_motif):
-                    n_labels += labels.shape[0]
-                    n_ct += np.sum(labels == ct)
-                    continue
-                else:
-                    n_labels += labels.shape[0]
-                    label_encoder = LabelEncoder()
-                    int_labels = label_encoder.fit_transform(labels)
-                    int_motifs = label_encoder.transform(np.array(motif))
+                # Check which cells have all motif types in their neighborhood
+                motif_mask = np.all(neighbor_counts[:, int_motifs] > 0, axis=1)
+                n_motif_labels[i] += np.sum(motif_mask)
 
-                    dists, idxs = s.kd_tree.query(cell_pos, k=k + 1, workers=-1)
-                    num_cells = idxs.shape[0]
-                    num_types = len(label_encoder.classes_)
+                if ct_in_fov:
+                    center_mask = mask_ct & motif_mask
+                    n_motif_ct[i] += np.sum(center_mask)
+                    n_ct[i] += n_ct_fov
 
-                    valid_neighbors = dists[:, 1:] <= max_dist
-                    filtered_idxs = np.where(valid_neighbors, idxs[:, 1:], -1)
-                    flat_neighbors = filtered_idxs.flatten()
-                    valid_neighbors_flat = valid_neighbors.flatten()
-                    neighbor_labels = np.where(valid_neighbors_flat, int_labels[flat_neighbors], -1)
-                    valid_mask = neighbor_labels != -1
+                    if return_cellID:
+                        # Get IDs of center cells with motif in neighborhood
+                        center_indices = np.where(center_mask)[0]
 
-                    neighbor_matrix = np.zeros((num_cells * k, num_types), dtype=int)
-                    neighbor_matrix[np.arange(len(neighbor_labels))[valid_mask], neighbor_labels[valid_mask]] = 1
-                    neighbor_counts = neighbor_matrix.reshape(num_cells, k, num_types).sum(axis=1)
+                        if len(center_indices) > 0:
+                            # Get all neighbors of center cells that have the motif
+                            center_neighbors_idxs = filtered_idxs[center_mask]
 
-                    # Check which cells have all motif types in their neighborhood
-                    motif_mask = np.all(neighbor_counts[:, int_motifs] > 0, axis=1)
-                    n_motif_labels += np.sum(motif_mask)
+                            # Flatten and get unique neighbors
+                            all_neighbors_center = center_neighbors_idxs.flatten()
+                            all_neighbors_center = all_neighbors_center[all_neighbors_center != -1]
 
-                    if ct in np.unique(labels):
-                        int_ct = label_encoder.transform(np.array(ct, dtype=object, ndmin=1))
-                        mask = int_labels == int_ct
-                        center_mask = mask & motif_mask
-                        n_motif_ct += np.sum(center_mask)
-                        n_ct += np.sum(mask)
+                            # Filter to only keep neighbors that are of motif cell types
+                            motif_mask_all = np.isin(labels, motif)
+                            valid_neighbors_center = all_neighbors_center[motif_mask_all[all_neighbors_center]]
+                            id_motif_celltype = set(valid_neighbors_center)
 
-                        if return_cellID:
-                            # Get IDs of center cells with motif in neighborhood
-                            center_indices = np.where(center_mask)[0]
+                            motif_str = str(sort_motifs[i])
+                            motif_cell_ids[motif_str][s.dataset] = list(id_motif_celltype)
+                            center_cell_ids[motif_str][s.dataset] = list(center_indices)
 
-                            if len(center_indices) > 0:
-                                # Get all neighbors of center cells that have the motif
-                                center_neighbors_idxs = filtered_idxs[center_mask]
+            # Release the per-FOV arrays before moving to the next FOV, so peak memory is
+            # one FOV's worth rather than accumulating across the dataset.
+            del neighbor_counts, filtered_idxs, valid_neighbors, int_labels
 
-                                # Flatten and get unique neighbors
-                                all_neighbors_center = center_neighbors_idxs.flatten()
-                                all_neighbors_center = all_neighbors_center[all_neighbors_center != -1]
-
-                                # Filter to only keep neighbors that are of motif cell types
-                                motif_mask_all = np.isin(np.array(s.labels), motif)
-                                valid_neighbors_center = all_neighbors_center[motif_mask_all[all_neighbors_center]]
-                                id_motif_celltype = set(valid_neighbors_center)
-
-                                motif_cell_ids[motif_str][s.dataset] = list(id_motif_celltype)
-                                center_cell_ids[motif_str][s.dataset] = list(center_indices)
-
+        for i, motif in enumerate(motifs):
+            n_ct_i = n_ct[i]
             if ct in motif:
-                n_ct = round(n_ct / motif.count(ct))
+                n_ct_i = round(n_ct_i / motif.count(ct))
 
-            hyge = hypergeom(M=n_labels, n=n_ct, N=n_motif_labels)
-            motif_out = {'center': ct, 'motifs': sort_motif, 'n_center_motif': n_motif_ct,
-                         'n_center': n_ct, 'n_motif': n_motif_labels, 'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct)}
+            hyge = hypergeom(M=n_labels[i], n=n_ct_i, N=n_motif_labels[i])
+            motif_out = {'center': ct, 'motifs': sort_motifs[i], 'n_center_motif': n_motif_ct[i],
+                         'n_center': n_ct_i, 'n_motif': n_motif_labels[i],
+                         'expectation': hyge.mean(), 'p-values': hyge.sf(n_motif_ct[i])}
             out.append(motif_out)
 
         out_pd = pd.DataFrame(out)
