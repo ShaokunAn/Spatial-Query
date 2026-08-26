@@ -4395,6 +4395,7 @@ def compute_gene_gene_correlation_by_type_binary_multi_fov(
         if len(non_center_types) == 1:
             print(f"Only one non-center cell type in motif: {non_center_types}. Using compute_gene_gene_correlation_binary method.")
             result = compute_gene_gene_correlation_binary_multi_fov(
+                sq_objs=sq_objs,
                 ct=ct,
                 motif=motif,
                 dataset=dataset,
