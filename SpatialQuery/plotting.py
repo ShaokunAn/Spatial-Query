@@ -670,7 +670,88 @@ def plot_motif_enrichment_heatmap(enrich_df: pd.DataFrame,
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
 
     plt.show()
-    
+
+
+def plot_motif_composition(comp_df: pd.DataFrame,
+                           motif: Optional[List[str]] = None,
+                           bins: int = 25,
+                           colors: Optional[List] = None,
+                           figsize: tuple = (6, 5),
+                           title: Optional[str] = None,
+                           save_path: Optional[str] = None):
+    """
+    Plot the distribution of each motif cell type's proportion across motif-positive center cells.
+
+    One semi-transparent histogram per motif cell type, on fixed bins over [0, 1]; the legend
+    reports the median and interquartile range (IQR) of each type's proportion.
+
+    Parameters
+    ----------
+    comp_df : pd.DataFrame
+        Output from motif_composition_dist or motif_composition_knn.
+    motif : List[str], optional
+        Motif to plot. May be omitted when comp_df holds a single motif.
+    bins : int, default=25
+        Number of equal-width bins on [0, 1].
+    colors : List, optional
+        One color per motif cell type, in sorted cell type order. Defaults to the tab10 palette.
+    figsize : tuple, default=(6, 5)
+        Figure size.
+    title : str, optional
+        Figure title. Defaults to the center cell type and the motif.
+    save_path : str, optional
+        Path to save the figure. If None, the figure will not be saved.
+
+    Returns
+    -------
+    None
+        Displays a histogram of motif cell type proportions.
+    """
+    if len(comp_df) == 0:
+        print("No motif-positive center cells to plot.")
+        return
+
+    keys = comp_df['motifs'].map(spatial_utils.canonical_motif)
+    if motif is None:
+        if keys.nunique() > 1:
+            raise ValueError("comp_df holds several motifs; specify which one to plot with motif.")
+        motif_key = keys.iloc[0]
+    else:
+        motif_key = spatial_utils.canonical_motif([motif] if isinstance(motif, str) else motif)
+    df = comp_df[keys == motif_key]
+    if len(df) == 0:
+        raise ValueError(f"Motif {list(motif_key)} is not in comp_df.")
+
+    cell_types = list(motif_key)
+    if colors is None:
+        colors = [plt.cm.tab10(i % 10) for i in range(len(cell_types))]
+    bin_edges = np.linspace(0, 1, bins + 1)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    for cell_type, color in zip(cell_types, colors):
+        values = df.loc[df['cell_type'] == cell_type, 'proportion'].to_numpy(dtype=float)
+        q25, median, q75 = np.percentile(values, [25, 50, 75])
+        ax.hist(values, bins=bin_edges, color=color, alpha=0.5,
+                label=f'{cell_type}\n(median={median:.2f}, IQR={q75 - q25:.2f})')
+
+    ax.set_xlim(-0.03, 1.03)
+    ax.set_xlabel('Relative abundance among motif-associated cells', fontsize=12)
+    ax.set_ylabel('Number of motif-positive anchors', fontsize=12)
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.legend(frameon=False, fontsize=10, loc='best')
+
+    if title is None:
+        centers = df['center'].unique()
+        center = f'{centers[0]} | ' if len(centers) == 1 else ''
+        title = f'{center}{" + ".join(cell_types)}'
+    ax.set_title(title, fontsize=13)
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    plt.show()
+
 
 def plot_differential_pattern_heatmap(
     diff_motif: dict,

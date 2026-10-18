@@ -294,6 +294,102 @@ def nested_motif_descent(test_motifs,
     return _finish(corrected)
 
 
+COMPOSITION_COLUMNS = ['center', 'motifs', 'cell_type', 'n_cells', 'n_motif_cells', 'proportion']
+
+
+def normalize_motif_list(motifs, labels_unique, label_key: str) -> List[List[str]]:
+    """Turn a str / List[str] / List[List[str]] motif argument into sorted, de-duplicated motifs.
+
+    Cell types absent from ``labels_unique`` are dropped with a message, and motifs left
+    empty are dropped entirely.
+    """
+    if motifs is None:
+        raise ValueError("motifs must be given, e.g. from the motif_enrichment output.")
+    if isinstance(motifs, str):
+        motifs = [[motifs]]
+    elif isinstance(motifs, (list, tuple)) and all(isinstance(m, str) for m in motifs):
+        motifs = [list(motifs)]
+
+    labels_unique = set(labels_unique)
+    out = []
+    for motif in motifs:
+        motif_exc = [m for m in motif if m not in labels_unique]
+        if len(motif_exc) > 0:
+            print(f"Found no {motif_exc} in {label_key}. Ignoring them.")
+        valid_motif = sorted(set(m for m in motif if m in labels_unique))
+        if len(valid_motif) > 0:
+            out.append(valid_motif)
+    return out
+
+
+def anchor_neighbor_counts_dist(kd_tree, spatial_pos: np.ndarray, cinds: np.ndarray,
+                                int_labels: np.ndarray, num_types: int,
+                                max_dist: float) -> np.ndarray:
+    """Per-type neighbor counts of each anchor within max_dist, the anchor itself excluded.
+
+    Same neighborhood rule as motif_enrichment_dist, but queried for the anchors only.
+    """
+    counts = np.zeros((len(cinds), num_types), dtype=int)
+    if len(cinds) == 0:
+        return counts
+    idxs = kd_tree.query_ball_point(spatial_pos[cinds], r=max_dist,
+                                    return_sorted=False, workers=-1)
+    idxs_filter = [np.array(ids)[np.array(ids) != c] for c, ids in zip(cinds, idxs)]
+    flat = np.concatenate(idxs_filter).astype(int)
+    rows = np.repeat(np.arange(len(cinds)), [len(ids) for ids in idxs_filter])
+    np.add.at(counts, (rows, int_labels[flat]), 1)
+    return counts
+
+
+def anchor_neighbor_counts_knn(kd_tree, spatial_pos: np.ndarray, cinds: np.ndarray,
+                               int_labels: np.ndarray, num_types: int,
+                               k: int, max_dist: float) -> np.ndarray:
+    """Per-type counts among each anchor's k nearest neighbors within max_dist.
+
+    Same neighborhood rule as motif_enrichment_knn: query k+1 points and drop the first
+    (the anchor itself).
+    """
+    counts = np.zeros((len(cinds), num_types), dtype=int)
+    if len(cinds) == 0:
+        return counts
+    dists, idxs = kd_tree.query(spatial_pos[cinds], k=k + 1, workers=-1)
+    valid = dists[:, 1:] <= max_dist
+    rows = np.repeat(np.arange(len(cinds)), k).reshape(len(cinds), k)
+    np.add.at(counts, (rows[valid], int_labels[idxs[:, 1:][valid]]), 1)
+    return counts
+
+
+def motif_composition_table(center: str, motif: List[str], motif_counts: np.ndarray) -> pd.DataFrame:
+    """Long-format composition of the anchors whose neighborhood contains every motif type.
+
+    Parameters
+    ----------
+    center : str
+        Anchor cell type.
+    motif : List[str]
+        Sorted motif cell types, matching the column order of motif_counts.
+    motif_counts : np.ndarray
+        (n_anchor, len(motif)) neighbor counts of each motif type around each anchor.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per (motif-positive anchor, motif cell type), with the type's count and its
+        proportion among all motif-type cells in that neighborhood.
+    """
+    sub = motif_counts[np.all(motif_counts > 0, axis=1)]
+    n_anchor, n_type = sub.shape
+    total = sub.sum(axis=1)
+    return pd.DataFrame({
+        'center': center,
+        'motifs': [motif] * (n_anchor * n_type),
+        'cell_type': np.tile(motif, n_anchor),
+        'n_cells': sub.ravel(),
+        'n_motif_cells': np.repeat(total, n_type),
+        'proportion': (sub / total[:, None]).ravel(),
+    }, columns=COMPOSITION_COLUMNS)
+
+
 def build_fptree_dist(kd_tree,
                       labels,
                       cell_pos: np.ndarray = None,

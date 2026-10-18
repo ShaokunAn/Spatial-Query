@@ -650,6 +650,109 @@ class spatial_query:
             out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
             return out_pd
 
+    def motif_composition_dist(self,
+                               ct: str,
+                               motifs: Union[str, List[str], List[List[str]]],
+                               max_dist: float = 20,
+                               ) -> pd.DataFrame:
+        """
+        Compute the composition of motif cell types in the radius-based neighborhoods of center cells.
+
+        Uses the same neighborhoods as motif_enrichment_dist, but performs no enrichment test.
+        Only center cells whose neighborhood contains every cell type of the motif (motif-positive
+        centers) are kept. For each of them, the proportion of a motif cell type is its number of
+        cells divided by the total number of motif-type cells in that neighborhood.
+
+        Parameters
+        ----------
+        ct : str
+            Cell type as the center cells.
+        motifs : str or List[str] or List[List[str]]
+            Motifs to analyze, e.g. the 'motifs' column of motif_enrichment_dist output.
+        max_dist : float, default=20
+            Maximum distance for considering a cell as a neighbor.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format table with one row per (motif-positive center cell, motif cell type):
+                - center: center cell type name
+                - motifs: sorted list of cell types in the motif
+                - cell_type: motif cell type this row describes
+                - n_cells: number of cells of cell_type in the neighborhood
+                - n_motif_cells: number of motif-type cells in the neighborhood
+                - proportion: n_cells / n_motif_cells
+        """
+        if ct not in self.labels.unique():
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
+        motifs = spatial_utils.normalize_motif_list(motifs, self.labels.unique(), self.label_key)
+
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(np.array(self.labels))
+        cinds = np.where(self.labels == ct)[0]
+        counts = spatial_utils.anchor_neighbor_counts_dist(
+            self.kd_tree, self.spatial_pos, cinds, int_labels,
+            len(label_encoder.classes_), max_dist)
+
+        out = [spatial_utils.motif_composition_table(
+            ct, motif, counts[:, label_encoder.transform(np.array(motif))]) for motif in motifs]
+        if len(out) == 0:
+            return pd.DataFrame(columns=spatial_utils.COMPOSITION_COLUMNS)
+        return pd.concat(out, ignore_index=True)
+
+    def motif_composition_knn(self,
+                              ct: str,
+                              motifs: Union[str, List[str], List[List[str]]],
+                              k: int = 30,
+                              max_dist: float = 20,
+                              ) -> pd.DataFrame:
+        """
+        Compute the composition of motif cell types in the k-nearest-neighbor neighborhoods of center cells.
+
+        Uses the same neighborhoods as motif_enrichment_knn, but performs no enrichment test.
+        Only center cells whose neighborhood contains every cell type of the motif (motif-positive
+        centers) are kept. For each of them, the proportion of a motif cell type is its number of
+        cells divided by the total number of motif-type cells in that neighborhood.
+
+        Parameters
+        ----------
+        ct : str
+            Cell type of the center cell.
+        motifs : str or List[str] or List[List[str]]
+            Motifs to analyze, e.g. the 'motifs' column of motif_enrichment_knn output.
+        k : int, default=30
+            Number of nearest neighbors to consider.
+        max_dist : float, default=20
+            Maximum distance for neighbors.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format table with one row per (motif-positive center cell, motif cell type):
+                - center: center cell type name
+                - motifs: sorted list of cell types in the motif
+                - cell_type: motif cell type this row describes
+                - n_cells: number of cells of cell_type in the neighborhood
+                - n_motif_cells: number of motif-type cells in the neighborhood
+                - proportion: n_cells / n_motif_cells
+        """
+        if ct not in self.labels.unique():
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
+        motifs = spatial_utils.normalize_motif_list(motifs, self.labels.unique(), self.label_key)
+
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(np.array(self.labels))
+        cinds = np.where(self.labels == ct)[0]
+        counts = spatial_utils.anchor_neighbor_counts_knn(
+            self.kd_tree, self.spatial_pos, cinds, int_labels,
+            len(label_encoder.classes_), k, max_dist)
+
+        out = [spatial_utils.motif_composition_table(
+            ct, motif, counts[:, label_encoder.transform(np.array(motif))]) for motif in motifs]
+        if len(out) == 0:
+            return pd.DataFrame(columns=spatial_utils.COMPOSITION_COLUMNS)
+        return pd.concat(out, ignore_index=True)
+
 
     def find_patterns_grid(self,
                            max_dist: float = 20,
@@ -1478,6 +1581,42 @@ class spatial_query:
         """
         return plotting.plot_motif_enrichment_heatmap(enrich_df=enrich_df, figsize=figsize,
                                                        save_path=save_path, title=title, cmap=cmap)
+
+    def plot_motif_composition(self,
+                               comp_df: pd.DataFrame,
+                               motif: Optional[List[str]] = None,
+                               bins: int = 25,
+                               colors: Optional[List] = None,
+                               figsize: tuple = (6, 5),
+                               title: Optional[str] = None,
+                               save_path: Optional[str] = None):
+        """
+        Plot the distribution of each motif cell type's proportion across motif-positive center cells.
+
+        Parameters
+        ----------
+        comp_df : pd.DataFrame
+            Output DataFrame from motif_composition_dist or motif_composition_knn.
+        motif : List[str], optional
+            Motif to plot. May be omitted when comp_df holds a single motif.
+        bins : int, default=25
+            Number of equal-width bins on [0, 1].
+        colors : List, optional
+            One color per motif cell type, in sorted cell type order. Defaults to the tab10 palette.
+        figsize : tuple, default=(6, 5)
+            Figure size.
+        title : str, optional
+            Figure title. Defaults to the center cell type and the motif.
+        save_path : str, optional
+            Path to save the figure. If None, the figure will not be saved.
+
+        Returns
+        -------
+        None
+            Displays a histogram of motif cell type proportions, with median and IQR in the legend.
+        """
+        return plotting.plot_motif_composition(comp_df=comp_df, motif=motif, bins=bins, colors=colors,
+                                               figsize=figsize, title=title, save_path=save_path)
         
     def plot_gene_pair_heatmap(self,
                                gene_pair_df: pd.DataFrame,
