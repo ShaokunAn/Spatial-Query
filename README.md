@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ShaokunAn/Spatial-Query/main/docs/_static/img/logo.png" alt="SpatialQuery" width="480">
+</p>
+
 # SpatialQuery
 
 SpatialQuery is a Python package for systematic spatial analysis of single-cell resolution spatial omics data. It provides a unified framework to discover, quantify, and compare recurring spatial cell type patterns — termed *motifs* — across single or multiple fields of view (FOVs).
@@ -10,6 +14,7 @@ Key capabilities include:
 
 - **Spatial motif discovery**: Identify frequent cell type patterns in local neighborhoods
 - **Motif enrichment analysis**: Statistically test whether motifs occur more than expected
+- **Motif composition**: Quantify the relative abundance of each motif cell type within motif-positive neighborhoods
 - **Differential motif analysis**: Compare spatial compositions across conditions
 - **Motif-associated differential expression**: Find DE genes linked to specific motifs
 - **Cross-cell gene-gene covariation**: Detect spatially dependent intercellular gene correlations
