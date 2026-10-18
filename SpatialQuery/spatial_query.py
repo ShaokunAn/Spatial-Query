@@ -157,6 +157,7 @@ class spatial_query:
                     k: int = 30,
                     min_support: float = 0.5,
                     max_dist: float = 20,
+                    if_max: bool = True,
                     ) -> pd.DataFrame:
         """
         Find frequent patterns within the KNNs of certain cell type.
@@ -171,6 +172,9 @@ class spatial_query:
             Threshold of frequency to consider a pattern as a frequent pattern.
         max_dist : float, default=20
             Maximum distance for considering a cell as a neighbor.
+        if_max : bool, default=True
+            Return only maximal patterns. Set to False to return every frequent pattern,
+            which nested motif enrichment needs to look up sub-pattern supports.
 
         Returns
         -------
@@ -190,7 +194,7 @@ class spatial_query:
             k=k,
             min_support=min_support,
             max_dist=max_dist,
-            if_max=True
+            if_max=if_max
         )
 
         return fp
@@ -200,6 +204,7 @@ class spatial_query:
                      max_dist: float = 20,
                      min_size: int = 0,
                      min_support: float = 0.5,
+                     if_max: bool = True,
                      ):
         """
         Find frequent patterns within the radius of certain cell type.
@@ -214,6 +219,9 @@ class spatial_query:
             Minimum neighborhood size for each point to consider.
         min_support : float, default=0.5
             Threshold of frequency to consider a pattern as a frequent pattern.
+        if_max : bool, default=True
+            Return only maximal patterns. Set to False to return every frequent pattern,
+            which nested motif enrichment needs to look up sub-pattern supports.
 
         Returns
         -------
@@ -233,7 +241,8 @@ class spatial_query:
             max_dist=max_dist,
             min_size=min_size,
             min_support=min_support,
-            cinds=cinds
+            cinds=cinds,
+            if_max=if_max
         )
 
         return fp
@@ -244,7 +253,8 @@ class spatial_query:
                              k: int = 30,
                              min_support: float = 0.5,
                              max_dist: float = 20,
-                             return_cellID: bool = False
+                             return_cellID: bool = False,
+                             mode: str = 'maximal'
                              ) -> pd.DataFrame:
         """
         Perform motif enrichment analysis using k-nearest neighbors (KNN).
@@ -265,6 +275,16 @@ class spatial_query:
         return_cellID : bool, default=False
             Indicate whether return cell IDs for each frequent pattern within the neighborhood of grid points.
             By defaults do not return cell ID.
+        mode : {'maximal', 'nested'}, default='maximal'
+            How the motifs to test are chosen when motifs=None. Ignored when motifs is given.
+
+            'maximal'
+                Test the maximal patterns only.
+            'nested'
+                Test the maximal patterns, then descend into the sub-patterns of any that
+                are not significant, stopping a branch as soon as it becomes significant or
+                reaches length 1. Finds cores that a maximal pattern hides when one abundant
+                cell type dilutes it. Multiple-testing correction covers everything tested.
 
         Returns
         -------
@@ -284,6 +304,27 @@ class spatial_query:
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
+
+        if mode not in ('nested', 'maximal'):
+            raise ValueError(f"mode must be 'nested' or 'maximal', got {mode!r}")
+
+        # Nested descent only decides WHICH motifs get tested; each batch is scored by this
+        # same method, so the statistics are identical to the maximal mode's.
+        if mode == 'nested' and motifs is None:
+            fp_all = self.find_fp_knn(ct=ct, k=k, min_support=min_support,
+                                      max_dist=max_dist, if_max=False)
+            if len(fp_all) == 0:
+                return spatial_utils.apply_fdr_correction(pd.DataFrame())
+            # Cell IDs are DataFrame columns here, so they travel with the rows and need
+            # no separate merging.
+            return spatial_utils.nested_motif_descent(
+                test_motifs=lambda ms: self.motif_enrichment_knn(
+                    ct=ct, motifs=ms, k=k, min_support=min_support, max_dist=max_dist,
+                    return_cellID=return_cellID, mode='maximal'),
+                maximal_motifs=spatial_utils.find_maximal_patterns(fp_all)['itemsets'],
+                support_of={spatial_utils.canonical_motif(i): s
+                            for i, s in zip(fp_all['itemsets'], fp_all['support'])},
+            )
 
         dists, idxs = self.kd_tree.query(self.spatial_pos,
                                          k=k + 1, workers=-1
@@ -418,6 +459,7 @@ class spatial_query:
                               min_size: int = 0,
                               min_support: float = 0.5,
                               return_cellID: bool = False,
+                              mode: str = 'maximal',
                               ) -> DataFrame:
         """
         Perform motif enrichment analysis within a specified radius-based neighborhood.
@@ -438,6 +480,16 @@ class spatial_query:
         return_cellID : bool, default=False
             Indicate whether return cell IDs for each motif within the neighborhood of central cell type.
             By defaults do not return cell ID.
+        mode : {'maximal', 'nested'}, default='maximal'
+            How the motifs to test are chosen when motifs=None. Ignored when motifs is given.
+
+            'maximal'
+                Test the maximal patterns only.
+            'nested'
+                Test the maximal patterns, then descend into the sub-patterns of any that
+                are not significant, stopping a branch as soon as it becomes significant or
+                reaches length 1. Finds cores that a maximal pattern hides when one abundant
+                cell type dilutes it. Multiple-testing correction covers everything tested.
 
         Returns
         -------
@@ -457,6 +509,28 @@ class spatial_query:
         """
         if ct not in self.labels.unique():
             raise ValueError(f"Found no {ct} in {self.label_key}!")
+
+        if mode not in ('nested', 'maximal'):
+            raise ValueError(f"mode must be 'nested' or 'maximal', got {mode!r}")
+
+        # Nested descent only decides WHICH motifs get tested; each batch is scored by this
+        # same method, so the statistics are identical to the maximal mode's.
+        if mode == 'nested' and motifs is None:
+            fp_all = self.find_fp_dist(ct=ct, max_dist=max_dist, min_size=min_size,
+                                       min_support=min_support, if_max=False)
+            if len(fp_all) == 0:
+                return spatial_utils.apply_fdr_correction(pd.DataFrame())
+            # Cell IDs are DataFrame columns here, so they travel with the rows and need
+            # no separate merging.
+            return spatial_utils.nested_motif_descent(
+                test_motifs=lambda ms: self.motif_enrichment_dist(
+                    ct=ct, motifs=ms, max_dist=max_dist, min_size=min_size,
+                    min_support=min_support, return_cellID=return_cellID,
+                    mode='maximal'),
+                maximal_motifs=spatial_utils.find_maximal_patterns(fp_all)['itemsets'],
+                support_of={spatial_utils.canonical_motif(i): s
+                            for i, s in zip(fp_all['itemsets'], fp_all['support'])},
+            )
 
         out = []
         if motifs is None:
@@ -575,6 +649,109 @@ class spatial_query:
             out_pd['if_significant'] = if_rejected
             out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
             return out_pd
+
+    def motif_composition_dist(self,
+                               ct: str,
+                               motifs: Union[str, List[str], List[List[str]]],
+                               max_dist: float = 20,
+                               ) -> pd.DataFrame:
+        """
+        Compute the composition of motif cell types in the radius-based neighborhoods of center cells.
+
+        Uses the same neighborhoods as motif_enrichment_dist, but performs no enrichment test.
+        Only center cells whose neighborhood contains every cell type of the motif (motif-positive
+        centers) are kept. For each of them, the proportion of a motif cell type is its number of
+        cells divided by the total number of motif-type cells in that neighborhood.
+
+        Parameters
+        ----------
+        ct : str
+            Cell type as the center cells.
+        motifs : str or List[str] or List[List[str]]
+            Motifs to analyze, e.g. the 'motifs' column of motif_enrichment_dist output.
+        max_dist : float, default=20
+            Maximum distance for considering a cell as a neighbor.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format table with one row per (motif-positive center cell, motif cell type):
+                - center: center cell type name
+                - motifs: sorted list of cell types in the motif
+                - cell_type: motif cell type this row describes
+                - n_cells: number of cells of cell_type in the neighborhood
+                - n_motif_cells: number of motif-type cells in the neighborhood
+                - proportion: n_cells / n_motif_cells
+        """
+        if ct not in self.labels.unique():
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
+        motifs = spatial_utils.normalize_motif_list(motifs, self.labels.unique(), self.label_key)
+
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(np.array(self.labels))
+        cinds = np.where(self.labels == ct)[0]
+        counts = spatial_utils.anchor_neighbor_counts_dist(
+            self.kd_tree, self.spatial_pos, cinds, int_labels,
+            len(label_encoder.classes_), max_dist)
+
+        out = [spatial_utils.motif_composition_table(
+            ct, motif, counts[:, label_encoder.transform(np.array(motif))]) for motif in motifs]
+        if len(out) == 0:
+            return pd.DataFrame(columns=spatial_utils.COMPOSITION_COLUMNS)
+        return pd.concat(out, ignore_index=True)
+
+    def motif_composition_knn(self,
+                              ct: str,
+                              motifs: Union[str, List[str], List[List[str]]],
+                              k: int = 30,
+                              max_dist: float = 20,
+                              ) -> pd.DataFrame:
+        """
+        Compute the composition of motif cell types in the k-nearest-neighbor neighborhoods of center cells.
+
+        Uses the same neighborhoods as motif_enrichment_knn, but performs no enrichment test.
+        Only center cells whose neighborhood contains every cell type of the motif (motif-positive
+        centers) are kept. For each of them, the proportion of a motif cell type is its number of
+        cells divided by the total number of motif-type cells in that neighborhood.
+
+        Parameters
+        ----------
+        ct : str
+            Cell type of the center cell.
+        motifs : str or List[str] or List[List[str]]
+            Motifs to analyze, e.g. the 'motifs' column of motif_enrichment_knn output.
+        k : int, default=30
+            Number of nearest neighbors to consider.
+        max_dist : float, default=20
+            Maximum distance for neighbors.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format table with one row per (motif-positive center cell, motif cell type):
+                - center: center cell type name
+                - motifs: sorted list of cell types in the motif
+                - cell_type: motif cell type this row describes
+                - n_cells: number of cells of cell_type in the neighborhood
+                - n_motif_cells: number of motif-type cells in the neighborhood
+                - proportion: n_cells / n_motif_cells
+        """
+        if ct not in self.labels.unique():
+            raise ValueError(f"Found no {ct} in {self.label_key}!")
+        motifs = spatial_utils.normalize_motif_list(motifs, self.labels.unique(), self.label_key)
+
+        label_encoder = LabelEncoder()
+        int_labels = label_encoder.fit_transform(np.array(self.labels))
+        cinds = np.where(self.labels == ct)[0]
+        counts = spatial_utils.anchor_neighbor_counts_knn(
+            self.kd_tree, self.spatial_pos, cinds, int_labels,
+            len(label_encoder.classes_), k, max_dist)
+
+        out = [spatial_utils.motif_composition_table(
+            ct, motif, counts[:, label_encoder.transform(np.array(motif))]) for motif in motifs]
+        if len(out) == 0:
+            return pd.DataFrame(columns=spatial_utils.COMPOSITION_COLUMNS)
+        return pd.concat(out, ignore_index=True)
 
 
     def find_patterns_grid(self,
@@ -1404,6 +1581,42 @@ class spatial_query:
         """
         return plotting.plot_motif_enrichment_heatmap(enrich_df=enrich_df, figsize=figsize,
                                                        save_path=save_path, title=title, cmap=cmap)
+
+    def plot_motif_composition(self,
+                               comp_df: pd.DataFrame,
+                               motif: Optional[List[str]] = None,
+                               bins: int = 25,
+                               colors: Optional[List] = None,
+                               figsize: tuple = (6, 5),
+                               title: Optional[str] = None,
+                               save_path: Optional[str] = None):
+        """
+        Plot the distribution of each motif cell type's proportion across motif-positive center cells.
+
+        Parameters
+        ----------
+        comp_df : pd.DataFrame
+            Output DataFrame from motif_composition_dist or motif_composition_knn.
+        motif : List[str], optional
+            Motif to plot. May be omitted when comp_df holds a single motif.
+        bins : int, default=25
+            Number of equal-width bins on [0, 1].
+        colors : List, optional
+            One color per motif cell type, in sorted cell type order. Defaults to the tab10 palette.
+        figsize : tuple, default=(6, 5)
+            Figure size.
+        title : str, optional
+            Figure title. Defaults to the center cell type and the motif.
+        save_path : str, optional
+            Path to save the figure. If None, the figure will not be saved.
+
+        Returns
+        -------
+        None
+            Displays a histogram of motif cell type proportions, with median and IQR in the legend.
+        """
+        return plotting.plot_motif_composition(comp_df=comp_df, motif=motif, bins=bins, colors=colors,
+                                               figsize=figsize, title=title, save_path=save_path)
         
     def plot_gene_pair_heatmap(self,
                                gene_pair_df: pd.DataFrame,
