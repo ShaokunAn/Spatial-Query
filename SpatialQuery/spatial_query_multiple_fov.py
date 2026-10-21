@@ -571,16 +571,7 @@ class spatial_query_multi:
 
         out_pd = pd.DataFrame(out)
 
-        if len(out_pd) == 1:
-            out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
-        else:
-            p_values = out_pd['p-values'].tolist()
-            if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                               alpha=0.05,
-                                                               method='poscorr')
-            out_pd['adj-pval'] = corrected_p_values
-            out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
+        out_pd = apply_fdr_correction(out_pd)
 
         if return_cellID:
             return out_pd, motif_cell_ids, center_cell_ids
@@ -850,16 +841,7 @@ class spatial_query_multi:
 
         out_pd = pd.DataFrame(out)
 
-        if len(out_pd) == 1:
-            out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
-        else:
-            p_values = out_pd['p-values'].tolist()
-            if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                               alpha=0.05,
-                                                               method='poscorr')
-            out_pd['adj-pval'] = corrected_p_values
-            out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
+        out_pd = apply_fdr_correction(out_pd)
 
         if return_cellID:
             return out_pd, motif_cell_ids, center_cell_ids

@@ -439,18 +439,7 @@ class spatial_query:
                                            'n_motif', 'expectation', 'p-values', 'if_significant']) 
             return out_pd
 
-        if len(out_pd) == 1:
-            out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
-            return out_pd
-        else:
-            p_values = out_pd['p-values'].tolist()
-            if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                               alpha=0.05,
-                                                               method='poscorr')
-            out_pd['adj-pval'] = corrected_p_values
-            out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
-            return out_pd
+        return spatial_utils.apply_fdr_correction(out_pd)
 
     def motif_enrichment_dist(self,
                               ct: str,
@@ -637,18 +626,7 @@ class spatial_query:
                                            'n_motif', 'expectation', 'p-values', 'if_significant']) 
             return out_pd
 
-        if len(out_pd) == 1:
-            out_pd['if_significant'] = True if out_pd['p-values'][0] < 0.05 else False
-            return out_pd
-        else:
-            p_values = out_pd['p-values'].tolist()
-            if_rejected, corrected_p_values = mt.fdrcorrection(p_values,
-                                                               alpha=0.05,
-                                                               method='poscorr')
-            out_pd['adj-pval'] = corrected_p_values
-            out_pd['if_significant'] = if_rejected
-            out_pd = out_pd.sort_values(by='adj-pval', ignore_index=True)
-            return out_pd
+        return spatial_utils.apply_fdr_correction(out_pd)
 
     def motif_composition_dist(self,
                                ct: str,
