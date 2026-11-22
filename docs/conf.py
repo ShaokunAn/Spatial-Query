@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath('..'))
 project = 'SpatialQuery'
 copyright = '2024, Shaokun An'
 author = 'Shaokun An'
-release = '0.0.2'
+release = '0.0.8'
 
 extensions = [
     'sphinx.ext.autodoc',

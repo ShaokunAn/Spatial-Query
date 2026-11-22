@@ -143,12 +143,15 @@ class spatial_query:
             self.genes = adata.var[feature_name].tolist()
             
     def get_genes(self):
+        """Return the gene names of the dataset."""
         return self.genes
-    
+
     def get_labels(self):
+        """Return the cell type label of every cell."""
         return self.labels
-    
+
     def get_dataset(self):
+        """Return the dataset name."""
         return self.dataset
 
 

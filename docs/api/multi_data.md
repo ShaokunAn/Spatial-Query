@@ -6,6 +6,8 @@
 ../generated/SpatialQuery.spatial_query_multi.__init__
 ../generated/SpatialQuery.spatial_query_multi.find_fp_knn
 ../generated/SpatialQuery.spatial_query_multi.find_fp_dist
+../generated/SpatialQuery.spatial_query_multi.find_fp_knn_fov
+../generated/SpatialQuery.spatial_query_multi.find_fp_dist_fov
 ../generated/SpatialQuery.spatial_query_multi.motif_enrichment_knn
 ../generated/SpatialQuery.spatial_query_multi.motif_enrichment_dist
 ../generated/SpatialQuery.spatial_query_multi.motif_composition_knn
@@ -34,6 +36,8 @@ spm = spatial_query_multi(adatas, datasets=["dataset1", "dataset2"])
 |--------|-------------|
 | {doc}`spm.find_fp_knn <../generated/SpatialQuery.spatial_query_multi.find_fp_knn>` | Find frequent patterns using KNN neighborhoods |
 | {doc}`spm.find_fp_dist <../generated/SpatialQuery.spatial_query_multi.find_fp_dist>` | Find frequent patterns using distance-based neighborhoods |
+| {doc}`spm.find_fp_knn_fov <../generated/SpatialQuery.spatial_query_multi.find_fp_knn_fov>` | Find frequent patterns using KNN neighborhoods in one FOV |
+| {doc}`spm.find_fp_dist_fov <../generated/SpatialQuery.spatial_query_multi.find_fp_dist_fov>` | Find frequent patterns using distance-based neighborhoods in one FOV |
 | {doc}`spm.motif_enrichment_knn <../generated/SpatialQuery.spatial_query_multi.motif_enrichment_knn>` | Motif enrichment analysis using KNN |
 | {doc}`spm.motif_enrichment_dist <../generated/SpatialQuery.spatial_query_multi.motif_enrichment_dist>` | Motif enrichment analysis using distance |
 | {doc}`spm.motif_composition_knn <../generated/SpatialQuery.spatial_query_multi.motif_composition_knn>` | Per-neighborhood cell type composition of a motif using KNN |

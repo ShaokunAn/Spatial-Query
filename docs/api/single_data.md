@@ -4,6 +4,9 @@
 :hidden:
 
 ../generated/SpatialQuery.spatial_query.__init__
+../generated/SpatialQuery.spatial_query.get_genes
+../generated/SpatialQuery.spatial_query.get_labels
+../generated/SpatialQuery.spatial_query.get_dataset
 ../generated/SpatialQuery.spatial_query.find_fp_knn
 ../generated/SpatialQuery.spatial_query.find_fp_dist
 ../generated/SpatialQuery.spatial_query.find_patterns_grid
@@ -14,6 +17,7 @@
 ../generated/SpatialQuery.spatial_query.motif_composition_dist
 ../generated/SpatialQuery.spatial_query.motif_radius_tracking
 ../generated/SpatialQuery.spatial_query.de_genes
+../generated/SpatialQuery.spatial_query.get_anchor_motif_cell_ids
 ../generated/SpatialQuery.spatial_query.compute_gene_gene_correlation
 ../generated/SpatialQuery.spatial_query.compute_gene_gene_correlation_by_type
 ../generated/SpatialQuery.spatial_query.test_score_difference
@@ -57,6 +61,15 @@ sp = spatial_query(adata, dataset="my_dataset")
 | {doc}`sp.compute_gene_gene_correlation <../generated/SpatialQuery.spatial_query.compute_gene_gene_correlation>` | Gene-gene covariation analysis |
 | {doc}`sp.compute_gene_gene_correlation_by_type <../generated/SpatialQuery.spatial_query.compute_gene_gene_correlation_by_type>` | Gene-gene covariation analysis by cell type |
 | {doc}`sp.test_score_difference <../generated/SpatialQuery.spatial_query.test_score_difference>` | Test covariation score differences |
+| {doc}`sp.get_anchor_motif_cell_ids <../generated/SpatialQuery.spatial_query.get_anchor_motif_cell_ids>` | Cell indices of motif-positive anchors and their motif neighbors |
+
+**Data Access**
+
+| Method | Description |
+|--------|-------------|
+| {doc}`sp.get_genes <../generated/SpatialQuery.spatial_query.get_genes>` | Gene names of the dataset |
+| {doc}`sp.get_labels <../generated/SpatialQuery.spatial_query.get_labels>` | Cell type label of every cell |
+| {doc}`sp.get_dataset <../generated/SpatialQuery.spatial_query.get_dataset>` | Dataset name |
 
 **Plotting**
 
