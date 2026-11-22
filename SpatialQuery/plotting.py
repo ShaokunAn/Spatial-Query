@@ -1346,3 +1346,145 @@ def plot_gene_pair_spatial(
             print(f"[SAVED] {pdf_name}")
         else:
             plt.show()
+
+
+def plot_motif_radius_tracking(tracking: dict,
+                               abbrev: Optional[dict] = None,
+                               cmap: str = 'Blues',
+                               row_height: float = 0.16,
+                               figsize: Optional[tuple] = None,
+                               title: Optional[str] = None,
+                               save_path: Optional[str] = None):
+    """
+    Plot how de novo motifs change across radii, next to their targeted enrichment.
+
+    Left panel: one row per tracked motif; a dot where de novo discovery reports the motif
+    as significant at that radius, and a line or arrow to what it becomes at the next radius
+    (persists, absorbed into a larger reported motif, splits into smaller reported motifs,
+    or drops out). Right panel: targeted observed/expected (O/E) ratio of every tracked motif
+    at every radius; grey cells are not significant, boxed cells are reported de novo.
+
+    Parameters
+    ----------
+    tracking : dict
+        Output from motif_radius_tracking.
+    abbrev : dict, optional
+        Short names for cell types in the row labels, e.g. {'endothelial cell': 'Endo'}.
+        Cell types missing from the dict keep their full name.
+    cmap : str, default='Blues'
+        Colormap for the O/E heatmap.
+    row_height : float, default=0.16
+        Height per motif row in inches, used when figsize is None.
+    figsize : tuple, optional
+        Figure size. Defaults to a width of 9 inches and a height set by the number of motifs.
+    title : str, optional
+        Figure title. Defaults to the center cell type.
+    save_path : str, optional
+        Path to save the figure. If None, the figure will not be saved. Save as .pdf
+        to keep the text editable.
+
+    Returns
+    -------
+    None
+        Displays the two-panel figure.
+    """
+    from matplotlib.patches import Patch, Rectangle
+
+    targeted = tracking['targeted']
+    fates = tracking['fates']
+    if len(targeted) == 0:
+        print("No tracked motifs to plot.")
+        return
+
+    abbrev = {} if abbrev is None else abbrev
+    radii = sorted(targeted['radius'].unique())
+    keys = targeted['motifs'].map(spatial_utils.canonical_motif)
+    order = sorted(keys.unique(), key=lambda m: (len(m), m))
+    row = {m: i for i, m in enumerate(order)}
+    labels = [' – '.join(abbrev.get(t, t) for t in m) for m in order]
+    n = len(order)
+
+    table = targeted.assign(key=keys)
+    oe = table.pivot(index='key', columns='radius', values='OE').loc[order, radii].to_numpy(dtype=float)
+    sig = table.pivot(index='key', columns='radius', values='if_significant').loc[order, radii].to_numpy(dtype=bool)
+    reported = table.loc[table['reported_denovo'].astype(bool), ['key', 'radius']].itertuples(index=False)
+    reported = [(k, r) for k, r in reported]
+
+    if figsize is None:
+        figsize = (9, n * row_height + 1.6)
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize,
+                                     gridspec_kw={'width_ratios': [1, 1.4], 'wspace': 0.08})
+    fig.subplots_adjust(left=0.25, right=0.84, top=1 - 0.75 / figsize[1], bottom=1.0 / figsize[1])
+
+    # Panel a: de novo reports and their fate at the next radius
+    colors = {'persists': 'black', 'absorbed into larger': '#e0702f', 'splits into smaller': '#2a6fbb'}
+    for k, r in reported:
+        ax_a.plot(r, row[k], 'o', color='black', markersize=4, zorder=3)
+    for _, f in fates.iterrows():
+        y0 = row[spatial_utils.canonical_motif(f['motifs'])]
+        if f['fate'] == 'persists':
+            ax_a.plot([f['radius'], f['next_radius']], [y0, y0], color='black', linewidth=1, zorder=2)
+        elif f['fate'] == 'drops out':
+            ax_a.plot(f['next_radius'], y0, 'x', color='#8a8982', markersize=4, zorder=2)
+        else:
+            for target in f['next_motifs']:
+                ax_a.annotate('', xy=(f['next_radius'], row[spatial_utils.canonical_motif(target)]),
+                              xytext=(f['radius'], y0),
+                              arrowprops=dict(arrowstyle='-|>', color=colors[f['fate']], linewidth=0.8,
+                                              mutation_scale=7, shrinkA=3, shrinkB=3), zorder=1)
+    ax_a.set_xlim(radii[0] - 0.5, radii[-1] + 0.5)
+    ax_a.set_ylim(n - 0.5, -0.5)
+    ax_a.set_xticks(radii)
+    ax_a.set_yticks(range(n))
+    ax_a.set_yticklabels(labels)
+    ax_a.set_xlabel('Radius')
+    ax_a.set_title(f"De novo (support = {tracking['min_support']})")
+    ax_a.spines[['top', 'right']].set_visible(False)
+    present = set(fates['fate'])
+    handles = [plt.Line2D([], [], color=c, linewidth=1, label=f) for f, c in colors.items() if f in present]
+    if 'drops out' in present:
+        handles.append(plt.Line2D([], [], color='#8a8982', marker='x', linestyle='none', label='drops out'))
+    if handles:
+        ax_a.legend(handles=handles, loc='upper left', bbox_to_anchor=(0, -0.6 / (figsize[1] * ax_a.get_position().height)),
+                    ncol=len(handles), frameon=False, borderaxespad=0, handlelength=1.5)
+
+    # Panel b: targeted O/E, non-significant cells grey, de novo reports boxed
+    colormap = plt.get_cmap(cmap).copy()
+    colormap.set_bad('#d9d9d9')
+    vmax = np.nanmax(oe)
+    im = ax_b.imshow(np.ma.masked_where(~sig | np.isnan(oe), oe), cmap=colormap, vmin=0,
+                     vmax=np.ceil(vmax) if np.isfinite(vmax) else 1, aspect='auto')
+    for k, r in reported:
+        ax_b.add_patch(Rectangle((radii.index(r) - 0.5, row[k] - 0.5), 1, 1,
+                                 fill=False, edgecolor='black', linewidth=1))
+    ax_b.set_xticks(range(len(radii)))
+    ax_b.set_xticklabels(radii)
+    ax_b.set_yticks([])
+    ax_b.set_xlabel('Radius')
+    ax_b.set_title('Targeted O/E')
+    ax_b.tick_params(length=0)
+    for spine in ax_b.spines.values():
+        spine.set_visible(False)
+
+    # Vertical legend on the right, fixed in inches so it does not stretch with the number of rows
+    pos = ax_b.get_position()
+    w_in, h_in = figsize[0] * pos.width, figsize[1] * pos.height
+    cbar_h = min(1.0, h_in)
+    cax = ax_b.inset_axes([1 + 0.12 / w_in, 1 - cbar_h / h_in, 0.1 / w_in, cbar_h / h_in])
+    cb = fig.colorbar(im, cax=cax, orientation='vertical')
+    cb.set_label('O/E')
+    ax_b.legend(handles=[Patch(facecolor='#d9d9d9', edgecolor='none', label='Not significant'),
+                         Patch(facecolor='white', edgecolor='black', label='Reported de novo')],
+                loc='upper left', bbox_to_anchor=(1 + 0.06 / w_in, 1 - (cbar_h + 0.15) / h_in),
+                frameon=False, borderaxespad=0, handlelength=1.2, handleheight=1.2)
+
+    if title is None:
+        centers = targeted['center'].unique() if 'center' in targeted.columns else []
+        title = f'Motifs around {centers[0]} across radii' if len(centers) == 1 else 'Motifs across radii'
+    fig.suptitle(title)
+
+    if save_path is not None:
+        with plt.rc_context({'pdf.fonttype': 42, 'ps.fonttype': 42}):
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    plt.show()

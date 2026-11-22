@@ -10,6 +10,7 @@
 ../generated/SpatialQuery.spatial_query_multi.motif_enrichment_dist
 ../generated/SpatialQuery.spatial_query_multi.motif_composition_knn
 ../generated/SpatialQuery.spatial_query_multi.motif_composition_dist
+../generated/SpatialQuery.spatial_query_multi.motif_radius_tracking
 ../generated/SpatialQuery.spatial_query_multi.differential_analysis_knn
 ../generated/SpatialQuery.spatial_query_multi.differential_analysis_dist
 ../generated/SpatialQuery.spatial_query_multi.de_genes
@@ -19,6 +20,7 @@
 ../generated/SpatialQuery.spatial_query_multi.plot_cell_type_distribution
 ../generated/SpatialQuery.spatial_query_multi.plot_cell_type_distribution_fov
 ../generated/SpatialQuery.spatial_query_multi.plot_motif_composition
+../generated/SpatialQuery.spatial_query_multi.plot_motif_radius_tracking
 ```
 
 ```python
@@ -36,6 +38,7 @@ spm = spatial_query_multi(adatas, datasets=["dataset1", "dataset2"])
 | {doc}`spm.motif_enrichment_dist <../generated/SpatialQuery.spatial_query_multi.motif_enrichment_dist>` | Motif enrichment analysis using distance |
 | {doc}`spm.motif_composition_knn <../generated/SpatialQuery.spatial_query_multi.motif_composition_knn>` | Per-neighborhood cell type composition of a motif using KNN |
 | {doc}`spm.motif_composition_dist <../generated/SpatialQuery.spatial_query_multi.motif_composition_dist>` | Per-neighborhood cell type composition of a motif using distance |
+| {doc}`spm.motif_radius_tracking <../generated/SpatialQuery.spatial_query_multi.motif_radius_tracking>` | Follow de novo motifs across radii, with a targeted test of each at every radius |
 
 **Differential Motif Analysis**
 
@@ -60,3 +63,4 @@ spm = spatial_query_multi(adatas, datasets=["dataset1", "dataset2"])
 | {doc}`spm.plot_cell_type_distribution <../generated/SpatialQuery.spatial_query_multi.plot_cell_type_distribution>` | Plot cell type distribution |
 | {doc}`spm.plot_cell_type_distribution_fov <../generated/SpatialQuery.spatial_query_multi.plot_cell_type_distribution_fov>` | Plot cell type distribution per FOV |
 | {doc}`spm.plot_motif_composition <../generated/SpatialQuery.spatial_query_multi.plot_motif_composition>` | Plot motif composition histograms with median and IQR |
+| {doc}`spm.plot_motif_radius_tracking <../generated/SpatialQuery.spatial_query_multi.plot_motif_radius_tracking>` | Plot de novo motif changes across radii next to targeted O/E |

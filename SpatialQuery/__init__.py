@@ -8,7 +8,8 @@ from .plotting import (
     plot_motif_rand,
     plot_motif_celltype,
     plot_all_center_motif,
-    plot_motif_composition
+    plot_motif_composition,
+    plot_motif_radius_tracking
 )
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     'plot_motif_celltype',
     'plot_all_center_motif',
     'plot_motif_composition',
+    'plot_motif_radius_tracking',
     'interactive_motif'
 ]

@@ -12,6 +12,7 @@
 ../generated/SpatialQuery.spatial_query.motif_enrichment_dist
 ../generated/SpatialQuery.spatial_query.motif_composition_knn
 ../generated/SpatialQuery.spatial_query.motif_composition_dist
+../generated/SpatialQuery.spatial_query.motif_radius_tracking
 ../generated/SpatialQuery.spatial_query.de_genes
 ../generated/SpatialQuery.spatial_query.compute_gene_gene_correlation
 ../generated/SpatialQuery.spatial_query.compute_gene_gene_correlation_by_type
@@ -24,6 +25,7 @@
 ../generated/SpatialQuery.spatial_query.plot_fp_heatmap
 ../generated/SpatialQuery.spatial_query.plot_motif_enrichment_heatmap
 ../generated/SpatialQuery.spatial_query.plot_motif_composition
+../generated/SpatialQuery.spatial_query.plot_motif_radius_tracking
 ../generated/SpatialQuery.spatial_query.plot_gene_pair_heatmap
 ../generated/SpatialQuery.spatial_query.plot_gene_pair_spatial
 ```
@@ -45,6 +47,7 @@ sp = spatial_query(adata, dataset="my_dataset")
 | {doc}`sp.motif_enrichment_dist <../generated/SpatialQuery.spatial_query.motif_enrichment_dist>` | Motif enrichment analysis using distance |
 | {doc}`sp.motif_composition_knn <../generated/SpatialQuery.spatial_query.motif_composition_knn>` | Per-neighborhood cell type composition of a motif using KNN |
 | {doc}`sp.motif_composition_dist <../generated/SpatialQuery.spatial_query.motif_composition_dist>` | Per-neighborhood cell type composition of a motif using distance |
+| {doc}`sp.motif_radius_tracking <../generated/SpatialQuery.spatial_query.motif_radius_tracking>` | Follow de novo motifs across radii, with a targeted test of each at every radius |
 
 **Motif-associated Molecular Analysis**
 
@@ -67,5 +70,6 @@ sp = spatial_query(adata, dataset="my_dataset")
 | {doc}`sp.plot_fp_heatmap <../generated/SpatialQuery.spatial_query.plot_fp_heatmap>` | Plot frequent pattern heatmap |
 | {doc}`sp.plot_motif_enrichment_heatmap <../generated/SpatialQuery.spatial_query.plot_motif_enrichment_heatmap>` | Plot motif enrichment heatmap |
 | {doc}`sp.plot_motif_composition <../generated/SpatialQuery.spatial_query.plot_motif_composition>` | Plot motif composition histograms with median and IQR |
+| {doc}`sp.plot_motif_radius_tracking <../generated/SpatialQuery.spatial_query.plot_motif_radius_tracking>` | Plot de novo motif changes across radii next to targeted O/E |
 | {doc}`sp.plot_gene_pair_heatmap <../generated/SpatialQuery.spatial_query.plot_gene_pair_heatmap>` | Plot gene pair heatmap |
 | {doc}`sp.plot_gene_pair_spatial <../generated/SpatialQuery.spatial_query.plot_gene_pair_spatial>` | Plot gene pair spatial expression |

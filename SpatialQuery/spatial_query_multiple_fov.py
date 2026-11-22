@@ -15,7 +15,7 @@ from collections import defaultdict
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
 
-from . import spatial_gene_covarying, plotting
+from . import spatial_gene_covarying, plotting, spatial_utils
 from .spatial_differential_pattern import differential_analysis_motif_knn, differential_analysis_motif_dist
 
 from .spatial_query import spatial_query
@@ -974,6 +974,60 @@ class spatial_query_multi:
             lambda s, cinds, int_labels, num_types: anchor_neighbor_counts_knn(
                 s.kd_tree, s.spatial_pos, cinds, int_labels, num_types, k, max_dist))
 
+    def motif_radius_tracking(self,
+                              ct: str,
+                              radii: List[float],
+                              dataset: Union[str, List[str]] = None,
+                              min_support: float = 0.5,
+                              min_size: int = 0,
+                              mode: str = 'nested',
+                              ) -> dict:
+        """
+        Follow de novo motifs across radii.
+
+        De novo discovery is run at every radius. Every motif found significant at any radius
+        ("tracked motif") is then tested at every radius with the targeted test, which needs no
+        support threshold. This separates two reasons a motif can leave the de novo output when
+        the radius changes: its enrichment really changes, or the support threshold, the
+        maximal-pattern filter or the nested descent stops reporting it while it stays enriched.
+        Plot the result with plot_motif_radius_tracking.
+
+        Parameters
+        ----------
+        ct : str
+            Cell type of the center cells.
+        radii : List[float]
+            Radii to scan, at least two.
+        dataset : str or List[str], optional
+            Datasets to use. Use all datasets if dataset=None.
+        min_support : float, default=0.5
+            Support threshold of the de novo runs.
+        min_size : int, default=0
+            Minimum neighborhood size for each point to consider.
+        mode : {'maximal', 'nested'}, default='nested'
+            De novo mode, as in motif_enrichment_dist.
+
+        Returns
+        -------
+        dict
+            - 'denovo': the de novo tables of all radii stacked, with a ``radius`` column.
+            - 'targeted': targeted test of every tracked motif at every radius. Columns are those
+              of motif_enrichment_dist plus ``radius``, ``OE`` (n_center_motif / expectation),
+              ``frac_anchors`` (n_center_motif / n_center) and ``reported_denovo`` (whether de novo
+              discovery reports the motif as significant at that radius). The FDR is across the
+              tracked motifs within each radius.
+            - 'fates': for each motif reported at a radius, what it becomes at the next radius:
+              'persists', 'absorbed into larger' (a strict superset is reported), 'splits into
+              smaller' (only strict subsets are reported) or 'drops out'. ``next_motifs`` lists
+              the reported motifs it maps to.
+            - 'min_support': the support threshold used.
+        """
+        return spatial_utils.motif_radius_tracking(
+            run_enrichment=lambda r, motifs: self.motif_enrichment_dist(
+                ct=ct, motifs=motifs, dataset=dataset, max_dist=r, min_size=min_size,
+                min_support=min_support, mode=mode),
+            radii=radii, min_support=min_support)
+
     def plot_motif_composition(self,
                                comp_df: pd.DataFrame,
                                motif: Optional[List[str]] = None,
@@ -989,6 +1043,43 @@ class spatial_query_multi:
         """
         return plotting.plot_motif_composition(comp_df=comp_df, motif=motif, bins=bins, colors=colors,
                                                figsize=figsize, title=title, save_path=save_path)
+
+    def plot_motif_radius_tracking(self,
+                                   tracking: dict,
+                                   abbrev: Optional[dict] = None,
+                                   cmap: str = 'Blues',
+                                   row_height: float = 0.16,
+                                   figsize: Optional[tuple] = None,
+                                   title: Optional[str] = None,
+                                   save_path: Optional[str] = None):
+        """
+        Plot how de novo motifs change across radii, next to their targeted O/E.
+
+        Parameters
+        ----------
+        tracking : dict
+            Output from motif_radius_tracking.
+        abbrev : dict, optional
+            Short names for cell types in the row labels.
+        cmap : str, default='Blues'
+            Colormap for the O/E heatmap.
+        row_height : float, default=0.16
+            Height per motif row in inches, used when figsize is None.
+        figsize : tuple, optional
+            Figure size. Defaults to a height set by the number of motifs.
+        title : str, optional
+            Figure title. Defaults to the center cell type.
+        save_path : str, optional
+            Path to save the figure. Save as .pdf to keep the text editable.
+
+        Returns
+        -------
+        None
+            Displays the two-panel figure; see SpatialQuery.plotting.plot_motif_radius_tracking.
+        """
+        return plotting.plot_motif_radius_tracking(tracking=tracking, abbrev=abbrev, cmap=cmap,
+                                                   row_height=row_height, figsize=figsize,
+                                                   title=title, save_path=save_path)
 
     def find_fp_knn_fov(self,
                         ct: str,

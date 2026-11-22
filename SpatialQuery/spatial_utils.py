@@ -1154,3 +1154,89 @@ def get_all_neighbor_cells(sq_obj,
     }
 
 
+
+
+MOTIF_FATES = ('persists', 'absorbed into larger', 'splits into smaller', 'drops out')
+
+
+def motif_radius_tracking(run_enrichment, radii, min_support: float) -> dict:
+    """Follow de novo motifs across radii and test every one of them at every radius.
+
+    Shared by ``spatial_query.motif_radius_tracking`` and
+    ``spatial_query_multi.motif_radius_tracking``.
+
+    Parameters
+    ----------
+    run_enrichment : callable
+        ``run_enrichment(max_dist, motifs)`` returns a motif enrichment table. ``motifs=None``
+        runs de novo discovery; a list of motifs runs the targeted test on exactly those motifs.
+    radii : sequence of float
+        Radii to scan, at least two.
+    min_support : float
+        Support threshold of the de novo runs (only used to label the result).
+
+    Returns
+    -------
+    dict with keys 'denovo', 'targeted', 'fates' and 'min_support'; see
+    ``spatial_query.motif_radius_tracking`` for the columns.
+    """
+    radii = sorted(set(radii))
+    if len(radii) < 2:
+        raise ValueError("radii must hold at least two distinct values.")
+
+    tables = []
+    for r in radii:
+        df = run_enrichment(r, None).copy()
+        df['radius'] = r
+        tables.append(df)
+    denovo = pd.concat(tables, ignore_index=True)
+    significant = denovo[denovo['if_significant'].astype(bool)]
+    reported = {r: {canonical_motif(m) for m in significant.loc[significant['radius'] == r, 'motifs']}
+                for r in radii}
+    tracked = sorted(set().union(*reported.values()), key=lambda m: (len(m), m))
+
+    empty_targeted = pd.DataFrame(columns=['motifs', 'radius', 'n_center_motif', 'n_center',
+                                           'expectation', 'p-values', 'if_significant', 'OE',
+                                           'frac_anchors', 'reported_denovo'])
+    if len(tracked) == 0:
+        print("No significant motif at any radius; nothing to track.")
+        return {'denovo': denovo, 'targeted': empty_targeted,
+                'fates': pd.DataFrame(columns=['motifs', 'radius', 'next_radius', 'fate', 'next_motifs']),
+                'min_support': min_support}
+
+    # One targeted call per radius, so the FDR is across the tracked motifs at that radius.
+    tables = []
+    for r in radii:
+        df = run_enrichment(r, [list(m) for m in tracked]).copy()
+        if len(df) != len(tracked):
+            raise RuntimeError(f"Targeted test at radius {r} returned {len(df)} rows for "
+                               f"{len(tracked)} motifs.")
+        df['radius'] = r
+        tables.append(df)
+    targeted = pd.concat(tables, ignore_index=True)
+    expectation = targeted['expectation'].astype(float)
+    targeted['OE'] = targeted['n_center_motif'] / expectation.where(expectation > 0)
+    targeted['frac_anchors'] = targeted['n_center_motif'] / targeted['n_center']
+    targeted['reported_denovo'] = [canonical_motif(m) in reported[r]
+                                   for m, r in zip(targeted['motifs'], targeted['radius'])]
+
+    rows = []
+    for r, r_next in zip(radii[:-1], radii[1:]):
+        later = reported[r_next]
+        for motif in sorted(reported[r], key=lambda m: (len(m), m)):
+            mset = set(motif)
+            supersets = sorted(m for m in later if mset < set(m))
+            subsets = sorted(m for m in later if set(m) < mset)
+            if motif in later:
+                fate, targets = 'persists', [motif]
+            elif supersets:
+                fate, targets = 'absorbed into larger', supersets
+            elif subsets:
+                fate, targets = 'splits into smaller', subsets
+            else:
+                fate, targets = 'drops out', []
+            rows.append({'motifs': list(motif), 'radius': r, 'next_radius': r_next, 'fate': fate,
+                         'next_motifs': [list(m) for m in targets]})
+    fates = pd.DataFrame(rows, columns=['motifs', 'radius', 'next_radius', 'fate', 'next_motifs'])
+
+    return {'denovo': denovo, 'targeted': targeted, 'fates': fates, 'min_support': min_support}
